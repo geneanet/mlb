@@ -54,8 +54,8 @@ type consul struct {
 	msg_chan       chan consulMessage
 }
 
-func newConsul(url string, service string, default_period float64, max_period float64, backoff_factor float64, msg_chan chan consulMessage) consul {
-	return consul{
+func newConsul(url string, service string, default_period float64, max_period float64, backoff_factor float64, msg_chan chan consulMessage) *consul {
+	return &consul{
 		url:            url,
 		service:        service,
 		period:         default_period,

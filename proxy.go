@@ -17,8 +17,8 @@ type Proxy struct {
 	running        bool
 }
 
-func newProxy(address string, backend_tag string, backend_status string, directory *BackendDirectory) Proxy {
-	return Proxy{
+func newProxy(address string, backend_tag string, backend_status string, directory *BackendDirectory) *Proxy {
+	return &Proxy{
 		address:        address,
 		backend_tag:    backend_tag,
 		backend_status: backend_status,

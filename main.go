@@ -49,7 +49,7 @@ func main() {
 	directory.start(&wg)
 
 	for _, p := range arg_proxies {
-		proxy := newProxy(p.address, p.tag, p.status, &directory)
+		proxy := newProxy(p.address, p.tag, p.status, directory)
 		proxy.start(&wg)
 	}
 

@@ -22,8 +22,8 @@ type BackendDirectory struct {
 	mu             sync.Mutex
 }
 
-func newBackendDirectory(user string, password string, default_period float64, max_period float64, backoff_factor float64, msg_chan chan consulMessage) BackendDirectory {
-	return BackendDirectory{
+func newBackendDirectory(user string, password string, default_period float64, max_period float64, backoff_factor float64, msg_chan chan consulMessage) *BackendDirectory {
+	return &BackendDirectory{
 		backends:       make(map[string]*Backend),
 		user:           user,
 		password:       password,
