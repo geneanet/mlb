@@ -86,8 +86,11 @@ func (c *consul) start(wg *sync.WaitGroup) {
 		for {
 			services, err := c._fetch()
 			if err != nil {
-				log.Error().Err(err)
+				log.Error().Err(err).Msg("Error while fetching service list from Consul")
+				c._applyBackoff()
 			} else {
+				c._resetPeriod()
+
 				added, modified, removed := consulServicesDiff(old, services)
 
 				for id, service := range added {
@@ -123,6 +126,26 @@ func (c *consul) start(wg *sync.WaitGroup) {
 	}()
 }
 
+func (c *consul) _updatePeriod(period float64) {
+	if c.running && (c.period != period) {
+		c.period = period
+		c.ticker.Reset(time.Duration(c.period * float64(time.Second)))
+		log.Warn().Float64("period", c.period).Msg("Updating Consul fetch period")
+	}
+}
+
+func (c *consul) _resetPeriod() {
+	c._updatePeriod(c.default_period)
+}
+
+func (c *consul) _applyBackoff() {
+	new_period := c.period * c.backoff_factor
+	if new_period > c.max_period {
+		new_period = c.max_period
+	}
+	c._updatePeriod(new_period)
+}
+
 func (c *consul) _fetch() (ret_s consulServicesSlice, ret_e error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -130,9 +153,13 @@ func (c *consul) _fetch() (ret_s consulServicesSlice, ret_e error) {
 		}
 	}()
 
+	log.Debug().Msg("Fetching new service list from Consul")
+
 	resp, err := http.Get(c.url + "/v1/health/service/" + c.service + "?index=" + c.index + "&timeout=60s")
 	panicIfErr(err)
 	defer resp.Body.Close()
+
+	log.Debug().Int("status", resp.StatusCode).Msg("Service list fetched")
 
 	if resp.StatusCode != 200 {
 		panic(fmt.Sprintf("Unexpected status code %s", resp.Status))

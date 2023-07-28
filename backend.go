@@ -51,8 +51,13 @@ func (b *Backend) _fetchStatus() (ret_s string, ret_e error) {
 		if r := recover(); r != nil {
 			ret_s = "err"
 			ret_e = r.(error)
+
+			b._applyBackoff()
 		}
 	}()
+
+	id := fmt.Sprintf("%s:%d", b.address, b.port)
+	log.Debug().Str("id", id).Msg("Probing Backend")
 
 	result, err := b.db.Query("SELECT @@read_only")
 	panicIfErr(err)
@@ -63,6 +68,8 @@ func (b *Backend) _fetchStatus() (ret_s string, ret_e error) {
 	result.Next()
 	err = result.Scan(&read_only)
 	panicIfErr(err)
+
+	b._resetPeriod()
 
 	if read_only {
 		return "ro", nil
@@ -128,4 +135,26 @@ func (b *Backend) stopPolling() {
 	b.db.Close()
 	b.ticker.Stop()
 	b.stop_chan <- true
+}
+
+func (b *Backend) _updatePeriod(period float64) {
+	if b.running && (b.period != period) {
+		b.period = period
+		b.ticker.Reset(time.Duration(b.period * float64(time.Second)))
+
+		id := fmt.Sprintf("%s:%d", b.address, b.port)
+		log.Warn().Float64("period", b.period).Str("id", id).Msg("Updating Backend probing period")
+	}
+}
+
+func (b *Backend) _resetPeriod() {
+	b._updatePeriod(b.default_period)
+}
+
+func (b *Backend) _applyBackoff() {
+	new_period := b.period * b.backoff_factor
+	if new_period > b.max_period {
+		new_period = b.max_period
+	}
+	b._updatePeriod(new_period)
 }
