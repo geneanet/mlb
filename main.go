@@ -57,7 +57,7 @@ func main() {
 	}
 
 	log.Info().Str("address", *arg_http_address).Msg("Starting HTTP server")
-	http.Handle("/metrics", promhttp.Handler())
+	http.Handle("/metrics", HTTPLogWrapper(promhttp.Handler()))
 	http.ListenAndServe(*arg_http_address, nil)
 
 	wg.Wait()
