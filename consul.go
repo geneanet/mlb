@@ -37,7 +37,7 @@ const (
 
 type consulMessage struct {
 	kind    consulMessageKind
-	id      string
+	address string
 	service consulService
 }
 
@@ -93,26 +93,26 @@ func (c *consul) start(wg *sync.WaitGroup) {
 
 				added, modified, removed := consulServicesDiff(old, services)
 
-				for id, service := range added {
+				for address, service := range added {
 					c.msg_chan <- consulMessage{
 						kind:    MsgServiceAdded,
-						id:      id,
+						address: address,
 						service: service,
 					}
 				}
 
-				for id, service := range modified {
+				for address, service := range modified {
 					c.msg_chan <- consulMessage{
 						kind:    MsgServiceAdded,
-						id:      id,
+						address: address,
 						service: service,
 					}
 				}
 
-				for id, service := range removed {
+				for address, service := range removed {
 					c.msg_chan <- consulMessage{
 						kind:    MsgServiceAdded,
-						id:      id,
+						address: address,
 						service: service,
 					}
 				}
@@ -181,8 +181,8 @@ func consulServicesSliceToMap(services consulServicesSlice) consulServicesMap {
 	index := consulServicesMap{}
 
 	for _, s := range services {
-		id := fmt.Sprintf("%s:%d", s.Service.Address, s.Service.Port)
-		index[id] = s
+		address := fmt.Sprintf("%s:%d", s.Service.Address, s.Service.Port)
+		index[address] = s
 	}
 
 	return index
@@ -204,24 +204,24 @@ func consulServicesDiff(old consulServicesSlice, new consulServicesSlice) (added
 	old_map := consulServicesSliceToMap(old)
 	new_map := consulServicesSliceToMap(new)
 
-	for id, new_svc := range new_map {
-		old_svc, not_new := old_map[id]
+	for address, new_svc := range new_map {
+		old_svc, not_new := old_map[address]
 
 		// Updated
 		if not_new && old_svc.Service.ModifyIndex != new_svc.Service.ModifyIndex {
-			modified[id] = new_svc
+			modified[address] = new_svc
 			// New
 		} else if !not_new {
-			added[id] = new_svc
+			added[address] = new_svc
 		}
 	}
 
-	for id, old_svc := range old_map {
-		_, not_removed := new_map[id]
+	for address, old_svc := range old_map {
+		_, not_removed := new_map[address]
 
 		// Removed
 		if !not_removed {
-			removed[id] = old_svc
+			removed[address] = old_svc
 		}
 	}
 

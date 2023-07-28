@@ -53,16 +53,15 @@ func (bd *BackendDirectory) start(wg *sync.WaitGroup) {
 			bd.mu.Lock()
 			switch msg.kind {
 			case MsgServiceAdded, MsgServiceModified:
-				if backend, ok := bd.backends[msg.id]; ok { // Modified
+				if backend, ok := bd.backends[msg.address]; ok { // Modified
 
-					log.Info().Str("id", msg.id).Msg("Updating backend")
+					log.Info().Str("address", msg.address).Msg("Updating backend")
 					backend.weight = msg.service.Service.Weights.Passing
 					backend.tags = msg.service.Service.Tags
 				} else { // Added
-					log.Info().Str("id", msg.id).Msg("Adding backend")
+					log.Info().Str("address", msg.address).Msg("Adding backend")
 					backend := newBackend(
-						msg.service.Service.Address,
-						msg.service.Service.Port,
+						fmt.Sprintf("%s:%d", msg.service.Service.Address, msg.service.Service.Port),
 						msg.service.Service.Weights.Passing,
 						msg.service.Service.Tags,
 						bd.user,
@@ -73,17 +72,17 @@ func (bd *BackendDirectory) start(wg *sync.WaitGroup) {
 					)
 					err := backend.startPolling()
 					if err != nil {
-						log.Error().Str("id", msg.id).Err(err).Msg("Error while adding backend")
+						log.Error().Str("address", msg.address).Err(err).Msg("Error while adding backend")
 					} else {
-						bd.backends[msg.id] = backend
+						bd.backends[msg.address] = backend
 					}
 				}
 			case MsgServiceRemoved:
 				// Removed
-				if backend, ok := bd.backends[msg.id]; ok {
-					log.Info().Str("id", msg.id).Msg("Removing backend")
+				if backend, ok := bd.backends[msg.address]; ok {
+					log.Info().Str("address", msg.address).Msg("Removing backend")
 					backend.stopPolling()
-					delete(bd.backends, msg.id)
+					delete(bd.backends, msg.address)
 				}
 			}
 			bd.mu.Unlock()
@@ -96,17 +95,17 @@ func (bd *BackendDirectory) getBackend(tag string, status string) (string, error
 	defer bd.mu.Unlock()
 
 	// TODO: More efficient WRR !
-	weighted_ids := make([]string, 0, 1024)
-	for id, backend := range bd.backends {
+	weighted_addresses := make([]string, 0, 1024)
+	for address, backend := range bd.backends {
 		if slices.Contains(backend.tags, tag) && (backend.status == status || status == "all") {
 			for i := 0; i < backend.weight; i++ {
-				weighted_ids = append(weighted_ids, id)
+				weighted_addresses = append(weighted_addresses, address)
 			}
 		}
 	}
 
-	if len(weighted_ids) > 0 {
-		return weighted_ids[rand.Intn(len(weighted_ids))], nil
+	if len(weighted_addresses) > 0 {
+		return weighted_addresses[rand.Intn(len(weighted_addresses))], nil
 	} else {
 		return "", fmt.Errorf("no backend found for tag %s + status %s", tag, status)
 	}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -12,7 +11,6 @@ import (
 // MySQL Backend
 type Backend struct {
 	address        string
-	port           int
 	weight         int
 	tags           []string
 	user           string
@@ -28,10 +26,9 @@ type Backend struct {
 	db             *sql.DB
 }
 
-func newBackend(address string, port int, weight int, tags []string, user string, password string, default_period float64, max_period float64, backoff_factor float64) *Backend {
+func newBackend(address string, weight int, tags []string, user string, password string, default_period float64, max_period float64, backoff_factor float64) *Backend {
 	return &Backend{
 		address:        address,
-		port:           port,
 		weight:         weight,
 		tags:           tags,
 		user:           user,
@@ -56,8 +53,7 @@ func (b *Backend) _fetchStatus() (ret_s string, ret_e error) {
 		}
 	}()
 
-	id := fmt.Sprintf("%s:%d", b.address, b.port)
-	log.Debug().Str("id", id).Msg("Probing Backend")
+	log.Debug().Str("address", b.address).Msg("Probing Backend")
 
 	result, err := b.db.Query("SELECT @@read_only")
 	panicIfErr(err)
@@ -81,14 +77,12 @@ func (b *Backend) _fetchStatus() (ret_s string, ret_e error) {
 func (b *Backend) _updateStatus() {
 	new_status, err := b._fetchStatus()
 
-	id := fmt.Sprintf("%s:%d", b.address, b.port)
-
 	if err != nil {
-		log.Error().Str("id", id).Err(err).Msg("Error while fetching status from backend")
+		log.Error().Str("address", b.address).Err(err).Msg("Error while fetching status from backend")
 	}
 
 	if new_status != b.status {
-		log.Info().Str("id", id).Str("old_status", b.status).Str("new_status", new_status).Msg("Backend status changed")
+		log.Info().Str("address", b.address).Str("old_status", b.status).Str("new_status", new_status).Msg("Backend status changed")
 	}
 
 	b.status = new_status
@@ -100,7 +94,7 @@ func (b *Backend) startPolling() error {
 	}
 	b.running = true
 
-	db, err := sql.Open("mysql", b.user+":"+b.password+"@tcp("+b.address+":"+fmt.Sprint(b.port)+")/")
+	db, err := sql.Open("mysql", b.user+":"+b.password+"@tcp("+b.address+")/")
 	if err != nil {
 		return err
 	}
@@ -142,8 +136,7 @@ func (b *Backend) _updatePeriod(period float64) {
 		b.period = period
 		b.ticker.Reset(time.Duration(b.period * float64(time.Second)))
 
-		id := fmt.Sprintf("%s:%d", b.address, b.port)
-		log.Warn().Float64("period", b.period).Str("id", id).Msg("Updating Backend probing period")
+		log.Warn().Float64("period", b.period).Str("address", b.address).Msg("Updating Backend probing period")
 	}
 }
 
