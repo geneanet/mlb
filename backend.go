@@ -1,0 +1,131 @@
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	"time"
+
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/rs/zerolog/log"
+)
+
+// MySQL Backend
+type Backend struct {
+	address        string
+	port           int
+	weight         int
+	tags           []string
+	user           string
+	password       string
+	period         float64
+	default_period float64
+	max_period     float64
+	backoff_factor float64
+	status         string
+	ticker         *time.Ticker
+	stop_chan      chan bool
+	running        bool
+	db             *sql.DB
+}
+
+func newBackend(address string, port int, weight int, tags []string, user string, password string, default_period float64, max_period float64, backoff_factor float64) *Backend {
+	return &Backend{
+		address:        address,
+		port:           port,
+		weight:         weight,
+		tags:           tags,
+		user:           user,
+		password:       password,
+		period:         default_period,
+		default_period: default_period,
+		max_period:     max_period,
+		backoff_factor: backoff_factor,
+		status:         "unk",
+		stop_chan:      make(chan bool),
+		running:        false,
+	}
+}
+
+func (b *Backend) _fetchStatus() (ret_s string, ret_e error) {
+	defer func() {
+		if r := recover(); r != nil {
+			ret_s = "err"
+			ret_e = r.(error)
+		}
+	}()
+
+	result, err := b.db.Query("SELECT @@read_only")
+	panicIfErr(err)
+	defer result.Close()
+
+	var read_only bool
+
+	result.Next()
+	err = result.Scan(&read_only)
+	panicIfErr(err)
+
+	if read_only {
+		return "ro", nil
+	} else {
+		return "rw", nil
+	}
+}
+
+func (b *Backend) _updateStatus() {
+	new_status, err := b._fetchStatus()
+
+	id := fmt.Sprintf("%s:%d", b.address, b.port)
+
+	if err != nil {
+		log.Error().Str("id", id).Err(err).Msg("Error while fetching status from backend")
+	}
+
+	if new_status != b.status {
+		log.Info().Str("id", id).Str("old_status", b.status).Str("new_status", new_status).Msg("Backend status changed")
+	}
+
+	b.status = new_status
+}
+
+func (b *Backend) startPolling() error {
+	if b.running {
+		return nil
+	}
+	b.running = true
+
+	db, err := sql.Open("mysql", b.user+":"+b.password+"@tcp("+b.address+":"+fmt.Sprint(b.port)+")/")
+	if err != nil {
+		return err
+	}
+	b.db = db
+
+	b.period = b.default_period
+	b.ticker = time.NewTicker(time.Duration(b.period * float64(time.Second)))
+
+	go func() {
+		defer func() { b.running = false }()
+
+		for {
+			b._updateStatus()
+
+			// Wait next iteration
+			select {
+			case <-b.stop_chan:
+				return
+			case <-b.ticker.C:
+			}
+		}
+	}()
+
+	return nil
+}
+
+func (b *Backend) stopPolling() {
+	if !b.running {
+		return
+	}
+
+	b.db.Close()
+	b.ticker.Stop()
+	b.stop_chan <- true
+}
