@@ -2,10 +2,12 @@ package main
 
 import (
 	"flag"
+	"net/http"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -32,6 +34,7 @@ func main() {
 	arg_debug := flag.Bool("debug", false, "sets log level to debug")
 	arg_proxies := proxyFlags{}
 	flag.Var(&arg_proxies, "proxy", "Add a proxy (ip:port,tag,status)")
+	arg_http_address := flag.String("http-address", ":2112", "HTTP binding address")
 	flag.Parse()
 
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
@@ -52,6 +55,10 @@ func main() {
 		proxy := newProxy(p.address, p.tag, p.status, directory)
 		proxy.start(&wg)
 	}
+
+	log.Info().Str("address", *arg_http_address).Msg("Starting HTTP server")
+	http.Handle("/metrics", promhttp.Handler())
+	http.ListenAndServe(*arg_http_address, nil)
 
 	wg.Wait()
 }

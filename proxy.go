@@ -81,6 +81,11 @@ func (p *Proxy) _handle_connection(conn_front net.Conn) {
 	defer conn_front.Close()
 	defer log.Debug().Str("address", conn_front.RemoteAddr().String()).Msg("Closing Frontend connection")
 
+	// Prometheus
+	metrics_FeCnxProcessed.WithLabelValues(p.address).Inc()
+	metrics_FeActCnx.WithLabelValues(p.address).Inc()
+	defer metrics_FeActCnx.WithLabelValues(p.address).Dec()
+
 	err := conn_front.(*net.TCPConn).SetNoDelay(true)
 	panicIfErr(err)
 
@@ -88,11 +93,18 @@ func (p *Proxy) _handle_connection(conn_front net.Conn) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Error().Str("peer", conn_front.RemoteAddr().String()).Err(r.(error)).Msg("Error while processing connection")
+			// Prometheus
+			metrics_FeCnxErrors.WithLabelValues(p.address).Inc()
 		}
 	}()
 
 	backend_address, err := p.directory.getBackend(p.backend_tag, p.backend_status)
 	panicIfErr(err)
+
+	// Prometheus
+	metrics_BeCnxProcessed.WithLabelValues(backend_address).Inc()
+	metrics_BeActCnx.WithLabelValues(backend_address).Inc()
+	defer metrics_BeActCnx.WithLabelValues(backend_address).Dec()
 
 	backend_addrport, err := netip.ParseAddrPort(backend_address)
 	panicIfErr(err)
