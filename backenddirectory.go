@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 	"sync"
 
 	"github.com/rs/zerolog/log"
@@ -55,11 +56,11 @@ func (bd *BackendDirectory) start(wg *sync.WaitGroup) {
 			case MsgServiceAdded, MsgServiceModified:
 				if backend, ok := bd.backends[msg.address]; ok { // Modified
 
-					log.Info().Str("address", msg.address).Msg("Updating backend")
+					log.Info().Str("address", msg.address).Str("tags", strings.Join(msg.service.Service.Tags, ",")).Int("weight", msg.service.Service.Weights.Passing).Msg("Updating backend")
 					backend.weight = msg.service.Service.Weights.Passing
 					backend.tags = msg.service.Service.Tags
 				} else { // Added
-					log.Info().Str("address", msg.address).Msg("Adding backend")
+					log.Info().Str("address", msg.address).Str("tags", strings.Join(msg.service.Service.Tags, ",")).Int("weight", msg.service.Service.Weights.Passing).Msg("Adding backend")
 					backend := newBackend(
 						fmt.Sprintf("%s:%d", msg.service.Service.Address, msg.service.Service.Port),
 						msg.service.Service.Weights.Passing,

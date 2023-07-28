@@ -75,6 +75,8 @@ func (c *consul) start(wg *sync.WaitGroup) {
 	c.running = true
 	wg.Add(1)
 
+	log.Info().Str("url", c.url).Msg("Polling Consul")
+
 	c.ticker = time.NewTicker(time.Duration(c.period * float64(time.Second)))
 
 	go func() {

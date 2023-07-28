@@ -35,10 +35,10 @@ func (p *Proxy) start(wg *sync.WaitGroup) {
 	p.running = true
 	wg.Add(1)
 
+	log.Info().Str("address", p.address).Str("backend_tag", p.backend_tag).Str("backend_status", p.backend_status).Msg("Opening Frontend")
+
 	listen, err := net.Listen("tcp", p.address)
 	panicIfErr(err)
-
-	log.Info().Str("address", p.address).Msg("Opening Frontend socket")
 
 	go func() {
 		defer listen.Close()
