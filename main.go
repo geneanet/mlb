@@ -18,8 +18,6 @@ func panicIfErr(err error) {
 
 // Main
 func main() {
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
-
 	var wg sync.WaitGroup
 
 	arg_consul_url := flag.String("consul-url", "http://localhost:8500", "Consul URL")
@@ -31,9 +29,16 @@ func main() {
 	arg_mysql_period := flag.Float64("mysql-period", .3, "Default period of MySQL refresh")
 	arg_max_mysql_period := flag.Float64("max-mysql-period", 2, "Max period of MySQL refresh")
 	arg_backoff_factor := flag.Float64("backoff-factor", 1.5, "Backoff factor")
+	arg_debug := flag.Bool("debug", false, "sets log level to debug")
 	arg_proxies := proxyFlags{}
 	flag.Var(&arg_proxies, "proxy", "Add a proxy (ip:port,tag,status)")
 	flag.Parse()
+
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	if *arg_debug {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	}
 
 	consul_chan := make(chan consulMessage)
 
