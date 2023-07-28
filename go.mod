@@ -1,4 +1,4 @@
-module mysqlinventoryd
+module mlb
 
 go 1.18
 
