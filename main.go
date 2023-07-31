@@ -2,13 +2,11 @@ package main
 
 import (
 	"flag"
-	"net/http"
 	"os"
 	"sync"
 	"syscall"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -74,9 +72,8 @@ func main() {
 		proxy.start(&wg)
 	}
 
-	log.Info().Str("address", *arg_http_address).Msg("Starting HTTP server")
-	http.Handle("/metrics", HTTPLogWrapper(promhttp.Handler()))
-	http.ListenAndServe(*arg_http_address, nil)
+	http_server := newHTTPServer(*arg_http_address)
+	http_server.start(&wg)
 
 	wg.Wait()
 }

@@ -1,13 +1,17 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
 	"net/netip"
+	"os"
 	"sync"
+	"syscall"
 
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sys/unix"
 )
 
 type Proxy struct {
@@ -38,16 +42,30 @@ func (p *Proxy) start(wg *sync.WaitGroup) {
 
 	log.Info().Str("address", p.address).Str("backend_tag", p.backend_tag).Str("backend_status", p.backend_status).Msg("Opening Frontend")
 
-	listen, err := net.Listen("tcp", p.address)
+	// Set SO_REUSEPORT
+	lc := net.ListenConfig{
+		Control: func(network, address string, conn syscall.RawConn) error {
+			var operr error
+			if err := conn.Control(func(fd uintptr) {
+				operr = os.NewSyscallError("setsockopt", syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEPORT, 1))
+			}); err != nil {
+				return err
+			}
+			return operr
+		},
+	}
+
+	// Bind
+	listener, err := lc.Listen(context.Background(), "tcp", p.address)
 	panicIfErr(err)
 
 	go func() {
-		defer listen.Close()
+		defer listener.Close()
 		defer wg.Done()
 		defer func() { p.running = false }()
 
 		for {
-			conn, err := listen.Accept()
+			conn, err := listener.Accept()
 			panicIfErr(err)
 			go p._handle_connection(conn)
 		}
