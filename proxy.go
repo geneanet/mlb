@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"net"
 	"net/netip"
@@ -53,25 +54,27 @@ func (p *Proxy) start(wg *sync.WaitGroup) {
 	}()
 }
 
-func (p *Proxy) _pipe(input net.Conn, output net.Conn, wg *sync.WaitGroup) {
-	defer wg.Done()
-
+func (p *Proxy) _pipe(input net.Conn, output net.Conn, done chan bool) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
 			log.Error().Str("input", input.RemoteAddr().String()).Str("output", output.RemoteAddr().String()).Err(r.(error)).Msg("Error while processing pipe")
 		}
+		done <- true
 	}()
 
 	buffer := make([]byte, 64*1024)
 
 	for {
 		nbytes, err := input.Read(buffer)
-		if err == io.EOF {
+		if err == io.EOF || errors.Is(err, net.ErrClosed) {
 			return
 		}
 		panicIfErr(err)
 		_, err = output.Write(buffer[:nbytes])
+		if errors.Is(err, net.ErrClosed) {
+			return
+		}
 		panicIfErr(err)
 	}
 }
@@ -81,13 +84,13 @@ func (p *Proxy) _handle_connection(conn_front net.Conn) {
 	defer conn_front.Close()
 	defer log.Debug().Str("address", conn_front.RemoteAddr().String()).Msg("Closing Frontend connection")
 
+	err := conn_front.(*net.TCPConn).SetNoDelay(true)
+	panicIfErr(err)
+
 	// Prometheus
 	metrics_FeCnxProcessed.WithLabelValues(p.address).Inc()
 	metrics_FeActCnx.WithLabelValues(p.address).Inc()
 	defer metrics_FeActCnx.WithLabelValues(p.address).Dec()
-
-	err := conn_front.(*net.TCPConn).SetNoDelay(true)
-	panicIfErr(err)
 
 	// Error handler
 	defer func() {
@@ -106,6 +109,7 @@ func (p *Proxy) _handle_connection(conn_front net.Conn) {
 	metrics_BeActCnx.WithLabelValues(backend_address).Inc()
 	defer metrics_BeActCnx.WithLabelValues(backend_address).Dec()
 
+	// Open backend connection
 	backend_addrport, err := netip.ParseAddrPort(backend_address)
 	panicIfErr(err)
 
@@ -118,11 +122,21 @@ func (p *Proxy) _handle_connection(conn_front net.Conn) {
 	err = conn_back.SetNoDelay(true)
 	panicIfErr(err)
 
-	var wg sync.WaitGroup
+	// Pipe the connections both ways
+	done_front_back := make(chan bool)
+	done_back_front := make(chan bool)
 
-	wg.Add(2)
-	go p._pipe(conn_front, conn_back, &wg)
-	go p._pipe(conn_back, conn_front, &wg)
+	go p._pipe(conn_front, conn_back, done_front_back)
+	go p._pipe(conn_back, conn_front, done_back_front)
 
-	wg.Wait()
+	// Wait for one pipe to end
+	select {
+	case <-done_front_back:
+	case <-done_back_front:
+	}
+
+	// Close both connections to ensure the other pipe will end
+	conn_front.Close()
+	conn_back.Close()
+
 }
