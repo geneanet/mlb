@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -31,11 +32,13 @@ func HTTPLogWrapper(original_handler http.Handler) http.Handler {
 type HTTPServer struct {
 	address string
 	running bool
+	srv     *http.Server
 }
 
 func newHTTPServer(address string) *HTTPServer {
 	return &HTTPServer{
 		address: address,
+		srv:     &http.Server{},
 	}
 }
 
@@ -49,6 +52,8 @@ func (s *HTTPServer) start(wg *sync.WaitGroup) {
 
 	go func() {
 		log.Info().Str("address", s.address).Msg("Starting HTTP server")
+		defer log.Info().Str("address", s.address).Msg("HTTP server stopped")
+		defer wg.Done()
 
 		// Set SO_REUSEPORT
 		lc := net.ListenConfig{
@@ -69,6 +74,15 @@ func (s *HTTPServer) start(wg *sync.WaitGroup) {
 
 		http.Handle("/metrics", HTTPLogWrapper(promhttp.Handler()))
 
-		http.Serve(listener, nil)
+		err = s.srv.Serve(listener)
+		if errors.Is(err, http.ErrServerClosed) {
+			return
+		}
+		panicIfErr(err)
 	}()
+}
+
+func (s *HTTPServer) stop() {
+	err := s.srv.Shutdown(context.Background())
+	panicIfErr(err)
 }

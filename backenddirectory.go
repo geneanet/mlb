@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -21,6 +22,8 @@ type BackendDirectory struct {
 	running        bool
 	msg_chan       chan consulMessage
 	mu             sync.Mutex
+	ctx            context.Context
+	cancel         context.CancelFunc
 }
 
 func newBackendDirectory(user string, password string, default_period float64, max_period float64, backoff_factor float64, msg_chan chan consulMessage) *BackendDirectory {
@@ -36,59 +39,80 @@ func newBackendDirectory(user string, password string, default_period float64, m
 	}
 }
 
-func (bd *BackendDirectory) start(wg *sync.WaitGroup) {
+func (bd *BackendDirectory) start(wg *sync.WaitGroup, ctx context.Context) {
 	if bd.running {
 		return
 	}
 
+	bd.ctx, bd.cancel = context.WithCancel(ctx)
+
 	bd.running = true
 	wg.Add(1)
+	log.Info().Msg("Backends directory starting")
 
 	go func() {
 		defer wg.Done()
 		defer func() { bd.running = false }()
+		defer log.Info().Msg("Backends directory stopped")
 
+	mainloop:
 		for {
-			msg := <-bd.msg_chan
+			select {
+			case msg := <-bd.msg_chan: // Services changed
+				bd.mu.Lock()
+				switch msg.kind {
+				case MsgServiceAdded, MsgServiceModified:
+					if backend, ok := bd.backends[msg.address]; ok { // Modified
 
-			bd.mu.Lock()
-			switch msg.kind {
-			case MsgServiceAdded, MsgServiceModified:
-				if backend, ok := bd.backends[msg.address]; ok { // Modified
-
-					log.Info().Str("address", msg.address).Str("tags", strings.Join(msg.service.Service.Tags, ",")).Int("weight", msg.service.Service.Weights.Passing).Msg("Updating backend")
-					backend.weight = msg.service.Service.Weights.Passing
-					backend.tags = msg.service.Service.Tags
-				} else { // Added
-					log.Info().Str("address", msg.address).Str("tags", strings.Join(msg.service.Service.Tags, ",")).Int("weight", msg.service.Service.Weights.Passing).Msg("Adding backend")
-					backend := newBackend(
-						fmt.Sprintf("%s:%d", msg.service.Service.Address, msg.service.Service.Port),
-						msg.service.Service.Weights.Passing,
-						msg.service.Service.Tags,
-						bd.user,
-						bd.password,
-						bd.default_period,
-						bd.max_period,
-						bd.backoff_factor,
-					)
-					err := backend.startPolling()
-					if err != nil {
-						log.Error().Str("address", msg.address).Err(err).Msg("Error while adding backend")
-					} else {
-						bd.backends[msg.address] = backend
+						log.Info().Str("address", msg.address).Str("tags", strings.Join(msg.service.Service.Tags, ",")).Int("weight", msg.service.Service.Weights.Passing).Msg("Updating backend")
+						backend.weight = msg.service.Service.Weights.Passing
+						backend.tags = msg.service.Service.Tags
+					} else { // Added
+						log.Info().Str("address", msg.address).Str("tags", strings.Join(msg.service.Service.Tags, ",")).Int("weight", msg.service.Service.Weights.Passing).Msg("Adding backend")
+						backend := newBackend(
+							fmt.Sprintf("%s:%d", msg.service.Service.Address, msg.service.Service.Port),
+							msg.service.Service.Weights.Passing,
+							msg.service.Service.Tags,
+							bd.user,
+							bd.password,
+							bd.default_period,
+							bd.max_period,
+							bd.backoff_factor,
+						)
+						err := backend.startPolling()
+						if err != nil {
+							log.Error().Str("address", msg.address).Err(err).Msg("Error while adding backend")
+						} else {
+							bd.backends[msg.address] = backend
+						}
+					}
+				case MsgServiceRemoved:
+					// Removed
+					if backend, ok := bd.backends[msg.address]; ok {
+						log.Info().Str("address", msg.address).Msg("Removing backend")
+						backend.stopPolling()
+						delete(bd.backends, msg.address)
 					}
 				}
-			case MsgServiceRemoved:
-				// Removed
-				if backend, ok := bd.backends[msg.address]; ok {
-					log.Info().Str("address", msg.address).Msg("Removing backend")
+				bd.mu.Unlock()
+
+			case <-bd.ctx.Done(): // Context cancelled
+				// Stop backends
+				for _, backend := range bd.backends {
 					backend.stopPolling()
-					delete(bd.backends, msg.address)
 				}
+				break mainloop
 			}
-			bd.mu.Unlock()
 		}
 	}()
+}
+
+func (bd *BackendDirectory) stop() {
+	if !bd.running {
+		return
+	}
+
+	bd.cancel()
 }
 
 func (bd *BackendDirectory) getBackend(tag string, status string) (string, error) {

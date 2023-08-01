@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -52,6 +54,8 @@ type consul struct {
 	index          string
 	ticker         *time.Ticker
 	msg_chan       chan consulMessage
+	ctx            context.Context
+	cancel         context.CancelFunc
 }
 
 func newConsul(url string, service string, default_period float64, max_period float64, backoff_factor float64, msg_chan chan consulMessage) *consul {
@@ -67,14 +71,15 @@ func newConsul(url string, service string, default_period float64, max_period fl
 	}
 }
 
-func (c *consul) start(wg *sync.WaitGroup) {
+func (c *consul) start(wg *sync.WaitGroup, ctx context.Context) {
 	if c.running {
 		return
 	}
 
-	c.running = true
-	wg.Add(1)
+	c.ctx, c.cancel = context.WithCancel(ctx)
 
+	wg.Add(1)
+	c.running = true
 	log.Info().Str("url", c.url).Msg("Polling Consul")
 
 	c.ticker = time.NewTicker(time.Duration(c.period * float64(time.Second)))
@@ -82,12 +87,17 @@ func (c *consul) start(wg *sync.WaitGroup) {
 	go func() {
 		defer wg.Done()
 		defer func() { c.running = false }()
+		defer log.Info().Str("url", c.url).Msg("Consul polling stopped")
 
 		var old consulServicesSlice
 
+	mainloop:
 		for {
 			services, err := c._fetch()
-			if err != nil {
+
+			if errors.Is(err, context.Canceled) {
+				return
+			} else if err != nil {
 				log.Error().Err(err).Msg("Error while fetching service list from Consul")
 				c._applyBackoff()
 			} else {
@@ -122,10 +132,22 @@ func (c *consul) start(wg *sync.WaitGroup) {
 				old = services
 			}
 
-			// Wait next iteration
-			<-c.ticker.C
+			select {
+			case <-c.ticker.C: // Wait next iteration
+			case <-c.ctx.Done(): // Context cancelled
+				c.ticker.Stop()
+				break mainloop
+			}
 		}
 	}()
+}
+
+func (c *consul) stop() {
+	if !c.running {
+		return
+	}
+
+	c.cancel()
 }
 
 func (c *consul) _updatePeriod(period float64) {
@@ -149,6 +171,7 @@ func (c *consul) _applyBackoff() {
 }
 
 func (c *consul) _fetch() (ret_s consulServicesSlice, ret_e error) {
+	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
 			ret_e = r.(error)
@@ -157,7 +180,13 @@ func (c *consul) _fetch() (ret_s consulServicesSlice, ret_e error) {
 
 	log.Debug().Msg("Fetching new service list from Consul")
 
-	resp, err := http.Get(c.url + "/v1/health/service/" + c.service + "?index=" + c.index + "&timeout=60s")
+	ctx, cancel := context.WithCancel(c.ctx)
+	defer cancel()
+
+	rq, err := http.NewRequestWithContext(ctx, "GET", c.url+"/v1/health/service/"+c.service+"?index="+c.index+"&timeout=60s", nil)
+	panicIfErr(err)
+
+	resp, err := http.DefaultClient.Do(rq)
 	panicIfErr(err)
 	defer resp.Body.Close()
 

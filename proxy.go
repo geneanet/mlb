@@ -9,17 +9,22 @@ import (
 	"os"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sys/unix"
 )
 
 type Proxy struct {
-	address        string
-	backend_tag    string
-	backend_status string
-	directory      *BackendDirectory
-	running        bool
+	address            string
+	backend_tag        string
+	backend_status     string
+	directory          *BackendDirectory
+	running            bool
+	listener           net.Listener
+	connections_wg     sync.WaitGroup
+	connections_ctx    context.Context
+	connections_cancel context.CancelFunc
 }
 
 func newProxy(address string, backend_tag string, backend_status string, directory *BackendDirectory) *Proxy {
@@ -32,13 +37,14 @@ func newProxy(address string, backend_tag string, backend_status string, directo
 	}
 }
 
-func (p *Proxy) start(wg *sync.WaitGroup) {
+func (p *Proxy) start(wg *sync.WaitGroup, ctx context.Context) {
 	if p.running {
 		return
 	}
 
 	p.running = true
 	wg.Add(1)
+	p.connections_ctx, p.connections_cancel = context.WithCancel(ctx)
 
 	log.Info().Str("address", p.address).Str("backend_tag", p.backend_tag).Str("backend_status", p.backend_status).Msg("Opening Frontend")
 
@@ -56,20 +62,69 @@ func (p *Proxy) start(wg *sync.WaitGroup) {
 	}
 
 	// Bind
-	listener, err := lc.Listen(context.Background(), "tcp", p.address)
+	var err error
+	p.listener, err = lc.Listen(context.Background(), "tcp", p.address)
 	panicIfErr(err)
 
 	go func() {
-		defer listener.Close()
+		defer p.listener.Close()
 		defer wg.Done()
 		defer func() { p.running = false }()
 
 		for {
-			conn, err := listener.Accept()
+			conn, err := p.listener.Accept()
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
 			panicIfErr(err)
+			p.connections_wg.Add(1)
+			log.Debug().Str("address", conn.RemoteAddr().String()).Msg("Accepting Frontend connection")
 			go p._handle_connection(conn)
 		}
 	}()
+}
+
+func (p *Proxy) stop() {
+	if !p.running {
+		return
+	}
+
+	p.listener.Close()
+	p.running = false
+	log.Info().Str("address", p.address).Str("backend_tag", p.backend_tag).Str("backend_status", p.backend_status).Msg("Frontend closed")
+}
+
+func (p *Proxy) close_connections() {
+	p.connections_cancel()
+}
+
+func (p *Proxy) wait_connections(ctx context.Context, timeout time.Duration) {
+	var (
+		local_ctx context.Context
+		cancel    context.CancelFunc
+	)
+
+	if timeout > 0 {
+		local_ctx, cancel = context.WithTimeout(ctx, timeout)
+	} else {
+		local_ctx, cancel = context.WithCancel(ctx)
+	}
+	defer cancel()
+	waited := make(chan bool)
+
+	go func() {
+		p.connections_wg.Wait()
+		waited <- true
+	}()
+
+	select {
+	case <-waited:
+	case <-local_ctx.Done():
+		log.Warn().Str("address", p.address).Str("backend_tag", p.backend_tag).Str("backend_status", p.backend_status).Msg("Timeout reached, force closing connections !")
+	}
+
+	// Close remaining connections and cancel associated context
+	p.close_connections()
 }
 
 func (p *Proxy) _pipe(input net.Conn, output net.Conn, done chan bool) {
@@ -98,7 +153,7 @@ func (p *Proxy) _pipe(input net.Conn, output net.Conn, done chan bool) {
 }
 
 func (p *Proxy) _handle_connection(conn_front net.Conn) {
-	log.Debug().Str("address", conn_front.RemoteAddr().String()).Msg("Accepting Frontend connection")
+	defer p.connections_wg.Done()
 	defer conn_front.Close()
 	defer log.Debug().Str("address", conn_front.RemoteAddr().String()).Msg("Closing Frontend connection")
 
@@ -147,14 +202,14 @@ func (p *Proxy) _handle_connection(conn_front net.Conn) {
 	go p._pipe(conn_front, conn_back, done_front_back)
 	go p._pipe(conn_back, conn_front, done_back_front)
 
-	// Wait for one pipe to end
+	// Wait for one pipe to end or the proxy is force closed
 	select {
 	case <-done_front_back:
 	case <-done_back_front:
+	case <-p.connections_ctx.Done():
 	}
 
 	// Close both connections to ensure the other pipe will end
 	conn_front.Close()
 	conn_back.Close()
-
 }
