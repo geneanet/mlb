@@ -78,6 +78,7 @@ func newConsul(url string, service string, default_period float64, max_period fl
 	go func() {
 		defer wg.Done()
 		defer log.Info().Str("url", c.url).Msg("Consul polling stopped")
+		defer c.cancel()
 
 		var old consulServicesSlice
 

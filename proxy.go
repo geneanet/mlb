@@ -16,17 +16,15 @@ import (
 )
 
 type Proxy struct {
-	address            string
-	backend_tag        string
-	backend_status     string
-	directory          *BackendDirectory
-	close_timeout      time.Duration
-	listener           net.Listener
-	connections_wg     sync.WaitGroup
-	connections_ctx    context.Context
-	connections_cancel context.CancelFunc
-	ctx                context.Context
-	cancel             context.CancelFunc
+	address        string
+	backend_tag    string
+	backend_status string
+	directory      *BackendDirectory
+	close_timeout  time.Duration
+	listener       net.Listener
+	connections_wg sync.WaitGroup
+	ctx            context.Context
+	cancel         context.CancelFunc
 }
 
 func newProxy(address string, backend_tag string, backend_status string, directory *BackendDirectory, close_timeout time.Duration, wg *sync.WaitGroup, ctx context.Context) *Proxy {
@@ -41,8 +39,6 @@ func newProxy(address string, backend_tag string, backend_status string, directo
 	wg.Add(1)
 
 	p.ctx, p.cancel = context.WithCancel(ctx)
-
-	p.connections_ctx, p.connections_cancel = context.WithCancel(p.ctx)
 
 	log.Info().Str("address", p.address).Str("backend_tag", p.backend_tag).Str("backend_status", p.backend_status).Msg("Opening Frontend")
 
@@ -74,6 +70,7 @@ func newProxy(address string, backend_tag string, backend_status string, directo
 		defer log.Info().Str("address", p.address).Str("backend_tag", p.backend_tag).Str("backend_status", p.backend_status).Msg("Frontend closed")
 		defer p.listener.Close()
 		defer wg.Done()
+		defer p.cancel()
 
 		for {
 			conn, err := p.listener.Accept()

@@ -44,6 +44,7 @@ func newBackendDirectory(user string, password string, default_period float64, m
 	go func() {
 		defer wg.Done()
 		defer log.Info().Msg("Backends directory stopped")
+		defer bd.cancel()
 
 	mainloop:
 		for {
