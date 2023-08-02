@@ -95,7 +95,7 @@ func (p *Proxy) _pipe(input net.Conn, output net.Conn, done chan bool) {
 		if r := recover(); r != nil {
 			log.Error().Str("input", input.RemoteAddr().String()).Str("output", output.RemoteAddr().String()).Err(r.(error)).Msg("Error while processing pipe")
 		}
-		done <- true
+		close(done)
 	}()
 
 	buffer := make([]byte, 64*1024)
@@ -178,9 +178,9 @@ func (p *Proxy) _handle_connection(conn_front net.Conn) {
 	err = conn_back.SetNoDelay(true)
 	panicIfErr(err)
 
-	// Pipe the connections both ways (need a size of 1 so that the pipes will not block on exit if nobody is listening on the channel)
-	done_front_back := make(chan bool, 1)
-	done_back_front := make(chan bool, 1)
+	// Pipe the connections both ways
+	done_front_back := make(chan bool)
+	done_back_front := make(chan bool)
 
 	go p._pipe(conn_front, conn_back, done_front_back)
 	go p._pipe(conn_back, conn_front, done_back_front)
