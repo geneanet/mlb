@@ -53,7 +53,7 @@ func (b *Backend) _fetchStatus() (ret_s string, ret_e error) {
 		}
 	}()
 
-	log.Debug().Str("address", b.address).Msg("Probing Backend")
+	log.Trace().Str("address", b.address).Msg("Probing Backend")
 
 	result, err := b.db.Query("SELECT @@read_only")
 	panicIfErr(err)

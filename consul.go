@@ -50,7 +50,6 @@ type consul struct {
 	default_period float64
 	max_period     float64
 	backoff_factor float64
-	running        bool
 	index          string
 	ticker         *time.Ticker
 	msg_chan       chan consulMessage
@@ -58,8 +57,8 @@ type consul struct {
 	cancel         context.CancelFunc
 }
 
-func newConsul(url string, service string, default_period float64, max_period float64, backoff_factor float64, msg_chan chan consulMessage) *consul {
-	return &consul{
+func newConsul(url string, service string, default_period float64, max_period float64, backoff_factor float64, msg_chan chan consulMessage, wg *sync.WaitGroup, ctx context.Context) *consul {
+	c := &consul{
 		url:            url,
 		service:        service,
 		period:         default_period,
@@ -67,26 +66,17 @@ func newConsul(url string, service string, default_period float64, max_period fl
 		max_period:     max_period,
 		backoff_factor: backoff_factor,
 		msg_chan:       msg_chan,
-		running:        false,
-	}
-}
-
-func (c *consul) start(wg *sync.WaitGroup, ctx context.Context) {
-	if c.running {
-		return
 	}
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
 
 	wg.Add(1)
-	c.running = true
 	log.Info().Str("url", c.url).Msg("Polling Consul")
 
 	c.ticker = time.NewTicker(time.Duration(c.period * float64(time.Second)))
 
 	go func() {
 		defer wg.Done()
-		defer func() { c.running = false }()
 		defer log.Info().Str("url", c.url).Msg("Consul polling stopped")
 
 		var old consulServicesSlice
@@ -140,18 +130,12 @@ func (c *consul) start(wg *sync.WaitGroup, ctx context.Context) {
 			}
 		}
 	}()
-}
 
-func (c *consul) stop() {
-	if !c.running {
-		return
-	}
-
-	c.cancel()
+	return c
 }
 
 func (c *consul) _updatePeriod(period float64) {
-	if c.running && (c.period != period) {
+	if c.period != period {
 		c.period = period
 		c.ticker.Reset(time.Duration(c.period * float64(time.Second)))
 		log.Warn().Float64("period", c.period).Msg("Updating Consul fetch period")

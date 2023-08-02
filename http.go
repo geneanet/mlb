@@ -29,31 +29,23 @@ func HTTPLogWrapper(original_handler http.Handler) http.Handler {
 	return http.HandlerFunc(logFn)
 }
 
-type HTTPServer struct {
-	address string
-	running bool
-	srv     *http.Server
-}
+func newHTTPServer(address string, wg *sync.WaitGroup, ctx context.Context) {
+	srv := http.Server{}
 
-func newHTTPServer(address string) *HTTPServer {
-	return &HTTPServer{
-		address: address,
-		srv:     &http.Server{},
-	}
-}
-
-func (s *HTTPServer) start(wg *sync.WaitGroup) {
-	if s.running {
-		return
-	}
-
-	s.running = true
 	wg.Add(1)
 
+	// Shutdown the server if the context is closed
 	go func() {
-		log.Info().Str("address", s.address).Msg("Starting HTTP server")
-		defer log.Info().Str("address", s.address).Msg("HTTP server stopped")
+		<-ctx.Done()
+		err := srv.Shutdown(context.Background())
+		panicIfErr(err)
+	}()
+
+	// Start the server and serve the requests
+	go func() {
+		log.Info().Str("address", address).Msg("Starting HTTP server")
 		defer wg.Done()
+		defer log.Info().Str("address", address).Msg("HTTP server stopped")
 
 		// Set SO_REUSEPORT
 		lc := net.ListenConfig{
@@ -69,20 +61,15 @@ func (s *HTTPServer) start(wg *sync.WaitGroup) {
 		}
 
 		// Bind
-		listener, err := lc.Listen(context.Background(), "tcp", s.address)
+		listener, err := lc.Listen(context.Background(), "tcp", address)
 		panicIfErr(err)
 
 		http.Handle("/metrics", HTTPLogWrapper(promhttp.Handler()))
 
-		err = s.srv.Serve(listener)
+		err = srv.Serve(listener)
 		if errors.Is(err, http.ErrServerClosed) {
 			return
 		}
 		panicIfErr(err)
 	}()
-}
-
-func (s *HTTPServer) stop() {
-	err := s.srv.Shutdown(context.Background())
-	panicIfErr(err)
 }

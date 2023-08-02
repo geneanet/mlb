@@ -19,15 +19,14 @@ type BackendDirectory struct {
 	default_period float64
 	max_period     float64
 	backoff_factor float64
-	running        bool
 	msg_chan       chan consulMessage
 	mu             sync.Mutex
 	ctx            context.Context
 	cancel         context.CancelFunc
 }
 
-func newBackendDirectory(user string, password string, default_period float64, max_period float64, backoff_factor float64, msg_chan chan consulMessage) *BackendDirectory {
-	return &BackendDirectory{
+func newBackendDirectory(user string, password string, default_period float64, max_period float64, backoff_factor float64, msg_chan chan consulMessage, wg *sync.WaitGroup, ctx context.Context) *BackendDirectory {
+	bd := &BackendDirectory{
 		backends:       make(map[string]*Backend),
 		user:           user,
 		password:       password,
@@ -35,24 +34,15 @@ func newBackendDirectory(user string, password string, default_period float64, m
 		max_period:     max_period,
 		backoff_factor: backoff_factor,
 		msg_chan:       msg_chan,
-		running:        false,
-	}
-}
-
-func (bd *BackendDirectory) start(wg *sync.WaitGroup, ctx context.Context) {
-	if bd.running {
-		return
 	}
 
 	bd.ctx, bd.cancel = context.WithCancel(ctx)
 
-	bd.running = true
 	wg.Add(1)
 	log.Info().Msg("Backends directory starting")
 
 	go func() {
 		defer wg.Done()
-		defer func() { bd.running = false }()
 		defer log.Info().Msg("Backends directory stopped")
 
 	mainloop:
@@ -105,14 +95,8 @@ func (bd *BackendDirectory) start(wg *sync.WaitGroup, ctx context.Context) {
 			}
 		}
 	}()
-}
 
-func (bd *BackendDirectory) stop() {
-	if !bd.running {
-		return
-	}
-
-	bd.cancel()
+	return bd
 }
 
 func (bd *BackendDirectory) getBackend(tag string, status string) (string, error) {

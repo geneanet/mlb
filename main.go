@@ -34,7 +34,7 @@ func setRlimitNOFILE(nofile uint64) {
 // Main
 func main() {
 	var wg sync.WaitGroup
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 
 	arg_consul_url := flag.String("consul-url", "http://localhost:8500", "Consul URL")
 	arg_consul_service := flag.String("consul-service", "mysql", "Consul service name")
@@ -65,24 +65,18 @@ func main() {
 
 	// Start Consul
 	consul_chan := make(chan consulMessage)
-	consul := newConsul(*arg_consul_url, *arg_consul_service, *arg_consul_period, *arg_max_consul_period, *arg_backoff_factor, consul_chan)
-	consul.start(&wg, ctx)
+	newConsul(*arg_consul_url, *arg_consul_service, *arg_consul_period, *arg_max_consul_period, *arg_backoff_factor, consul_chan, &wg, ctx)
 
 	// Start directory
-	directory := newBackendDirectory(*arg_mysql_user, *arg_mysql_password, *arg_mysql_period, *arg_max_mysql_period, *arg_backoff_factor, consul_chan)
-	directory.start(&wg, ctx)
+	directory := newBackendDirectory(*arg_mysql_user, *arg_mysql_password, *arg_mysql_period, *arg_max_mysql_period, *arg_backoff_factor, consul_chan, &wg, ctx)
 
 	// Start proxies
-	proxies := make([]*Proxy, 0, len(arg_proxies))
 	for _, p := range arg_proxies {
-		proxy := newProxy(p.address, p.tag, p.status, directory)
-		proxy.start(&wg, ctx)
-		proxies = append(proxies, proxy)
+		newProxy(p.address, p.tag, p.status, directory, *arg_close_timeout, &wg, ctx)
 	}
 
 	// Start HTTP Server
-	http_server := newHTTPServer(*arg_http_address)
-	http_server.start(&wg)
+	newHTTPServer(*arg_http_address, &wg, ctx)
 
 	// Termination signals
 	chan_signals := make(chan os.Signal, 1)
@@ -90,34 +84,7 @@ func main() {
 	go func() {
 		<-chan_signals
 		log.Info().Msg("Termination signal received")
-
-		// Stop proxies
-		for _, p := range proxies {
-			p.stop()
-		}
-
-		// Stop HTTP Server
-		http_server.stop()
-
-		// Stop directory
-		directory.stop()
-
-		// Stop consul
-		consul.stop()
-
-		// Close connections
-		if *arg_close_timeout > 0 {
-			log.Info().Msg("Waiting for connections to close")
-			for _, p := range proxies {
-				p.wait_connections(ctx, *arg_close_timeout)
-			}
-			log.Info().Msg("All connections are closed")
-		} else {
-			log.Info().Msg("Force closing all connections")
-			for _, p := range proxies {
-				p.close_connections()
-			}
-		}
+		cancel()
 	}()
 
 	wg.Wait()
