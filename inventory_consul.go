@@ -29,21 +29,7 @@ type consulService struct {
 type consulServicesMap map[string]consulService
 type consulServicesSlice []consulService
 
-type consulMessageKind int
-
-const (
-	MsgServiceAdded consulMessageKind = iota
-	MsgServiceModified
-	MsgServiceRemoved
-)
-
-type consulMessage struct {
-	kind    consulMessageKind
-	address string
-	service consulService
-}
-
-type consul struct {
+type InventoryConsul struct {
 	url            string
 	service        string
 	period         float64
@@ -52,20 +38,22 @@ type consul struct {
 	backoff_factor float64
 	index          string
 	ticker         *time.Ticker
-	msg_chan       chan consulMessage
 	ctx            context.Context
 	cancel         context.CancelFunc
+	subscribers    []chan BackendMessage
+	backends       map[string]*Backend
 }
 
-func newConsul(url string, service string, default_period float64, max_period float64, backoff_factor float64, msg_chan chan consulMessage, wg *sync.WaitGroup, ctx context.Context) *consul {
-	c := &consul{
+func NewInventoryConsul(url string, service string, default_period float64, max_period float64, backoff_factor float64, wg *sync.WaitGroup, ctx context.Context) *InventoryConsul {
+	c := &InventoryConsul{
 		url:            url,
 		service:        service,
 		period:         default_period,
 		default_period: default_period,
 		max_period:     max_period,
 		backoff_factor: backoff_factor,
-		msg_chan:       msg_chan,
+		subscribers:    make([]chan BackendMessage, 0),
+		backends:       make(map[string]*Backend),
 	}
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
@@ -84,40 +72,48 @@ func newConsul(url string, service string, default_period float64, max_period fl
 
 	mainloop:
 		for {
-			services, err := c._fetch()
+			services, err := c.fetch()
 
 			if errors.Is(err, context.Canceled) {
 				return
 			} else if err != nil {
 				log.Error().Err(err).Msg("Error while fetching service list from Consul")
-				c._applyBackoff()
+				c.applyBackoff()
 			} else {
-				c._resetPeriod()
+				c.resetPeriod()
 
 				added, modified, removed := consulServicesDiff(old, services)
 
 				for address, service := range added {
-					c.msg_chan <- consulMessage{
-						kind:    MsgServiceAdded,
+					c.backends[address] = &Backend{
 						address: address,
-						service: service,
+						status:  "unk",
+						tags:    service.Service.Tags,
+						weight:  service.Service.Weights.Passing,
 					}
+					c.sendMessage(BackendMessage{
+						kind:    MsgBackendAdded,
+						address: address,
+						backend: c.backends[address],
+					})
 				}
 
 				for address, service := range modified {
-					c.msg_chan <- consulMessage{
-						kind:    MsgServiceAdded,
+					c.backends[address].UpdateTags(service.Service.Tags)
+					c.backends[address].weight = service.Service.Weights.Passing
+					c.sendMessage(BackendMessage{
+						kind:    MsgBackendModified,
 						address: address,
-						service: service,
-					}
+						backend: c.backends[address],
+					})
 				}
 
-				for address, service := range removed {
-					c.msg_chan <- consulMessage{
-						kind:    MsgServiceAdded,
+				for address := range removed {
+					delete(c.backends, address)
+					c.sendMessage(BackendMessage{
+						kind:    MsgBackendRemoved,
 						address: address,
-						service: service,
-					}
+					})
 				}
 
 				old = services
@@ -135,7 +131,19 @@ func newConsul(url string, service string, default_period float64, max_period fl
 	return c
 }
 
-func (c *consul) _updatePeriod(period float64) {
+func (c *InventoryConsul) Subscribe() chan BackendMessage {
+	ch := make(chan BackendMessage)
+	c.subscribers = append(c.subscribers, ch)
+	return ch
+}
+
+func (c *InventoryConsul) sendMessage(m BackendMessage) {
+	for _, s := range c.subscribers {
+		s <- m
+	}
+}
+
+func (c *InventoryConsul) updatePeriod(period float64) {
 	if c.period != period {
 		c.period = period
 		c.ticker.Reset(time.Duration(c.period * float64(time.Second)))
@@ -143,19 +151,19 @@ func (c *consul) _updatePeriod(period float64) {
 	}
 }
 
-func (c *consul) _resetPeriod() {
-	c._updatePeriod(c.default_period)
+func (c *InventoryConsul) resetPeriod() {
+	c.updatePeriod(c.default_period)
 }
 
-func (c *consul) _applyBackoff() {
+func (c *InventoryConsul) applyBackoff() {
 	new_period := c.period * c.backoff_factor
 	if new_period > c.max_period {
 		new_period = c.max_period
 	}
-	c._updatePeriod(new_period)
+	c.updatePeriod(new_period)
 }
 
-func (c *consul) _fetch() (ret_s consulServicesSlice, ret_e error) {
+func (c *InventoryConsul) fetch() (ret_s consulServicesSlice, ret_e error) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
@@ -178,7 +186,7 @@ func (c *consul) _fetch() (ret_s consulServicesSlice, ret_e error) {
 	log.Debug().Int("status", resp.StatusCode).Msg("Service list fetched")
 
 	if resp.StatusCode != 200 {
-		panic(fmt.Sprintf("Unexpected status code %s", resp.Status))
+		panic(fmt.Errorf("unexpected status code %s", resp.Status))
 	}
 
 	body, err := io.ReadAll(resp.Body)

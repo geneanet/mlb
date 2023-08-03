@@ -13,6 +13,10 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type Subscribable interface {
+	Subscribe() chan BackendMessage
+}
+
 func panicIfErr(err error) {
 	if err != nil {
 		panic(err)
@@ -63,20 +67,14 @@ func main() {
 		setRlimitNOFILE(*arg_rlimit_nofile)
 	}
 
-	// Start Consul
-	consul_chan := make(chan consulMessage)
-	newConsul(*arg_consul_url, *arg_consul_service, *arg_consul_period, *arg_max_consul_period, *arg_backoff_factor, consul_chan, &wg, ctx)
-
-	// Start directory
-	directory := newBackendDirectory(*arg_mysql_user, *arg_mysql_password, *arg_mysql_period, *arg_max_mysql_period, *arg_backoff_factor, consul_chan, &wg, ctx)
-
-	// Start proxies
+	inv := NewInventoryConsul(*arg_consul_url, *arg_consul_service, *arg_consul_period, *arg_max_consul_period, *arg_backoff_factor, &wg, ctx)
+	chk := NewCheckerMySQL(*arg_mysql_user, *arg_mysql_password, *arg_mysql_period, *arg_max_mysql_period, *arg_backoff_factor, inv, &wg, ctx)
 	for _, p := range arg_proxies {
-		newProxy(p.address, p.tag, p.status, directory, *arg_close_timeout, &wg, ctx)
+		f := NewFilter(p.tag, p.status, chk, &wg, ctx)
+		b := NewBalancerWRR(f, &wg, ctx)
+		NewProxyTCP(p.address, p.tag, p.status, b, *arg_close_timeout, &wg, ctx)
 	}
-
-	// Start HTTP Server
-	newHTTPServer(*arg_http_address, &wg, ctx)
+	NewHTTPServer(*arg_http_address, &wg, ctx)
 
 	// Termination signals
 	chan_signals := make(chan os.Signal, 1)

@@ -29,7 +29,7 @@ func HTTPLogWrapper(original_handler http.Handler) http.Handler {
 	return http.HandlerFunc(logFn)
 }
 
-func newHTTPServer(address string, wg *sync.WaitGroup, ctx context.Context) {
+func NewHTTPServer(address string, wg *sync.WaitGroup, ctx context.Context) {
 	srv := http.Server{}
 
 	wg.Add(1)

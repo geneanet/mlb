@@ -15,11 +15,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-type Proxy struct {
+type ProxyTCP struct {
 	address        string
 	backend_tag    string
 	backend_status string
-	directory      *BackendDirectory
+	balancer       *BalancerWRR
 	close_timeout  time.Duration
 	listener       net.Listener
 	connections_wg sync.WaitGroup
@@ -27,12 +27,12 @@ type Proxy struct {
 	cancel         context.CancelFunc
 }
 
-func newProxy(address string, backend_tag string, backend_status string, directory *BackendDirectory, close_timeout time.Duration, wg *sync.WaitGroup, ctx context.Context) *Proxy {
-	p := &Proxy{
+func NewProxyTCP(address string, backend_tag string, backend_status string, balancer *BalancerWRR, close_timeout time.Duration, wg *sync.WaitGroup, ctx context.Context) *ProxyTCP {
+	p := &ProxyTCP{
 		address:        address,
 		backend_tag:    backend_tag,
 		backend_status: backend_status,
-		directory:      directory,
+		balancer:       balancer,
 		close_timeout:  close_timeout,
 	}
 
@@ -80,7 +80,7 @@ func newProxy(address string, backend_tag string, backend_status string, directo
 			panicIfErr(err)
 			p.connections_wg.Add(1)
 			log.Debug().Str("peer", conn.RemoteAddr().String()).Msg("Accepting Frontend connection")
-			go p._handle_connection(conn)
+			go p.handle_connection(conn)
 		}
 
 		p.connections_wg.Wait()
@@ -89,7 +89,7 @@ func newProxy(address string, backend_tag string, backend_status string, directo
 	return p
 }
 
-func (p *Proxy) _pipe(input net.Conn, output net.Conn, done chan bool) {
+func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan bool) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
@@ -114,7 +114,7 @@ func (p *Proxy) _pipe(input net.Conn, output net.Conn, done chan bool) {
 	}
 }
 
-func (p *Proxy) _handle_connection(conn_front net.Conn) {
+func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 	defer p.connections_wg.Done()
 	defer conn_front.Close()
 	defer log.Debug().Str("peer", conn_front.RemoteAddr().String()).Msg("Closing Frontend connection")
@@ -157,8 +157,13 @@ func (p *Proxy) _handle_connection(conn_front net.Conn) {
 		}
 	}()
 
-	backend_address, err := p.directory.getBackend(p.backend_tag, p.backend_status)
-	panicIfErr(err)
+	backend := p.balancer.GetBackend()
+	var backend_address string
+	if backend != nil {
+		backend_address = backend.address
+	} else {
+		panic(errors.New("no backend found"))
+	}
 
 	// Prometheus
 	metrics_BeCnxProcessed.WithLabelValues(backend_address).Inc()
@@ -182,8 +187,8 @@ func (p *Proxy) _handle_connection(conn_front net.Conn) {
 	done_front_back := make(chan bool)
 	done_back_front := make(chan bool)
 
-	go p._pipe(conn_front, conn_back, done_front_back)
-	go p._pipe(conn_back, conn_front, done_back_front)
+	go p.pipe(conn_front, conn_back, done_front_back)
+	go p.pipe(conn_back, conn_front, done_back_front)
 
 	// Wait for one pipe to end or the context to be cancelled
 	select {
