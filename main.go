@@ -13,28 +13,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type Subscribable interface {
-	Subscribe() chan BackendMessage
-}
-
-func panicIfErr(err error) {
-	if err != nil {
-		panic(err)
-	}
-}
-
-func setRlimitNOFILE(nofile uint64) {
-	var rLimit syscall.Rlimit
-
-	log.Debug().Uint64("value", nofile).Msg("Setting RLIMIT_NOFILE")
-
-	rLimit.Max = nofile
-	rLimit.Cur = nofile
-
-	err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit)
-	panicIfErr(err)
-}
-
 // Main
 func main() {
 	var wg sync.WaitGroup
@@ -70,10 +48,11 @@ func main() {
 	inv := NewInventoryConsul("inv_consul", *arg_consul_url, *arg_consul_service, *arg_consul_period, *arg_max_consul_period, *arg_backoff_factor, &wg, ctx)
 	chk := NewCheckerMySQL("chk_mysql", *arg_mysql_user, *arg_mysql_password, *arg_mysql_period, *arg_max_mysql_period, *arg_backoff_factor, inv, &wg, ctx)
 	for _, p := range arg_proxies {
-		f := NewFilter("filter_"+p.id, p.tag, p.status, chk, &wg, ctx)
-		b := NewBalancerWRR("balancer_"+p.id, f, &wg, ctx)
-		NewProxyTCP("proxy_"+p.id, p.address, p.tag, p.status, b, *arg_close_timeout, &wg, ctx)
+		filter := NewFilter("filter_"+p.id, p.tag, p.status, chk, &wg, ctx)
+		balancer := NewBalancerWRR("balancer_"+p.id, filter, &wg, ctx)
+		NewProxyTCP("proxy_"+p.id, p.address, balancer, *arg_close_timeout, &wg, ctx)
 	}
+
 	NewHTTPServer(*arg_http_address, &wg, ctx)
 
 	// Termination signals

@@ -17,35 +17,31 @@ import (
 )
 
 type ProxyTCP struct {
-	id             string
-	address        string
-	backend_tag    string
-	backend_status string
-	balancer       *BalancerWRR
-	close_timeout  time.Duration
-	listener       net.Listener
-	connections_wg sync.WaitGroup
-	ctx            context.Context
-	cancel         context.CancelFunc
-	log            zerolog.Logger
+	id              string
+	address         string
+	backendProvider BackendProvider
+	close_timeout   time.Duration
+	listener        net.Listener
+	connections_wg  sync.WaitGroup
+	ctx             context.Context
+	cancel          context.CancelFunc
+	log             zerolog.Logger
 }
 
-func NewProxyTCP(id string, address string, backend_tag string, backend_status string, balancer *BalancerWRR, close_timeout time.Duration, wg *sync.WaitGroup, ctx context.Context) *ProxyTCP {
+func NewProxyTCP(id string, address string, backendProvider BackendProvider, close_timeout time.Duration, wg *sync.WaitGroup, ctx context.Context) *ProxyTCP {
 	p := &ProxyTCP{
-		id:             id,
-		address:        address,
-		backend_tag:    backend_tag,
-		backend_status: backend_status,
-		balancer:       balancer,
-		close_timeout:  close_timeout,
-		log:            log.With().Str("id", id).Logger(),
+		id:              id,
+		address:         address,
+		backendProvider: backendProvider,
+		close_timeout:   close_timeout,
+		log:             log.With().Str("id", id).Logger(),
 	}
 
 	wg.Add(1)
 
 	p.ctx, p.cancel = context.WithCancel(ctx)
 
-	p.log.Info().Str("address", p.address).Str("backend_tag", p.backend_tag).Str("backend_status", p.backend_status).Msg("Opening Frontend")
+	p.log.Info().Str("address", p.address).Msg("Opening Frontend")
 
 	// Set SO_REUSEPORT
 	lc := net.ListenConfig{
@@ -72,7 +68,7 @@ func NewProxyTCP(id string, address string, backend_tag string, backend_status s
 	}()
 
 	go func() {
-		defer p.log.Info().Str("address", p.address).Str("backend_tag", p.backend_tag).Str("backend_status", p.backend_status).Msg("Frontend closed")
+		defer p.log.Info().Str("address", p.address).Msg("Frontend closed")
 		defer p.listener.Close()
 		defer wg.Done()
 		defer p.cancel()
@@ -162,7 +158,7 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 		}
 	}()
 
-	backend := p.balancer.GetBackend()
+	backend := p.backendProvider.GetBackend()
 	var backend_address string
 	if backend != nil {
 		backend_address = backend.address
