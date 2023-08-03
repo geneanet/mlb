@@ -67,12 +67,12 @@ func main() {
 		setRlimitNOFILE(*arg_rlimit_nofile)
 	}
 
-	inv := NewInventoryConsul(*arg_consul_url, *arg_consul_service, *arg_consul_period, *arg_max_consul_period, *arg_backoff_factor, &wg, ctx)
-	chk := NewCheckerMySQL(*arg_mysql_user, *arg_mysql_password, *arg_mysql_period, *arg_max_mysql_period, *arg_backoff_factor, inv, &wg, ctx)
+	inv := NewInventoryConsul("inv_consul", *arg_consul_url, *arg_consul_service, *arg_consul_period, *arg_max_consul_period, *arg_backoff_factor, &wg, ctx)
+	chk := NewCheckerMySQL("chk_mysql", *arg_mysql_user, *arg_mysql_password, *arg_mysql_period, *arg_max_mysql_period, *arg_backoff_factor, inv, &wg, ctx)
 	for _, p := range arg_proxies {
-		f := NewFilter(p.tag, p.status, chk, &wg, ctx)
-		b := NewBalancerWRR(f, &wg, ctx)
-		NewProxyTCP(p.address, p.tag, p.status, b, *arg_close_timeout, &wg, ctx)
+		f := NewFilter("filter_"+p.id, p.tag, p.status, chk, &wg, ctx)
+		b := NewBalancerWRR("balancer_"+p.id, f, &wg, ctx)
+		NewProxyTCP("proxy_"+p.id, p.address, p.tag, p.status, b, *arg_close_timeout, &wg, ctx)
 	}
 	NewHTTPServer(*arg_http_address, &wg, ctx)
 

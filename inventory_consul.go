@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -30,6 +31,7 @@ type consulServicesMap map[string]consulService
 type consulServicesSlice []consulService
 
 type InventoryConsul struct {
+	id             string
 	url            string
 	service        string
 	period         float64
@@ -42,10 +44,12 @@ type InventoryConsul struct {
 	cancel         context.CancelFunc
 	subscribers    []chan BackendMessage
 	backends       map[string]*Backend
+	log            zerolog.Logger
 }
 
-func NewInventoryConsul(url string, service string, default_period float64, max_period float64, backoff_factor float64, wg *sync.WaitGroup, ctx context.Context) *InventoryConsul {
+func NewInventoryConsul(id string, url string, service string, default_period float64, max_period float64, backoff_factor float64, wg *sync.WaitGroup, ctx context.Context) *InventoryConsul {
 	c := &InventoryConsul{
+		id:             id,
 		url:            url,
 		service:        service,
 		period:         default_period,
@@ -54,18 +58,19 @@ func NewInventoryConsul(url string, service string, default_period float64, max_
 		backoff_factor: backoff_factor,
 		subscribers:    make([]chan BackendMessage, 0),
 		backends:       make(map[string]*Backend),
+		log:            log.With().Str("id", id).Logger(),
 	}
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
 
 	wg.Add(1)
-	log.Info().Str("url", c.url).Msg("Polling Consul")
+	c.log.Info().Str("url", c.url).Msg("Polling Consul")
 
 	c.ticker = time.NewTicker(time.Duration(c.period * float64(time.Second)))
 
 	go func() {
 		defer wg.Done()
-		defer log.Info().Str("url", c.url).Msg("Consul polling stopped")
+		defer c.log.Info().Str("url", c.url).Msg("Consul polling stopped")
 		defer c.cancel()
 
 		var old consulServicesSlice
@@ -77,7 +82,7 @@ func NewInventoryConsul(url string, service string, default_period float64, max_
 			if errors.Is(err, context.Canceled) {
 				return
 			} else if err != nil {
-				log.Error().Err(err).Msg("Error while fetching service list from Consul")
+				c.log.Error().Err(err).Msg("Error while fetching service list from Consul")
 				c.applyBackoff()
 			} else {
 				c.resetPeriod()
@@ -147,7 +152,7 @@ func (c *InventoryConsul) updatePeriod(period float64) {
 	if c.period != period {
 		c.period = period
 		c.ticker.Reset(time.Duration(c.period * float64(time.Second)))
-		log.Warn().Float64("period", c.period).Msg("Updating Consul fetch period")
+		c.log.Warn().Float64("period", c.period).Msg("Updating Consul fetch period")
 	}
 }
 
@@ -171,7 +176,7 @@ func (c *InventoryConsul) fetch() (ret_s consulServicesSlice, ret_e error) {
 		}
 	}()
 
-	log.Debug().Msg("Fetching new service list from Consul")
+	c.log.Debug().Msg("Fetching new service list from Consul")
 
 	ctx, cancel := context.WithCancel(c.ctx)
 	defer cancel()
@@ -183,7 +188,7 @@ func (c *InventoryConsul) fetch() (ret_s consulServicesSlice, ret_e error) {
 	panicIfErr(err)
 	defer resp.Body.Close()
 
-	log.Debug().Int("status", resp.StatusCode).Msg("Service list fetched")
+	c.log.Debug().Int("status", resp.StatusCode).Msg("Service list fetched")
 
 	if resp.StatusCode != 200 {
 		panic(fmt.Errorf("unexpected status code %s", resp.Status))

@@ -3,6 +3,7 @@ package main
 import "strings"
 
 type proxyFlag struct {
+	id      string
 	address string
 	tag     string
 	status  string
@@ -22,9 +23,10 @@ func (i *proxyFlags) String() string {
 func (i *proxyFlags) Set(value string) error {
 	parts := strings.Split(value, ",")
 	*i = append(*i, proxyFlag{
-		address: parts[0],
-		tag:     parts[1],
-		status:  parts[2],
+		id:      parts[0],
+		address: parts[1],
+		tag:     parts[2],
+		status:  parts[3],
 	})
 	return nil
 }

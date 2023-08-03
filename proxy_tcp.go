@@ -11,11 +11,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sys/unix"
 )
 
 type ProxyTCP struct {
+	id             string
 	address        string
 	backend_tag    string
 	backend_status string
@@ -25,22 +27,25 @@ type ProxyTCP struct {
 	connections_wg sync.WaitGroup
 	ctx            context.Context
 	cancel         context.CancelFunc
+	log            zerolog.Logger
 }
 
-func NewProxyTCP(address string, backend_tag string, backend_status string, balancer *BalancerWRR, close_timeout time.Duration, wg *sync.WaitGroup, ctx context.Context) *ProxyTCP {
+func NewProxyTCP(id string, address string, backend_tag string, backend_status string, balancer *BalancerWRR, close_timeout time.Duration, wg *sync.WaitGroup, ctx context.Context) *ProxyTCP {
 	p := &ProxyTCP{
+		id:             id,
 		address:        address,
 		backend_tag:    backend_tag,
 		backend_status: backend_status,
 		balancer:       balancer,
 		close_timeout:  close_timeout,
+		log:            log.With().Str("id", id).Logger(),
 	}
 
 	wg.Add(1)
 
 	p.ctx, p.cancel = context.WithCancel(ctx)
 
-	log.Info().Str("address", p.address).Str("backend_tag", p.backend_tag).Str("backend_status", p.backend_status).Msg("Opening Frontend")
+	p.log.Info().Str("address", p.address).Str("backend_tag", p.backend_tag).Str("backend_status", p.backend_status).Msg("Opening Frontend")
 
 	// Set SO_REUSEPORT
 	lc := net.ListenConfig{
@@ -67,7 +72,7 @@ func NewProxyTCP(address string, backend_tag string, backend_status string, bala
 	}()
 
 	go func() {
-		defer log.Info().Str("address", p.address).Str("backend_tag", p.backend_tag).Str("backend_status", p.backend_status).Msg("Frontend closed")
+		defer p.log.Info().Str("address", p.address).Str("backend_tag", p.backend_tag).Str("backend_status", p.backend_status).Msg("Frontend closed")
 		defer p.listener.Close()
 		defer wg.Done()
 		defer p.cancel()
@@ -79,7 +84,7 @@ func NewProxyTCP(address string, backend_tag string, backend_status string, bala
 			}
 			panicIfErr(err)
 			p.connections_wg.Add(1)
-			log.Debug().Str("peer", conn.RemoteAddr().String()).Msg("Accepting Frontend connection")
+			p.log.Debug().Str("peer", conn.RemoteAddr().String()).Msg("Accepting Frontend connection")
 			go p.handle_connection(conn)
 		}
 
@@ -93,7 +98,7 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan bool) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
-			log.Error().Str("input", input.RemoteAddr().String()).Str("output", output.RemoteAddr().String()).Err(r.(error)).Msg("Error while processing pipe")
+			p.log.Error().Str("input", input.RemoteAddr().String()).Str("output", output.RemoteAddr().String()).Err(r.(error)).Msg("Error while processing pipe")
 		}
 		close(done)
 	}()
@@ -117,7 +122,7 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan bool) {
 func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 	defer p.connections_wg.Done()
 	defer conn_front.Close()
-	defer log.Debug().Str("peer", conn_front.RemoteAddr().String()).Msg("Closing Frontend connection")
+	defer p.log.Debug().Str("peer", conn_front.RemoteAddr().String()).Msg("Closing Frontend connection")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -128,14 +133,14 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 		case <-ctx.Done():
 			return
 		case <-p.ctx.Done():
-			log.Debug().Str("peer", conn_front.RemoteAddr().String()).Msg("Frontend closed, waiting for connection to end.")
+			p.log.Debug().Str("peer", conn_front.RemoteAddr().String()).Msg("Frontend closed, waiting for connection to end.")
 		}
 
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(p.close_timeout):
-			log.Warn().Str("peer", conn_front.RemoteAddr().String()).Msg("Timeout reached, force closing connection.")
+			p.log.Warn().Str("peer", conn_front.RemoteAddr().String()).Msg("Timeout reached, force closing connection.")
 			cancel()
 		}
 	}()
@@ -151,7 +156,7 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
-			log.Error().Str("peer", conn_front.RemoteAddr().String()).Err(r.(error)).Msg("Error while processing connection")
+			p.log.Error().Str("peer", conn_front.RemoteAddr().String()).Err(r.(error)).Msg("Error while processing connection")
 			// Prometheus
 			metrics_FeCnxErrors.WithLabelValues(p.address).Inc()
 		}
@@ -174,11 +179,11 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 	backend_addrport, err := netip.ParseAddrPort(backend_address)
 	panicIfErr(err)
 
-	log.Debug().Str("peer", backend_address).Msg("Opening Backend connection")
+	p.log.Debug().Str("peer", backend_address).Msg("Opening Backend connection")
 	conn_back, err := net.DialTCP("tcp", nil, net.TCPAddrFromAddrPort(backend_addrport))
 	panicIfErr(err)
 	defer conn_back.Close()
-	defer log.Debug().Str("peer", backend_address).Msg("Closing Backend connection")
+	defer p.log.Debug().Str("peer", backend_address).Msg("Closing Backend connection")
 
 	err = conn_back.SetNoDelay(true)
 	panicIfErr(err)

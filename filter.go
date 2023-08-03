@@ -4,35 +4,40 @@ import (
 	"context"
 	"sync"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/exp/slices"
 )
 
 type Filter struct {
+	id          string
 	source      Subscribable
 	subscribers []chan BackendMessage
 	tag         string
 	status      string
 	backends    map[string]*Backend
+	log         zerolog.Logger
 }
 
-func NewFilter(tag string, status string, source Subscribable, wg *sync.WaitGroup, ctx context.Context) *Filter {
+func NewFilter(id string, tag string, status string, source Subscribable, wg *sync.WaitGroup, ctx context.Context) *Filter {
 	f := &Filter{
+		id:          id,
 		source:      source,
 		subscribers: []chan BackendMessage{},
 		tag:         tag,
 		status:      status,
 		backends:    make(map[string]*Backend),
+		log:         log.With().Str("id", id).Logger(),
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
 
 	wg.Add(1)
-	log.Info().Msg("Filter starting")
+	f.log.Info().Msg("Filter starting")
 
 	go func() {
 		defer wg.Done()
-		defer log.Info().Msg("Filter stopped")
+		defer f.log.Info().Msg("Filter stopped")
 		defer cancel()
 
 		msg_chan := f.source.Subscribe()

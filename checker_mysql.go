@@ -4,10 +4,12 @@ import (
 	"context"
 	"sync"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
 type CheckerMySQL struct {
+	id             string
 	checks         map[string]*CheckerMySQLCheck
 	user           string
 	password       string
@@ -18,10 +20,12 @@ type CheckerMySQL struct {
 	subscribers    []chan BackendMessage
 	ctx            context.Context
 	cancel         context.CancelFunc
+	log            zerolog.Logger
 }
 
-func NewCheckerMySQL(user string, password string, default_period float64, max_period float64, backoff_factor float64, source Subscribable, wg *sync.WaitGroup, ctx context.Context) *CheckerMySQL {
+func NewCheckerMySQL(id string, user string, password string, default_period float64, max_period float64, backoff_factor float64, source Subscribable, wg *sync.WaitGroup, ctx context.Context) *CheckerMySQL {
 	c := &CheckerMySQL{
+		id:             id,
 		checks:         make(map[string]*CheckerMySQLCheck),
 		user:           user,
 		password:       password,
@@ -29,16 +33,17 @@ func NewCheckerMySQL(user string, password string, default_period float64, max_p
 		max_period:     max_period,
 		backoff_factor: backoff_factor,
 		source:         source,
+		log:            log.With().Str("id", id).Logger(),
 	}
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
 
 	wg.Add(1)
-	log.Info().Msg("MySQL checker starting")
+	c.log.Info().Msg("MySQL checker starting")
 
 	go func() {
 		defer wg.Done()
-		defer log.Info().Msg("MySQL checker stopped")
+		defer c.log.Info().Msg("MySQL checker stopped")
 		defer c.cancel()
 
 		msg_chan := c.source.Subscribe()
@@ -65,7 +70,7 @@ func NewCheckerMySQL(user string, password string, default_period float64, max_p
 							backend: check.backend,
 						})
 					} else { // Added
-						log.Info().Str("address", msg.address).Msg("Adding MySQL check")
+						c.log.Info().Str("address", msg.address).Msg("Adding MySQL check")
 						check := NewCheckerMySQLCheck(
 							msg.backend.Copy(),
 							c.user,
@@ -77,7 +82,7 @@ func NewCheckerMySQL(user string, password string, default_period float64, max_p
 						)
 						err := check.StartPolling()
 						if err != nil {
-							log.Error().Str("address", msg.address).Err(err).Msg("Error while adding MySQL check")
+							c.log.Error().Str("address", msg.address).Err(err).Msg("Error while adding MySQL check")
 						} else {
 							c.checks[msg.address] = check
 							c.sendMessage(BackendMessage{
@@ -90,7 +95,7 @@ func NewCheckerMySQL(user string, password string, default_period float64, max_p
 				case MsgBackendRemoved:
 					// Removed
 					if check, ok := c.checks[msg.address]; ok {
-						log.Info().Str("address", msg.address).Msg("Removing MySQL check")
+						c.log.Info().Str("address", msg.address).Msg("Removing MySQL check")
 						check.StopPolling()
 						delete(c.checks, msg.address)
 						c.sendMessage(BackendMessage{
