@@ -28,14 +28,17 @@ type ProxyTCP struct {
 	log             zerolog.Logger
 }
 
-func NewProxyTCP(id string, address string, backendProvider BackendProvider, close_timeout time.Duration, wg *sync.WaitGroup, ctx context.Context) *ProxyTCP {
+func NewProxyTCP(config TCPProxyConfig, backendProviders map[string]BackendProvider, wg *sync.WaitGroup, ctx context.Context) *ProxyTCP {
 	p := &ProxyTCP{
-		id:              id,
-		address:         address,
-		backendProvider: backendProvider,
-		close_timeout:   close_timeout,
-		log:             log.With().Str("id", id).Logger(),
+		id:              config.ID,
+		address:         config.Address,
+		backendProvider: backendProviders[config.Source],
+		log:             log.With().Str("id", config.ID).Logger(),
 	}
+
+	var err error
+	p.close_timeout, err = time.ParseDuration(config.CloseTimeout)
+	panicIfErr(err)
 
 	wg.Add(1)
 
@@ -57,7 +60,6 @@ func NewProxyTCP(id string, address string, backendProvider BackendProvider, clo
 	}
 
 	// Bind
-	var err error
 	p.listener, err = lc.Listen(context.Background(), "tcp", p.address)
 	panicIfErr(err)
 

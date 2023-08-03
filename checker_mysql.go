@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -14,8 +15,8 @@ type CheckerMySQL struct {
 	checks_mutex   sync.RWMutex
 	user           string
 	password       string
-	default_period float64
-	max_period     float64
+	default_period time.Duration
+	max_period     time.Duration
 	backoff_factor float64
 	source         Subscribable
 	subscribers    []chan BackendMessage
@@ -24,18 +25,23 @@ type CheckerMySQL struct {
 	log            zerolog.Logger
 }
 
-func NewCheckerMySQL(id string, user string, password string, default_period float64, max_period float64, backoff_factor float64, source Subscribable, wg *sync.WaitGroup, ctx context.Context) *CheckerMySQL {
+func NewCheckerMySQL(config MySQLCheckerConfig, sources map[string]Subscribable, wg *sync.WaitGroup, ctx context.Context) *CheckerMySQL {
 	c := &CheckerMySQL{
-		id:             id,
+		id:             config.ID,
 		checks:         make(map[string]*CheckerMySQLCheck),
-		user:           user,
-		password:       password,
-		default_period: default_period,
-		max_period:     max_period,
-		backoff_factor: backoff_factor,
-		source:         source,
-		log:            log.With().Str("id", id).Logger(),
+		user:           config.User,
+		password:       config.Password,
+		backoff_factor: config.BackoffFactor,
+		source:         sources[config.Source],
+		log:            log.With().Str("id", config.ID).Logger(),
 	}
+
+	var err error
+
+	c.default_period, err = time.ParseDuration(config.Period)
+	panicIfErr(err)
+	c.max_period, err = time.ParseDuration(config.MaxPeriod)
+	panicIfErr(err)
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
 

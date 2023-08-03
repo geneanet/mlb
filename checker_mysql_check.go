@@ -12,9 +12,9 @@ type CheckerMySQLCheck struct {
 	backend        *Backend
 	user           string
 	password       string
-	period         float64
-	default_period float64
-	max_period     float64
+	period         time.Duration
+	default_period time.Duration
+	max_period     time.Duration
 	backoff_factor float64
 	status_chan    chan *Backend
 	ticker         *time.Ticker
@@ -23,7 +23,7 @@ type CheckerMySQLCheck struct {
 	db             *sql.DB
 }
 
-func NewCheckerMySQLCheck(backend *Backend, user string, password string, default_period float64, max_period float64, backoff_factor float64, status_chan chan *Backend) *CheckerMySQLCheck {
+func NewCheckerMySQLCheck(backend *Backend, user string, password string, default_period time.Duration, max_period time.Duration, backoff_factor float64, status_chan chan *Backend) *CheckerMySQLCheck {
 	c := &CheckerMySQLCheck{
 		backend:        backend,
 		user:           user,
@@ -104,7 +104,7 @@ func (c *CheckerMySQLCheck) StartPolling() error {
 	c.db = db
 
 	c.period = c.default_period
-	c.ticker = time.NewTicker(time.Duration(c.period * float64(time.Second)))
+	c.ticker = time.NewTicker(c.period)
 
 	go func() {
 		defer func() { c.running = false }()
@@ -134,12 +134,12 @@ func (c *CheckerMySQLCheck) StopPolling() {
 	c.stop_chan <- true
 }
 
-func (c *CheckerMySQLCheck) updatePeriod(period float64) {
+func (c *CheckerMySQLCheck) updatePeriod(period time.Duration) {
 	if c.running && (c.period != period) {
 		c.period = period
-		c.ticker.Reset(time.Duration(c.period * float64(time.Second)))
+		c.ticker.Reset(c.period)
 
-		log.Warn().Float64("period", c.period).Str("address", c.backend.address).Msg("Updating Backend probing period")
+		log.Warn().Dur("period", c.period).Str("address", c.backend.address).Msg("Updating Backend probing period")
 	}
 }
 
@@ -148,7 +148,7 @@ func (c *CheckerMySQLCheck) resetPeriod() {
 }
 
 func (c *CheckerMySQLCheck) applyBackoff() {
-	new_period := c.period * c.backoff_factor
+	new_period := time.Duration(float64(c.period) * c.backoff_factor)
 	if new_period > c.max_period {
 		new_period = c.max_period
 	}

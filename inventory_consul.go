@@ -34,9 +34,9 @@ type InventoryConsul struct {
 	id             string
 	url            string
 	service        string
-	period         float64
-	default_period float64
-	max_period     float64
+	period         time.Duration
+	default_period time.Duration
+	max_period     time.Duration
 	backoff_factor float64
 	index          string
 	ticker         *time.Ticker
@@ -48,26 +48,32 @@ type InventoryConsul struct {
 	log            zerolog.Logger
 }
 
-func NewInventoryConsul(id string, url string, service string, default_period float64, max_period float64, backoff_factor float64, wg *sync.WaitGroup, ctx context.Context) *InventoryConsul {
+func NewInventoryConsul(config ConsulInventoryConfig, wg *sync.WaitGroup, ctx context.Context) *InventoryConsul {
 	c := &InventoryConsul{
-		id:             id,
-		url:            url,
-		service:        service,
-		period:         default_period,
-		default_period: default_period,
-		max_period:     max_period,
-		backoff_factor: backoff_factor,
+		id:             config.ID,
+		url:            config.URL,
+		service:        config.Service,
+		backoff_factor: config.BackoffFactor,
 		subscribers:    make([]chan BackendMessage, 0),
 		backends:       make(map[string]*Backend),
-		log:            log.With().Str("id", id).Logger(),
+		log:            log.With().Str("id", config.ID).Logger(),
 	}
+
+	var err error
+
+	c.default_period, err = time.ParseDuration(config.Period)
+	panicIfErr(err)
+	c.period = c.default_period
+
+	c.max_period, err = time.ParseDuration(config.MaxPeriod)
+	panicIfErr(err)
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
 
 	wg.Add(1)
 	c.log.Info().Str("url", c.url).Msg("Polling Consul")
 
-	c.ticker = time.NewTicker(time.Duration(c.period * float64(time.Second)))
+	c.ticker = time.NewTicker(c.period)
 
 	go func() {
 		defer wg.Done()
@@ -167,11 +173,11 @@ func (c *InventoryConsul) sendMessage(m BackendMessage) {
 	}
 }
 
-func (c *InventoryConsul) updatePeriod(period float64) {
+func (c *InventoryConsul) updatePeriod(period time.Duration) {
 	if c.period != period {
 		c.period = period
-		c.ticker.Reset(time.Duration(c.period * float64(time.Second)))
-		c.log.Warn().Float64("period", c.period).Msg("Updating Consul fetch period")
+		c.ticker.Reset(c.period)
+		c.log.Warn().Dur("period", c.period).Msg("Updating Consul fetch period")
 	}
 }
 
@@ -180,7 +186,7 @@ func (c *InventoryConsul) resetPeriod() {
 }
 
 func (c *InventoryConsul) applyBackoff() {
-	new_period := c.period * c.backoff_factor
+	new_period := time.Duration(float64(c.period) * c.backoff_factor)
 	if new_period > c.max_period {
 		new_period = c.max_period
 	}

@@ -18,13 +18,13 @@ type BalancerWRR struct {
 	log          zerolog.Logger
 }
 
-func NewBalancerWRR(id string, source Subscribable, wg *sync.WaitGroup, ctx context.Context) *BalancerWRR {
+func NewBalancerWRR(config WRRBalancerConfig, sources map[string]Subscribable, wg *sync.WaitGroup, ctx context.Context) *BalancerWRR {
 	b := &BalancerWRR{
-		id:           id,
+		id:           config.ID,
 		backends:     make(map[string]*Backend),
 		weightedlist: make([]string, 0),
 		iterator:     0,
-		log:          log.With().Str("id", id).Logger(),
+		log:          log.With().Str("id", config.ID).Logger(),
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -37,7 +37,7 @@ func NewBalancerWRR(id string, source Subscribable, wg *sync.WaitGroup, ctx cont
 		defer b.log.Info().Msg("WRR Balancer stopped")
 		defer cancel()
 
-		msg_chan := source.Subscribe()
+		msg_chan := sources[config.Source].Subscribe()
 
 	mainloop:
 		for {

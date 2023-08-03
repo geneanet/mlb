@@ -20,15 +20,15 @@ type Filter struct {
 	log            zerolog.Logger
 }
 
-func NewFilter(id string, tag string, status string, source Subscribable, wg *sync.WaitGroup, ctx context.Context) *Filter {
+func NewFilter(config SimpleFilterConfig, sources map[string]Subscribable, wg *sync.WaitGroup, ctx context.Context) *Filter {
 	f := &Filter{
-		id:          id,
-		source:      source,
+		id:          config.ID,
+		source:      sources[config.Source],
 		subscribers: []chan BackendMessage{},
-		tag:         tag,
-		status:      status,
+		tag:         config.Tag,
+		status:      config.Status,
 		backends:    make(map[string]*Backend),
-		log:         log.With().Str("id", id).Logger(),
+		log:         log.With().Str("id", config.ID).Logger(),
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
