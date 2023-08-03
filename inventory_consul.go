@@ -44,6 +44,7 @@ type InventoryConsul struct {
 	cancel         context.CancelFunc
 	subscribers    []chan BackendMessage
 	backends       map[string]*Backend
+	backends_mutex sync.RWMutex
 	log            zerolog.Logger
 }
 
@@ -89,6 +90,8 @@ func NewInventoryConsul(id string, url string, service string, default_period fl
 
 				added, modified, removed := consulServicesDiff(old, services)
 
+				c.backends_mutex.Lock()
+
 				for address, service := range added {
 					c.backends[address] = &Backend{
 						address: address,
@@ -121,6 +124,8 @@ func NewInventoryConsul(id string, url string, service string, default_period fl
 					})
 				}
 
+				c.backends_mutex.Unlock()
+
 				old = services
 			}
 
@@ -139,6 +144,20 @@ func NewInventoryConsul(id string, url string, service string, default_period fl
 func (c *InventoryConsul) Subscribe() chan BackendMessage {
 	ch := make(chan BackendMessage)
 	c.subscribers = append(c.subscribers, ch)
+
+	go func() {
+		c.backends_mutex.RLock()
+		defer c.backends_mutex.RUnlock()
+
+		for _, backend := range c.backends {
+			c.sendMessage(BackendMessage{
+				kind:    MsgBackendAdded,
+				address: backend.address,
+				backend: backend,
+			})
+		}
+	}()
+
 	return ch
 }
 

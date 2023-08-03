@@ -10,13 +10,14 @@ import (
 )
 
 type Filter struct {
-	id          string
-	source      Subscribable
-	subscribers []chan BackendMessage
-	tag         string
-	status      string
-	backends    map[string]*Backend
-	log         zerolog.Logger
+	id             string
+	source         Subscribable
+	subscribers    []chan BackendMessage
+	tag            string
+	status         string
+	backends       map[string]*Backend
+	backends_mutex sync.RWMutex
+	log            zerolog.Logger
 }
 
 func NewFilter(id string, tag string, status string, source Subscribable, wg *sync.WaitGroup, ctx context.Context) *Filter {
@@ -46,6 +47,7 @@ func NewFilter(id string, tag string, status string, source Subscribable, wg *sy
 		for {
 			select {
 			case msg := <-msg_chan: // Backend changed
+				f.backends_mutex.Lock()
 				switch msg.kind {
 				case MsgBackendAdded, MsgBackendModified:
 					if _, ok := f.backends[msg.address]; ok { // Modified
@@ -83,7 +85,7 @@ func NewFilter(id string, tag string, status string, source Subscribable, wg *sy
 						})
 					}
 				}
-
+				f.backends_mutex.Unlock()
 			case <-ctx.Done(): // Context cancelled
 				break mainloop
 			}
@@ -93,14 +95,28 @@ func NewFilter(id string, tag string, status string, source Subscribable, wg *sy
 	return f
 }
 
-func (c *Filter) Subscribe() chan BackendMessage {
+func (f *Filter) Subscribe() chan BackendMessage {
 	ch := make(chan BackendMessage)
-	c.subscribers = append(c.subscribers, ch)
+	f.subscribers = append(f.subscribers, ch)
+
+	go func() {
+		f.backends_mutex.RLock()
+		defer f.backends_mutex.RUnlock()
+
+		for _, backend := range f.backends {
+			f.sendMessage(BackendMessage{
+				kind:    MsgBackendAdded,
+				address: backend.address,
+				backend: backend,
+			})
+		}
+	}()
+
 	return ch
 }
 
-func (c *Filter) sendMessage(m BackendMessage) {
-	for _, s := range c.subscribers {
+func (f *Filter) sendMessage(m BackendMessage) {
+	for _, s := range f.subscribers {
 		s <- m
 	}
 }

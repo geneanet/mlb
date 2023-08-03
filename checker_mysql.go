@@ -11,6 +11,7 @@ import (
 type CheckerMySQL struct {
 	id             string
 	checks         map[string]*CheckerMySQLCheck
+	checks_mutex   sync.RWMutex
 	user           string
 	password       string
 	default_period float64
@@ -53,13 +54,16 @@ func NewCheckerMySQL(id string, user string, password string, default_period flo
 		for {
 			select {
 			case backend := <-status_chan: // Backend status changed
+				c.checks_mutex.Lock()
 				c.sendMessage(BackendMessage{
 					kind:    MsgBackendModified,
 					address: backend.address,
 					backend: backend,
 				})
+				c.checks_mutex.Unlock()
 
 			case msg := <-msg_chan: // Backend changed
+				c.checks_mutex.Lock()
 				switch msg.kind {
 				case MsgBackendAdded, MsgBackendModified:
 					if check, ok := c.checks[msg.address]; ok { // Modified
@@ -104,6 +108,7 @@ func NewCheckerMySQL(id string, user string, password string, default_period flo
 						})
 					}
 				}
+				c.checks_mutex.Unlock()
 
 			case <-c.ctx.Done(): // Context cancelled
 				// Stop backends
@@ -112,6 +117,7 @@ func NewCheckerMySQL(id string, user string, password string, default_period flo
 				}
 				break mainloop
 			}
+
 		}
 	}()
 
@@ -121,6 +127,20 @@ func NewCheckerMySQL(id string, user string, password string, default_period flo
 func (c *CheckerMySQL) Subscribe() chan BackendMessage {
 	ch := make(chan BackendMessage)
 	c.subscribers = append(c.subscribers, ch)
+
+	go func() {
+		c.checks_mutex.RLock()
+		defer c.checks_mutex.RUnlock()
+
+		for _, check := range c.checks {
+			c.sendMessage(BackendMessage{
+				kind:    MsgBackendAdded,
+				address: check.backend.address,
+				backend: check.backend,
+			})
+		}
+	}()
+
 	return ch
 }
 
