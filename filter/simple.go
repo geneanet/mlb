@@ -2,13 +2,20 @@ package filter
 
 import (
 	"context"
+	"fmt"
 	"mlb/backend"
 	"sync"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/exp/slices"
 )
+
+func init() {
+	factories["simple"] = &SimpleFilterFactory{}
+}
 
 type SimpleFilter struct {
 	fullname       string
@@ -28,7 +35,23 @@ type SimpleFilterConfig struct {
 	Status   string `hcl:"status"`
 }
 
-func NewSimpleFilter(config *SimpleFilterConfig, sources map[string]backend.Subscribable, wg *sync.WaitGroup, ctx context.Context) *SimpleFilter {
+type SimpleFilterFactory struct{}
+
+func (w SimpleFilterFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
+	config := &SimpleFilterConfig{}
+	return gohcl.DecodeBody(tc.Config, nil, config)
+}
+
+func (w SimpleFilterFactory) parseConfig(tc *Config) *SimpleFilterConfig {
+	config := &SimpleFilterConfig{}
+	gohcl.DecodeBody(tc.Config, nil, config)
+	config.FullName = fmt.Sprintf("filter.%s.%s", tc.Type, tc.Name)
+	return config
+}
+
+func (w SimpleFilterFactory) New(tc *Config, sources map[string]backend.Subscribable, wg *sync.WaitGroup, ctx context.Context) backend.Subscribable {
+	config := w.parseConfig(tc)
+
 	f := &SimpleFilter{
 		fullname:    config.FullName,
 		source:      sources[config.Source],

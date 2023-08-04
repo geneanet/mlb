@@ -53,27 +53,27 @@ func main() {
 	backendProviders := make(map[string]backend.BackendProvider, 0)
 
 	for _, c := range conf.InventoryList {
-		s := inventory.NewInventory(c, &wg, ctx)
+		s := inventory.New(c, &wg, ctx)
 		subscribables[fmt.Sprintf("inventory.%s.%s", c.Type, c.Name)] = s
 	}
 
 	for _, c := range conf.CheckerList {
-		s := checker.NewChecker(c, subscribables, &wg, ctx)
+		s := checker.New(c, subscribables, &wg, ctx)
 		subscribables[fmt.Sprintf("checker.%s.%s", c.Type, c.Name)] = s
 	}
 
 	for _, c := range conf.FilterList {
-		s := filter.NewFilter(c, subscribables, &wg, ctx)
+		s := filter.New(c, subscribables, &wg, ctx)
 		subscribables[fmt.Sprintf("filter.%s.%s", c.Type, c.Name)] = s
 	}
 
 	for _, c := range conf.BalancerList {
-		b := balancer.NewBalancer(c, subscribables, &wg, ctx)
+		b := balancer.New(c, subscribables, &wg, ctx)
 		backendProviders[fmt.Sprintf("balancer.%s.%s", c.Type, c.Name)] = b
 	}
 
 	for _, c := range conf.ProxyList {
-		proxy.NewProxy(c, backendProviders, &wg, ctx)
+		proxy.New(c, backendProviders, &wg, ctx)
 	}
 
 	metrics.NewHTTPServer(conf.Metrics.Address, &wg, ctx)

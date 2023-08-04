@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"mlb/backend"
 	"mlb/metrics"
@@ -14,10 +15,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sys/unix"
 )
+
+func init() {
+	factories["tcp"] = &TCPProxyFactory{}
+}
 
 type ProxyTCP struct {
 	fullname        string
@@ -38,7 +45,23 @@ type TCPProxyConfig struct {
 	CloseTimeout string `hcl:"close_timeout"`
 }
 
-func NewProxyTCP(config *TCPProxyConfig, backendProviders map[string]backend.BackendProvider, wg *sync.WaitGroup, ctx context.Context) *ProxyTCP {
+type TCPProxyFactory struct{}
+
+func (w TCPProxyFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
+	config := &TCPProxyConfig{}
+	return gohcl.DecodeBody(tc.Config, nil, config)
+}
+
+func (w TCPProxyFactory) parseConfig(tc *Config) *TCPProxyConfig {
+	config := &TCPProxyConfig{}
+	gohcl.DecodeBody(tc.Config, nil, config)
+	config.FullName = fmt.Sprintf("filter.%s.%s", tc.Type, tc.Name)
+	return config
+}
+
+func (w TCPProxyFactory) New(tc *Config, backendProviders map[string]backend.BackendProvider, wg *sync.WaitGroup, ctx context.Context) {
+	config := w.parseConfig(tc)
+
 	p := &ProxyTCP{
 		fullname:        config.FullName,
 		address:         config.Address,
@@ -98,8 +121,6 @@ func NewProxyTCP(config *TCPProxyConfig, backendProviders map[string]backend.Bac
 
 		p.connections_wg.Wait()
 	}()
-
-	return p
 }
 
 func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan bool) {

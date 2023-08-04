@@ -4,20 +4,47 @@ import (
 	"context"
 	"fmt"
 	"mlb/backend"
-	"mlb/config"
 	"sync"
 
-	"github.com/hashicorp/hcl/v2/gohcl"
+	"github.com/hashicorp/hcl/v2"
 )
 
-func NewFilter(tc *config.TypedConfig, sources map[string]backend.Subscribable, wg *sync.WaitGroup, ctx context.Context) backend.Subscribable {
-	switch tc.Type {
-	case "simple":
-		c := &SimpleFilterConfig{}
-		gohcl.DecodeBody(tc.Config, nil, c)
-		c.FullName = fmt.Sprintf("filter.%s.%s", tc.Type, tc.Name)
-		return NewSimpleFilter(c, sources, wg, ctx)
-	default:
-		panic("") // TODO
+type Config struct {
+	Type   string
+	Name   string
+	Config hcl.Body
+}
+
+func DecodeConfigBlock(block *hcl.Block) *Config {
+	return &Config{
+		Type:   block.Labels[0],
+		Name:   block.Labels[1],
+		Config: block.Body,
 	}
 }
+
+func New(tc *Config, sources map[string]backend.Subscribable, wg *sync.WaitGroup, ctx context.Context) backend.Subscribable {
+	return factories[tc.Type].New(tc, sources, wg, ctx)
+}
+
+func ValidateConfig(tc *Config) hcl.Diagnostics {
+	if _, ok := factories[tc.Type]; !ok {
+		return hcl.Diagnostics{
+			{
+				Severity: hcl.DiagError,
+				Summary:  "Reference to unsupported filter type",
+				Detail:   fmt.Sprintf("Filter type %q is not supported.", tc.Type),
+			},
+		}
+	}
+	return factories[tc.Type].ValidateConfig(tc)
+}
+
+type FactoryInterface interface {
+	New(config *Config, sources map[string]backend.Subscribable, wg *sync.WaitGroup, ctx context.Context) backend.Subscribable
+	ValidateConfig(config *Config) hcl.Diagnostics
+}
+
+var (
+	factories = map[string]FactoryInterface{}
+)

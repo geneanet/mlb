@@ -10,12 +10,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	"mlb/backend"
 	"mlb/misc"
 )
+
+func init() {
+	factories["consul"] = &ConsulInventoryFactory{}
+}
 
 type consulService struct {
 	Service struct {
@@ -60,7 +66,23 @@ type ConsulInventoryConfig struct {
 	BackoffFactor float64 `hcl:"backoff_factor"`
 }
 
-func NewInventoryConsul(config *ConsulInventoryConfig, wg *sync.WaitGroup, ctx context.Context) *InventoryConsul {
+type ConsulInventoryFactory struct{}
+
+func (w ConsulInventoryFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
+	config := &ConsulInventoryConfig{}
+	return gohcl.DecodeBody(tc.Config, nil, config)
+}
+
+func (w ConsulInventoryFactory) parseConfig(tc *Config) *ConsulInventoryConfig {
+	config := &ConsulInventoryConfig{}
+	gohcl.DecodeBody(tc.Config, nil, config)
+	config.FullName = fmt.Sprintf("consul.%s.%s", tc.Type, tc.Name)
+	return config
+}
+
+func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) backend.Subscribable {
+	config := w.parseConfig(tc)
+
 	c := &InventoryConsul{
 		fullname:       config.FullName,
 		url:            config.URL,

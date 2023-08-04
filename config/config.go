@@ -1,6 +1,11 @@
 package config
 
 import (
+	"mlb/balancer"
+	"mlb/checker"
+	"mlb/filter"
+	"mlb/inventory"
+	"mlb/proxy"
 	"os"
 
 	"github.com/hashicorp/hcl/v2"
@@ -8,20 +13,14 @@ import (
 	"github.com/hashicorp/hcl/v2/hclparse"
 )
 
-type TypedConfig struct {
-	Type   string
-	Name   string
-	Config hcl.Body
-}
-
 type Config struct {
-	InventoryList []*TypedConfig `hcl:"inventory,block"`
-	CheckerList   []*TypedConfig `hcl:"checker,block"`
-	FilterList    []*TypedConfig `hcl:"filter,block"`
-	BalancerList  []*TypedConfig `hcl:"balancer,block"`
-	ProxyList     []*TypedConfig `hcl:"proxy,block"`
-	Metrics       *MetricsConfig `hcl:"metrics,block"`
-	System        *SystemConfig  `hcl:"system,block"`
+	InventoryList []*inventory.Config `hcl:"inventory,block"`
+	CheckerList   []*checker.Config   `hcl:"checker,block"`
+	FilterList    []*filter.Config    `hcl:"filter,block"`
+	BalancerList  []*balancer.Config  `hcl:"balancer,block"`
+	ProxyList     []*proxy.Config     `hcl:"proxy,block"`
+	Metrics       *MetricsConfig      `hcl:"metrics,block"`
+	System        *SystemConfig       `hcl:"system,block"`
 }
 
 type MetricsConfig struct {
@@ -69,14 +68,6 @@ var configFileSchema = &hcl.BodySchema{
 	},
 }
 
-func decodeTypedConfigBlock(block *hcl.Block) *TypedConfig {
-	return &TypedConfig{
-		Type:   block.Labels[0],
-		Name:   block.Labels[1],
-		Config: block.Body,
-	}
-}
-
 func decodeMetricsBlock(block *hcl.Block) (*MetricsConfig, hcl.Diagnostics) {
 	c := &MetricsConfig{}
 	diag := gohcl.DecodeBody(block.Body, nil, c)
@@ -100,14 +91,14 @@ func RenderConfigDiag(diags hcl.Diagnostics, parser *hclparse.Parser) {
 }
 
 func LoadConfig(path string) (*Config, hcl.Diagnostics) {
-	var diags hcl.Diagnostics
+	diags := hcl.Diagnostics{}
 	p := hclparse.NewParser()
 	c := &Config{
-		InventoryList: []*TypedConfig{},
-		CheckerList:   []*TypedConfig{},
-		FilterList:    []*TypedConfig{},
-		BalancerList:  []*TypedConfig{},
-		ProxyList:     []*TypedConfig{},
+		InventoryList: []*inventory.Config{},
+		CheckerList:   []*checker.Config{},
+		FilterList:    []*filter.Config{},
+		BalancerList:  []*balancer.Config{},
+		ProxyList:     []*proxy.Config{},
 	}
 
 	defer func() {
@@ -125,15 +116,30 @@ func LoadConfig(path string) (*Config, hcl.Diagnostics) {
 	for _, block := range content.Blocks {
 		switch block.Type {
 		case "inventory":
-			c.InventoryList = append(c.InventoryList, decodeTypedConfigBlock(block))
+			config := inventory.DecodeConfigBlock(block)
+			diagsInventory := inventory.ValidateConfig(config)
+			diags = append(diags, diagsInventory...)
+			c.InventoryList = append(c.InventoryList, config)
 		case "checker":
-			c.CheckerList = append(c.CheckerList, decodeTypedConfigBlock(block))
+			config := checker.DecodeConfigBlock(block)
+			diagsChecker := checker.ValidateConfig(config)
+			diags = append(diags, diagsChecker...)
+			c.CheckerList = append(c.CheckerList, config)
 		case "filter":
-			c.FilterList = append(c.FilterList, decodeTypedConfigBlock(block))
+			config := filter.DecodeConfigBlock(block)
+			diagsFilter := filter.ValidateConfig(config)
+			diags = append(diags, diagsFilter...)
+			c.FilterList = append(c.FilterList, config)
 		case "balancer":
-			c.BalancerList = append(c.BalancerList, decodeTypedConfigBlock(block))
+			config := balancer.DecodeConfigBlock(block)
+			diagsBalancer := balancer.ValidateConfig(config)
+			diags = append(diags, diagsBalancer...)
+			c.BalancerList = append(c.BalancerList, config)
 		case "proxy":
-			c.ProxyList = append(c.ProxyList, decodeTypedConfigBlock(block))
+			config := proxy.DecodeConfigBlock(block)
+			diagsProxy := proxy.ValidateConfig(config)
+			diags = append(diags, diagsProxy...)
+			c.ProxyList = append(c.ProxyList, config)
 		case "metrics":
 			var metricsDiags hcl.Diagnostics
 			c.Metrics, metricsDiags = decodeMetricsBlock(block)

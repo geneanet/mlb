@@ -2,8 +2,11 @@ package balancer
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/exp/slices"
@@ -11,7 +14,11 @@ import (
 	"mlb/backend"
 )
 
-type BalancerWRR struct {
+func init() {
+	factories["wrr"] = &WRRBalancerFactory{}
+}
+
+type WRRBalancer struct {
 	fullname     string
 	backends     map[string]*backend.Backend
 	weightedlist []string
@@ -25,8 +32,24 @@ type WRRBalancerConfig struct {
 	Source   string `hcl:"source"`
 }
 
-func NewBalancerWRR(config *WRRBalancerConfig, sources map[string]backend.Subscribable, wg *sync.WaitGroup, ctx context.Context) *BalancerWRR {
-	b := &BalancerWRR{
+type WRRBalancerFactory struct{}
+
+func (w WRRBalancerFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
+	config := &WRRBalancerConfig{}
+	return gohcl.DecodeBody(tc.Config, nil, config)
+}
+
+func (w WRRBalancerFactory) parseConfig(tc *Config) *WRRBalancerConfig {
+	config := &WRRBalancerConfig{}
+	gohcl.DecodeBody(tc.Config, nil, config)
+	config.FullName = fmt.Sprintf("balancer.%s.%s", tc.Type, tc.Name)
+	return config
+}
+
+func (w WRRBalancerFactory) New(tc *Config, sources map[string]backend.Subscribable, wg *sync.WaitGroup, ctx context.Context) backend.BackendProvider {
+	config := w.parseConfig(tc)
+
+	b := &WRRBalancer{
 		fullname:     config.FullName,
 		backends:     make(map[string]*backend.Backend),
 		weightedlist: make([]string, 0),
@@ -84,7 +107,7 @@ func NewBalancerWRR(config *WRRBalancerConfig, sources map[string]backend.Subscr
 	return b
 }
 
-func (b *BalancerWRR) GetBackend() *backend.Backend {
+func (b *WRRBalancer) GetBackend() *backend.Backend {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

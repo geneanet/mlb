@@ -2,16 +2,23 @@ package checker
 
 import (
 	"context"
+	"fmt"
 	"mlb/backend"
 	"mlb/misc"
 	"sync"
 	"time"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
-type CheckerMySQL struct {
+func init() {
+	factories["mysql"] = &MySQLCheckerFactory{}
+}
+
+type MySQLChecker struct {
 	fullname       string
 	checks         map[string]*CheckerMySQLCheck
 	checks_mutex   sync.RWMutex
@@ -37,8 +44,24 @@ type MySQLCheckerConfig struct {
 	BackoffFactor float64 `hcl:"backoff_factor"`
 }
 
-func NewCheckerMySQL(config *MySQLCheckerConfig, sources map[string]backend.Subscribable, wg *sync.WaitGroup, ctx context.Context) *CheckerMySQL {
-	c := &CheckerMySQL{
+type MySQLCheckerFactory struct{}
+
+func (w MySQLCheckerFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
+	config := &MySQLCheckerConfig{}
+	return gohcl.DecodeBody(tc.Config, nil, config)
+}
+
+func (w MySQLCheckerFactory) parseConfig(tc *Config) *MySQLCheckerConfig {
+	config := &MySQLCheckerConfig{}
+	gohcl.DecodeBody(tc.Config, nil, config)
+	config.FullName = fmt.Sprintf("checker.%s.%s", tc.Type, tc.Name)
+	return config
+}
+
+func (w MySQLCheckerFactory) New(tc *Config, sources map[string]backend.Subscribable, wg *sync.WaitGroup, ctx context.Context) backend.Subscribable {
+	config := w.parseConfig(tc)
+
+	c := &MySQLChecker{
 		fullname:       config.FullName,
 		checks:         make(map[string]*CheckerMySQLCheck),
 		user:           config.User,
@@ -142,7 +165,7 @@ func NewCheckerMySQL(config *MySQLCheckerConfig, sources map[string]backend.Subs
 	return c
 }
 
-func (c *CheckerMySQL) Subscribe() chan backend.BackendMessage {
+func (c *MySQLChecker) Subscribe() chan backend.BackendMessage {
 	ch := make(chan backend.BackendMessage)
 	c.subscribers = append(c.subscribers, ch)
 
@@ -162,7 +185,7 @@ func (c *CheckerMySQL) Subscribe() chan backend.BackendMessage {
 	return ch
 }
 
-func (c *CheckerMySQL) sendMessage(m backend.BackendMessage) {
+func (c *MySQLChecker) sendMessage(m backend.BackendMessage) {
 	for _, s := range c.subscribers {
 		s <- m
 	}
