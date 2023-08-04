@@ -1,8 +1,9 @@
-package main
+package metrics
 
 import (
 	"context"
 	"errors"
+	"mlb/misc"
 	"net"
 	"net/http"
 	"os"
@@ -14,7 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func HTTPLogWrapper(original_handler http.Handler) http.Handler {
+func httpLogWrapper(original_handler http.Handler) http.Handler {
 	logFn := func(rw http.ResponseWriter, r *http.Request) {
 		uri := r.RequestURI
 		method := r.Method
@@ -38,7 +39,7 @@ func NewHTTPServer(address string, wg *sync.WaitGroup, ctx context.Context) {
 	go func() {
 		<-ctx.Done()
 		err := srv.Shutdown(context.Background())
-		panicIfErr(err)
+		misc.PanicIfErr(err)
 	}()
 
 	// Start the server and serve the requests
@@ -62,14 +63,14 @@ func NewHTTPServer(address string, wg *sync.WaitGroup, ctx context.Context) {
 
 		// Bind
 		listener, err := lc.Listen(context.Background(), "tcp", address)
-		panicIfErr(err)
+		misc.PanicIfErr(err)
 
-		http.Handle("/metrics", HTTPLogWrapper(promhttp.Handler()))
+		http.Handle("/metrics", httpLogWrapper(promhttp.Handler()))
 
 		err = srv.Serve(listener)
 		if errors.Is(err, http.ErrServerClosed) {
 			return
 		}
-		panicIfErr(err)
+		misc.PanicIfErr(err)
 	}()
 }

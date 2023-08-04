@@ -1,7 +1,9 @@
-package main
+package checker
 
 import (
 	"database/sql"
+	"mlb/backend"
+	"mlb/misc"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -9,21 +11,21 @@ import (
 )
 
 type CheckerMySQLCheck struct {
-	backend        *Backend
+	backend        *backend.Backend
 	user           string
 	password       string
 	period         time.Duration
 	default_period time.Duration
 	max_period     time.Duration
 	backoff_factor float64
-	status_chan    chan *Backend
+	status_chan    chan *backend.Backend
 	ticker         *time.Ticker
 	stop_chan      chan bool
 	running        bool
 	db             *sql.DB
 }
 
-func NewCheckerMySQLCheck(backend *Backend, user string, password string, default_period time.Duration, max_period time.Duration, backoff_factor float64, status_chan chan *Backend) *CheckerMySQLCheck {
+func NewCheckerMySQLCheck(backend *backend.Backend, user string, password string, default_period time.Duration, max_period time.Duration, backoff_factor float64, status_chan chan *backend.Backend) *CheckerMySQLCheck {
 	c := &CheckerMySQLCheck{
 		backend:        backend,
 		user:           user,
@@ -39,9 +41,9 @@ func NewCheckerMySQLCheck(backend *Backend, user string, password string, defaul
 	return c
 }
 
-func (c *CheckerMySQLCheck) UpdateBackend(b *Backend) {
-	c.backend.weight = b.weight
-	c.backend.UpdateTags(b.tags)
+func (c *CheckerMySQLCheck) UpdateBackend(b *backend.Backend) {
+	c.backend.Weight = b.Weight
+	c.backend.UpdateTags(b.Tags)
 
 }
 
@@ -55,17 +57,17 @@ func (c *CheckerMySQLCheck) fetchStatus() (ret_s string, ret_e error) {
 		}
 	}()
 
-	log.Trace().Str("address", c.backend.address).Msg("Probing Backend")
+	log.Trace().Str("address", c.backend.Address).Msg("Probing Backend")
 
 	result, err := c.db.Query("SELECT @@read_only")
-	panicIfErr(err)
+	misc.PanicIfErr(err)
 	defer result.Close()
 
 	var read_only bool
 
 	result.Next()
 	err = result.Scan(&read_only)
-	panicIfErr(err)
+	misc.PanicIfErr(err)
 
 	c.resetPeriod()
 
@@ -80,15 +82,15 @@ func (c *CheckerMySQLCheck) updateStatus() {
 	new_status, err := c.fetchStatus()
 
 	if err != nil {
-		log.Error().Str("address", c.backend.address).Err(err).Msg("Error while fetching status from backend")
+		log.Error().Str("address", c.backend.Address).Err(err).Msg("Error while fetching status from backend")
 	}
 
-	if new_status != c.backend.status {
-		log.Info().Str("address", c.backend.address).Str("old_status", c.backend.status).Str("new_status", new_status).Msg("Backend status changed")
+	if new_status != c.backend.Status {
+		log.Info().Str("address", c.backend.Address).Str("old_status", c.backend.Status).Str("new_status", new_status).Msg("Backend status changed")
 		c.status_chan <- c.backend
 	}
 
-	c.backend.status = new_status
+	c.backend.Status = new_status
 }
 
 func (c *CheckerMySQLCheck) StartPolling() error {
@@ -97,7 +99,7 @@ func (c *CheckerMySQLCheck) StartPolling() error {
 	}
 	c.running = true
 
-	db, err := sql.Open("mysql", c.user+":"+c.password+"@tcp("+c.backend.address+")/")
+	db, err := sql.Open("mysql", c.user+":"+c.password+"@tcp("+c.backend.Address+")/")
 	if err != nil {
 		return err
 	}
@@ -139,7 +141,7 @@ func (c *CheckerMySQLCheck) updatePeriod(period time.Duration) {
 		c.period = period
 		c.ticker.Reset(c.period)
 
-		log.Warn().Dur("period", c.period).Str("address", c.backend.address).Msg("Updating Backend probing period")
+		log.Warn().Dur("period", c.period).Str("address", c.backend.Address).Msg("Updating Backend probing period")
 	}
 }
 

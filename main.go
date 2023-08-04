@@ -3,13 +3,22 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
+	"mlb/backend"
+	"mlb/balancer"
+	"mlb/checker"
+	"mlb/config"
+	"mlb/filter"
+	"mlb/inventory"
+	"mlb/metrics"
+	"mlb/misc"
+	"mlb/proxy"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 	"time"
 
-	"github.com/hashicorp/hcl/v2/hclsimple"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -19,6 +28,7 @@ func main() {
 	var wg sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
 
+	arg_config := flag.String("config", "config.hcl", "config file")
 	arg_debug := flag.Bool("debug", false, "sets log level to debug")
 	flag.Parse()
 
@@ -28,44 +38,45 @@ func main() {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
 
-	// Parse config
-	var config Config
-	err := hclsimple.DecodeFile("config.hcl", nil, &config)
-	panicIfErr(err)
+	// Parse conf
+	conf, diags := config.LoadConfig(*arg_config)
+	if diags.HasErrors() {
+		os.Exit(1)
+	}
 
-	if config.RLimitNOFile > 0 {
-		setRlimitNOFILE(config.RLimitNOFile)
+	if conf.System.RLimit.NOFile > 0 {
+		misc.SetRlimitNOFILE(conf.System.RLimit.NOFile)
 	}
 
 	// Start serious business
-	subscribables := make(map[string]Subscribable, 0)
-	backendProviders := make(map[string]BackendProvider, 0)
+	subscribables := make(map[string]backend.Subscribable, 0)
+	backendProviders := make(map[string]backend.BackendProvider, 0)
 
-	for _, c := range config.ConsulInventoryList {
-		s := NewInventoryConsul(c, &wg, ctx)
-		subscribables[c.ID] = s
+	for _, c := range conf.InventoryList {
+		s := inventory.NewInventory(c, &wg, ctx)
+		subscribables[fmt.Sprintf("inventory.%s.%s", c.Type, c.Name)] = s
 	}
 
-	for _, c := range config.MySQLCheckerList {
-		s := NewCheckerMySQL(c, subscribables, &wg, ctx)
-		subscribables[c.ID] = s
+	for _, c := range conf.CheckerList {
+		s := checker.NewChecker(c, subscribables, &wg, ctx)
+		subscribables[fmt.Sprintf("checker.%s.%s", c.Type, c.Name)] = s
 	}
 
-	for _, c := range config.SimpleFilterList {
-		s := NewFilter(c, subscribables, &wg, ctx)
-		subscribables[c.ID] = s
+	for _, c := range conf.FilterList {
+		s := filter.NewFilter(c, subscribables, &wg, ctx)
+		subscribables[fmt.Sprintf("filter.%s.%s", c.Type, c.Name)] = s
 	}
 
-	for _, c := range config.WRRBalancerList {
-		b := NewBalancerWRR(c, subscribables, &wg, ctx)
-		backendProviders[c.ID] = b
+	for _, c := range conf.BalancerList {
+		b := balancer.NewBalancer(c, subscribables, &wg, ctx)
+		backendProviders[fmt.Sprintf("balancer.%s.%s", c.Type, c.Name)] = b
 	}
 
-	for _, c := range config.TCPProxyList {
-		NewProxyTCP(c, backendProviders, &wg, ctx)
+	for _, c := range conf.ProxyList {
+		proxy.NewProxy(c, backendProviders, &wg, ctx)
 	}
 
-	NewHTTPServer(config.HTTPAddress, &wg, ctx)
+	metrics.NewHTTPServer(conf.Metrics.Address, &wg, ctx)
 
 	// Termination signals
 	chan_signals := make(chan os.Signal, 1)

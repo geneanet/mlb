@@ -1,4 +1,4 @@
-package main
+package inventory
 
 import (
 	"context"
@@ -12,6 +12,9 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
+	"mlb/backend"
+	"mlb/misc"
 )
 
 type consulService struct {
@@ -31,7 +34,7 @@ type consulServicesMap map[string]consulService
 type consulServicesSlice []consulService
 
 type InventoryConsul struct {
-	id             string
+	fullname       string
 	url            string
 	service        string
 	period         time.Duration
@@ -42,31 +45,40 @@ type InventoryConsul struct {
 	ticker         *time.Ticker
 	ctx            context.Context
 	cancel         context.CancelFunc
-	subscribers    []chan BackendMessage
-	backends       map[string]*Backend
+	subscribers    []chan backend.BackendMessage
+	backends       map[string]*backend.Backend
 	backends_mutex sync.RWMutex
 	log            zerolog.Logger
 }
 
-func NewInventoryConsul(config ConsulInventoryConfig, wg *sync.WaitGroup, ctx context.Context) *InventoryConsul {
+type ConsulInventoryConfig struct {
+	FullName      string  `hcl:"name,label"`
+	URL           string  `hcl:"url"`
+	Service       string  `hcl:"service"`
+	Period        string  `hcl:"period"`
+	MaxPeriod     string  `hcl:"max_period"`
+	BackoffFactor float64 `hcl:"backoff_factor"`
+}
+
+func NewInventoryConsul(config *ConsulInventoryConfig, wg *sync.WaitGroup, ctx context.Context) *InventoryConsul {
 	c := &InventoryConsul{
-		id:             config.ID,
+		fullname:       config.FullName,
 		url:            config.URL,
 		service:        config.Service,
 		backoff_factor: config.BackoffFactor,
-		subscribers:    make([]chan BackendMessage, 0),
-		backends:       make(map[string]*Backend),
-		log:            log.With().Str("id", config.ID).Logger(),
+		subscribers:    make([]chan backend.BackendMessage, 0),
+		backends:       make(map[string]*backend.Backend),
+		log:            log.With().Str("id", config.FullName).Logger(),
 	}
 
 	var err error
 
 	c.default_period, err = time.ParseDuration(config.Period)
-	panicIfErr(err)
+	misc.PanicIfErr(err)
 	c.period = c.default_period
 
 	c.max_period, err = time.ParseDuration(config.MaxPeriod)
-	panicIfErr(err)
+	misc.PanicIfErr(err)
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
 
@@ -99,34 +111,34 @@ func NewInventoryConsul(config ConsulInventoryConfig, wg *sync.WaitGroup, ctx co
 				c.backends_mutex.Lock()
 
 				for address, service := range added {
-					c.backends[address] = &Backend{
-						address: address,
-						status:  "unk",
-						tags:    service.Service.Tags,
-						weight:  service.Service.Weights.Passing,
+					c.backends[address] = &backend.Backend{
+						Address: address,
+						Status:  "unk",
+						Tags:    service.Service.Tags,
+						Weight:  service.Service.Weights.Passing,
 					}
-					c.sendMessage(BackendMessage{
-						kind:    MsgBackendAdded,
-						address: address,
-						backend: c.backends[address],
+					c.sendMessage(backend.BackendMessage{
+						Kind:    backend.MsgBackendAdded,
+						Address: address,
+						Backend: c.backends[address],
 					})
 				}
 
 				for address, service := range modified {
 					c.backends[address].UpdateTags(service.Service.Tags)
-					c.backends[address].weight = service.Service.Weights.Passing
-					c.sendMessage(BackendMessage{
-						kind:    MsgBackendModified,
-						address: address,
-						backend: c.backends[address],
+					c.backends[address].Weight = service.Service.Weights.Passing
+					c.sendMessage(backend.BackendMessage{
+						Kind:    backend.MsgBackendModified,
+						Address: address,
+						Backend: c.backends[address],
 					})
 				}
 
 				for address := range removed {
 					delete(c.backends, address)
-					c.sendMessage(BackendMessage{
-						kind:    MsgBackendRemoved,
-						address: address,
+					c.sendMessage(backend.BackendMessage{
+						Kind:    backend.MsgBackendRemoved,
+						Address: address,
 					})
 				}
 
@@ -147,19 +159,19 @@ func NewInventoryConsul(config ConsulInventoryConfig, wg *sync.WaitGroup, ctx co
 	return c
 }
 
-func (c *InventoryConsul) Subscribe() chan BackendMessage {
-	ch := make(chan BackendMessage)
+func (c *InventoryConsul) Subscribe() chan backend.BackendMessage {
+	ch := make(chan backend.BackendMessage)
 	c.subscribers = append(c.subscribers, ch)
 
 	go func() {
 		c.backends_mutex.RLock()
 		defer c.backends_mutex.RUnlock()
 
-		for _, backend := range c.backends {
-			c.sendMessage(BackendMessage{
-				kind:    MsgBackendAdded,
-				address: backend.address,
-				backend: backend,
+		for _, b := range c.backends {
+			c.sendMessage(backend.BackendMessage{
+				Kind:    backend.MsgBackendAdded,
+				Address: b.Address,
+				Backend: b,
 			})
 		}
 	}()
@@ -167,7 +179,7 @@ func (c *InventoryConsul) Subscribe() chan BackendMessage {
 	return ch
 }
 
-func (c *InventoryConsul) sendMessage(m BackendMessage) {
+func (c *InventoryConsul) sendMessage(m backend.BackendMessage) {
 	for _, s := range c.subscribers {
 		s <- m
 	}
@@ -207,10 +219,10 @@ func (c *InventoryConsul) fetch() (ret_s consulServicesSlice, ret_e error) {
 	defer cancel()
 
 	rq, err := http.NewRequestWithContext(ctx, "GET", c.url+"/v1/health/service/"+c.service+"?index="+c.index+"&timeout=60s", nil)
-	panicIfErr(err)
+	misc.PanicIfErr(err)
 
 	resp, err := http.DefaultClient.Do(rq)
-	panicIfErr(err)
+	misc.PanicIfErr(err)
 	defer resp.Body.Close()
 
 	c.log.Debug().Int("status", resp.StatusCode).Msg("Service list fetched")
@@ -220,11 +232,11 @@ func (c *InventoryConsul) fetch() (ret_s consulServicesSlice, ret_e error) {
 	}
 
 	body, err := io.ReadAll(resp.Body)
-	panicIfErr(err)
+	misc.PanicIfErr(err)
 
 	var data consulServicesSlice
 	err = json.Unmarshal(body, &data)
-	panicIfErr(err)
+	misc.PanicIfErr(err)
 
 	c.index = resp.Header.Get("X-Consul-Index")
 

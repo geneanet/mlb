@@ -1,4 +1,4 @@
-package main
+package misc
 
 import (
 	"syscall"
@@ -6,21 +6,13 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type Subscribable interface {
-	Subscribe() chan BackendMessage
-}
-
-type BackendProvider interface {
-	GetBackend() *Backend
-}
-
-func panicIfErr(err error) {
+func PanicIfErr(err error) {
 	if err != nil {
 		panic(err)
 	}
 }
 
-func setRlimitNOFILE(nofile uint64) {
+func SetRlimitNOFILE(nofile uint64) {
 	var rLimit syscall.Rlimit
 
 	log.Debug().Uint64("value", nofile).Msg("Setting RLIMIT_NOFILE")
@@ -29,5 +21,5 @@ func setRlimitNOFILE(nofile uint64) {
 	rLimit.Cur = nofile
 
 	err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit)
-	panicIfErr(err)
+	PanicIfErr(err)
 }

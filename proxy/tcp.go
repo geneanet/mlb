@@ -1,9 +1,12 @@
-package main
+package proxy
 
 import (
 	"context"
 	"errors"
 	"io"
+	"mlb/backend"
+	"mlb/metrics"
+	"mlb/misc"
 	"net"
 	"net/netip"
 	"os"
@@ -17,9 +20,9 @@ import (
 )
 
 type ProxyTCP struct {
-	id              string
+	fullname        string
 	address         string
-	backendProvider BackendProvider
+	backendProvider backend.BackendProvider
 	close_timeout   time.Duration
 	listener        net.Listener
 	connections_wg  sync.WaitGroup
@@ -28,17 +31,24 @@ type ProxyTCP struct {
 	log             zerolog.Logger
 }
 
-func NewProxyTCP(config TCPProxyConfig, backendProviders map[string]BackendProvider, wg *sync.WaitGroup, ctx context.Context) *ProxyTCP {
+type TCPProxyConfig struct {
+	FullName     string `hcl:"name,label"`
+	Source       string `hcl:"source"`
+	Address      string `hcl:"address"`
+	CloseTimeout string `hcl:"close_timeout"`
+}
+
+func NewProxyTCP(config *TCPProxyConfig, backendProviders map[string]backend.BackendProvider, wg *sync.WaitGroup, ctx context.Context) *ProxyTCP {
 	p := &ProxyTCP{
-		id:              config.ID,
+		fullname:        config.FullName,
 		address:         config.Address,
 		backendProvider: backendProviders[config.Source],
-		log:             log.With().Str("id", config.ID).Logger(),
+		log:             log.With().Str("id", config.FullName).Logger(),
 	}
 
 	var err error
 	p.close_timeout, err = time.ParseDuration(config.CloseTimeout)
-	panicIfErr(err)
+	misc.PanicIfErr(err)
 
 	wg.Add(1)
 
@@ -61,12 +71,12 @@ func NewProxyTCP(config TCPProxyConfig, backendProviders map[string]BackendProvi
 
 	// Bind
 	p.listener, err = lc.Listen(context.Background(), "tcp", p.address)
-	panicIfErr(err)
+	misc.PanicIfErr(err)
 
 	go func() {
 		<-p.ctx.Done()
 		err := p.listener.Close()
-		panicIfErr(err)
+		misc.PanicIfErr(err)
 	}()
 
 	go func() {
@@ -80,7 +90,7 @@ func NewProxyTCP(config TCPProxyConfig, backendProviders map[string]BackendProvi
 			if errors.Is(err, net.ErrClosed) {
 				break
 			}
-			panicIfErr(err)
+			misc.PanicIfErr(err)
 			p.connections_wg.Add(1)
 			p.log.Debug().Str("peer", conn.RemoteAddr().String()).Msg("Accepting Frontend connection")
 			go p.handle_connection(conn)
@@ -108,12 +118,12 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan bool) {
 		if err == io.EOF || errors.Is(err, net.ErrClosed) {
 			return
 		}
-		panicIfErr(err)
+		misc.PanicIfErr(err)
 		_, err = output.Write(buffer[:nbytes])
 		if errors.Is(err, net.ErrClosed) {
 			return
 		}
-		panicIfErr(err)
+		misc.PanicIfErr(err)
 	}
 }
 
@@ -144,47 +154,47 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 	}()
 
 	err := conn_front.(*net.TCPConn).SetNoDelay(true)
-	panicIfErr(err)
+	misc.PanicIfErr(err)
 
 	// Prometheus
-	metrics_FeCnxProcessed.WithLabelValues(p.address).Inc()
-	metrics_FeActCnx.WithLabelValues(p.address).Inc()
-	defer metrics_FeActCnx.WithLabelValues(p.address).Dec()
+	metrics.FeCnxProcessed.WithLabelValues(p.address).Inc()
+	metrics.FeActCnx.WithLabelValues(p.address).Inc()
+	defer metrics.FeActCnx.WithLabelValues(p.address).Dec()
 
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
 			p.log.Error().Str("peer", conn_front.RemoteAddr().String()).Err(r.(error)).Msg("Error while processing connection")
 			// Prometheus
-			metrics_FeCnxErrors.WithLabelValues(p.address).Inc()
+			metrics.FeCnxErrors.WithLabelValues(p.address).Inc()
 		}
 	}()
 
 	backend := p.backendProvider.GetBackend()
 	var backend_address string
 	if backend != nil {
-		backend_address = backend.address
+		backend_address = backend.Address
 	} else {
 		panic(errors.New("no backend found"))
 	}
 
 	// Prometheus
-	metrics_BeCnxProcessed.WithLabelValues(backend_address).Inc()
-	metrics_BeActCnx.WithLabelValues(backend_address).Inc()
-	defer metrics_BeActCnx.WithLabelValues(backend_address).Dec()
+	metrics.BeCnxProcessed.WithLabelValues(backend_address).Inc()
+	metrics.BeActCnx.WithLabelValues(backend_address).Inc()
+	defer metrics.BeActCnx.WithLabelValues(backend_address).Dec()
 
 	// Open backend connection
 	backend_addrport, err := netip.ParseAddrPort(backend_address)
-	panicIfErr(err)
+	misc.PanicIfErr(err)
 
 	p.log.Debug().Str("peer", backend_address).Msg("Opening Backend connection")
 	conn_back, err := net.DialTCP("tcp", nil, net.TCPAddrFromAddrPort(backend_addrport))
-	panicIfErr(err)
+	misc.PanicIfErr(err)
 	defer conn_back.Close()
 	defer p.log.Debug().Str("peer", backend_address).Msg("Closing Backend connection")
 
 	err = conn_back.SetNoDelay(true)
-	panicIfErr(err)
+	misc.PanicIfErr(err)
 
 	// Pipe the connections both ways
 	done_front_back := make(chan bool)
