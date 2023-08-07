@@ -21,6 +21,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/exp/slices"
 )
 
 // Main
@@ -29,10 +30,11 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	arg_config := flag.String("config", "config.hcl", "config file")
+	arg_kill := flag.Int("kill", 0, "Kill process PID")
 	arg_debug := flag.Bool("debug", false, "sets log level to debug")
 	flag.Parse()
 
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Int("pid", os.Getpid()).Logger()
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	if *arg_debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
@@ -80,12 +82,46 @@ func main() {
 
 	// Termination signals
 	chan_signals := make(chan os.Signal, 1)
-	signal.Notify(chan_signals, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(chan_signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGUSR1)
 	go func() {
-		<-chan_signals
-		log.Info().Msg("Termination signal received")
-		cancel()
+		for {
+			switch <-chan_signals {
+			case syscall.SIGINT, syscall.SIGTERM:
+				log.Info().Msg("Termination signal received")
+				cancel()
+
+			case syscall.SIGUSR1:
+				log.Info().Msg("Restart signal received")
+
+				procAttr := os.ProcAttr{
+					Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
+				}
+
+				// Ensure the children has the kill switch with current PID
+				var args = make([]string, len(os.Args))
+				copy(args, os.Args)
+				if i := slices.Index(args, "--kill"); i >= 0 { // Update the PID if the switch was present
+					args[i+1] = fmt.Sprintf("%d", os.Getpid())
+				} else { // Add the switch if it was not present
+					args = append(args, "--kill", fmt.Sprintf("%d", os.Getpid()))
+				}
+
+				_, err := os.StartProcess(args[0], args, &procAttr)
+
+				if err != nil {
+					log.Error().Err(err).Msg("Error while starting the new process")
+				}
+			}
+		}
 	}()
+
+	// If we have the kill switch, kill the given PID after a short delay
+	if *arg_kill != 0 {
+		go func() {
+			time.Sleep(5 * time.Second)
+			syscall.Kill(*arg_kill, syscall.SIGTERM)
+		}()
+	}
 
 	wg.Wait()
 }
