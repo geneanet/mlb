@@ -1,0 +1,42 @@
+metrics {
+  address = ":2112"
+}
+
+system {
+  rlimit {
+    nofile = 65536
+  }
+}
+
+inventory "consul" "mysql" {
+  url = "http://localhost:8500"
+  service = "mysql"
+  // period = "1s"
+  // max_period = "5s"
+  // backoff_factor = 1.5
+}
+
+checker "mysql" "mysql" {
+  source = "inventory.consul.mysql"
+  user = "mlb"
+  password = "mlb_password"
+  // period = "500ms"
+  // max_period = "2s"
+  // backoff_factor = 1.5
+}
+
+filter "simple" "mysql_main_ro" {
+  source = "checker.mysql.mysql"
+  tag = "main"
+  status = "ro"
+}
+
+balancer "wrr" "mysql_main_ro" {
+  source = "filter.simple.mysql_main_ro"
+}
+
+proxy "tcp" "mysql_main_ro" {
+  source = "balancer.wrr.mysql_main_ro"
+  address = ":3306"
+  // close_timeout = "10s"
+}
