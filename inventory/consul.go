@@ -61,9 +61,9 @@ type ConsulInventoryConfig struct {
 	FullName      string  `hcl:"name,label"`
 	URL           string  `hcl:"url"`
 	Service       string  `hcl:"service"`
-	Period        string  `hcl:"period"`
-	MaxPeriod     string  `hcl:"max_period"`
-	BackoffFactor float64 `hcl:"backoff_factor"`
+	Period        string  `hcl:"period,optional"`
+	MaxPeriod     string  `hcl:"max_period,optional"`
+	BackoffFactor float64 `hcl:"backoff_factor,optional"`
 }
 
 type ConsulInventoryFactory struct{}
@@ -77,6 +77,15 @@ func (w ConsulInventoryFactory) parseConfig(tc *Config) *ConsulInventoryConfig {
 	config := &ConsulInventoryConfig{}
 	gohcl.DecodeBody(tc.Config, nil, config)
 	config.FullName = fmt.Sprintf("consul.%s.%s", tc.Type, tc.Name)
+	if config.Period == "" {
+		config.Period = "1s"
+	}
+	if config.MaxPeriod == "" {
+		config.MaxPeriod = "5s"
+	}
+	if config.BackoffFactor == 0 {
+		config.BackoffFactor = 1.5
+	}
 	return config
 }
 

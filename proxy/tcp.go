@@ -42,7 +42,7 @@ type TCPProxyConfig struct {
 	FullName     string `hcl:"name,label"`
 	Source       string `hcl:"source"`
 	Address      string `hcl:"address"`
-	CloseTimeout string `hcl:"close_timeout"`
+	CloseTimeout string `hcl:"close_timeout,optional"`
 }
 
 type TCPProxyFactory struct{}
@@ -56,6 +56,9 @@ func (w TCPProxyFactory) parseConfig(tc *Config) *TCPProxyConfig {
 	config := &TCPProxyConfig{}
 	gohcl.DecodeBody(tc.Config, nil, config)
 	config.FullName = fmt.Sprintf("filter.%s.%s", tc.Type, tc.Name)
+	if config.CloseTimeout == "" {
+		config.CloseTimeout = "0s"
+	}
 	return config
 }
 

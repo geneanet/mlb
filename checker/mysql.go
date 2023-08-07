@@ -37,11 +37,11 @@ type MySQLChecker struct {
 type MySQLCheckerConfig struct {
 	FullName      string  `hcl:"name,label"`
 	Source        string  `hcl:"source"`
-	User          string  `hcl:"user"`
-	Password      string  `hcl:"password"`
-	Period        string  `hcl:"period"`
-	MaxPeriod     string  `hcl:"max_period"`
-	BackoffFactor float64 `hcl:"backoff_factor"`
+	User          string  `hcl:"user,optional"`
+	Password      string  `hcl:"password,optional"`
+	Period        string  `hcl:"period,optional"`
+	MaxPeriod     string  `hcl:"max_period,optional"`
+	BackoffFactor float64 `hcl:"backoff_factor,optional"`
 }
 
 type MySQLCheckerFactory struct{}
@@ -55,6 +55,15 @@ func (w MySQLCheckerFactory) parseConfig(tc *Config) *MySQLCheckerConfig {
 	config := &MySQLCheckerConfig{}
 	gohcl.DecodeBody(tc.Config, nil, config)
 	config.FullName = fmt.Sprintf("checker.%s.%s", tc.Type, tc.Name)
+	if config.Period == "" {
+		config.Period = "500ms"
+	}
+	if config.MaxPeriod == "" {
+		config.MaxPeriod = "2s"
+	}
+	if config.BackoffFactor == 0 {
+		config.BackoffFactor = 1.5
+	}
 	return config
 }
 
