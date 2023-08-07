@@ -11,8 +11,8 @@ import (
 	"mlb/filter"
 	"mlb/inventory"
 	"mlb/metrics"
-	"mlb/misc"
 	"mlb/proxy"
+	"mlb/system"
 	"os"
 	"os/signal"
 	"sync"
@@ -45,7 +45,7 @@ func main() {
 	}
 
 	if conf.System.RLimit.NOFile > 0 {
-		misc.SetRlimitNOFILE(conf.System.RLimit.NOFile)
+		system.SetRlimitNOFILE(conf.System.RLimit.NOFile)
 	}
 
 	// Start serious business

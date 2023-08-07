@@ -10,10 +10,22 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sys/unix"
 )
+
+type MetricsConfig struct {
+	Address string `hcl:"address"`
+}
+
+func DecodeConfigBlock(block *hcl.Block) (*MetricsConfig, hcl.Diagnostics) {
+	c := &MetricsConfig{}
+	diag := gohcl.DecodeBody(block.Body, nil, c)
+	return c, diag
+}
 
 func httpLogWrapper(original_handler http.Handler) http.Handler {
 	logFn := func(rw http.ResponseWriter, r *http.Request) {

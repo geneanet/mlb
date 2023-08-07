@@ -5,34 +5,23 @@ import (
 	"mlb/checker"
 	"mlb/filter"
 	"mlb/inventory"
+	"mlb/metrics"
 	"mlb/proxy"
+	"mlb/system"
 	"os"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclparse"
 )
 
 type Config struct {
-	InventoryList []*inventory.Config `hcl:"inventory,block"`
-	CheckerList   []*checker.Config   `hcl:"checker,block"`
-	FilterList    []*filter.Config    `hcl:"filter,block"`
-	BalancerList  []*balancer.Config  `hcl:"balancer,block"`
-	ProxyList     []*proxy.Config     `hcl:"proxy,block"`
-	Metrics       *MetricsConfig      `hcl:"metrics,block"`
-	System        *SystemConfig       `hcl:"system,block"`
-}
-
-type MetricsConfig struct {
-	Address string `hcl:"address"`
-}
-
-type SystemConfig struct {
-	RLimit RLimitConfig `hcl:"rlimit,block"`
-}
-
-type RLimitConfig struct {
-	NOFile uint64 `hcl:"nofile"`
+	InventoryList []*inventory.Config    `hcl:"inventory,block"`
+	CheckerList   []*checker.Config      `hcl:"checker,block"`
+	FilterList    []*filter.Config       `hcl:"filter,block"`
+	BalancerList  []*balancer.Config     `hcl:"balancer,block"`
+	ProxyList     []*proxy.Config        `hcl:"proxy,block"`
+	Metrics       *metrics.MetricsConfig `hcl:"metrics,block"`
+	System        *system.SystemConfig   `hcl:"system,block"`
 }
 
 ///////////////////////////
@@ -66,18 +55,6 @@ var configFileSchema = &hcl.BodySchema{
 			Type: "system",
 		},
 	},
-}
-
-func decodeMetricsBlock(block *hcl.Block) (*MetricsConfig, hcl.Diagnostics) {
-	c := &MetricsConfig{}
-	diag := gohcl.DecodeBody(block.Body, nil, c)
-	return c, diag
-}
-
-func decodeSystemBlock(block *hcl.Block) (*SystemConfig, hcl.Diagnostics) {
-	c := &SystemConfig{}
-	diag := gohcl.DecodeBody(block.Body, nil, c)
-	return c, diag
 }
 
 func RenderConfigDiag(diags hcl.Diagnostics, parser *hclparse.Parser) {
@@ -142,11 +119,11 @@ func LoadConfig(path string) (*Config, hcl.Diagnostics) {
 			c.ProxyList = append(c.ProxyList, config)
 		case "metrics":
 			var metricsDiags hcl.Diagnostics
-			c.Metrics, metricsDiags = decodeMetricsBlock(block)
+			c.Metrics, metricsDiags = metrics.DecodeConfigBlock(block)
 			diags = append(diags, metricsDiags...)
 		case "system":
 			var systemDiags hcl.Diagnostics
-			c.System, systemDiags = decodeSystemBlock(block)
+			c.System, systemDiags = system.DecodeConfigBlock(block)
 			diags = append(diags, systemDiags...)
 		}
 	}
