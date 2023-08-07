@@ -93,30 +93,35 @@ func LoadConfig(path string) (*Config, hcl.Diagnostics) {
 	for _, block := range content.Blocks {
 		switch block.Type {
 		case "inventory":
-			config := inventory.DecodeConfigBlock(block)
-			diagsInventory := inventory.ValidateConfig(config)
+			config, diagsInventory := inventory.DecodeConfigBlock(block)
 			diags = append(diags, diagsInventory...)
-			c.InventoryList = append(c.InventoryList, config)
+			if config != nil {
+				c.InventoryList = append(c.InventoryList, config)
+			}
 		case "checker":
-			config := checker.DecodeConfigBlock(block)
-			diagsChecker := checker.ValidateConfig(config)
+			config, diagsChecker := checker.DecodeConfigBlock(block)
 			diags = append(diags, diagsChecker...)
-			c.CheckerList = append(c.CheckerList, config)
+			if config != nil {
+				c.CheckerList = append(c.CheckerList, config)
+			}
 		case "filter":
-			config := filter.DecodeConfigBlock(block)
-			diagsFilter := filter.ValidateConfig(config)
+			config, diagsFilter := filter.DecodeConfigBlock(block)
 			diags = append(diags, diagsFilter...)
-			c.FilterList = append(c.FilterList, config)
+			if config != nil {
+				c.FilterList = append(c.FilterList, config)
+			}
 		case "balancer":
-			config := balancer.DecodeConfigBlock(block)
-			diagsBalancer := balancer.ValidateConfig(config)
+			config, diagsBalancer := balancer.DecodeConfigBlock(block)
 			diags = append(diags, diagsBalancer...)
-			c.BalancerList = append(c.BalancerList, config)
+			if config != nil {
+				c.BalancerList = append(c.BalancerList, config)
+			}
 		case "proxy":
-			config := proxy.DecodeConfigBlock(block)
-			diagsProxy := proxy.ValidateConfig(config)
+			config, diagsProxy := proxy.DecodeConfigBlock(block)
 			diags = append(diags, diagsProxy...)
-			c.ProxyList = append(c.ProxyList, config)
+			if config != nil {
+				c.ProxyList = append(c.ProxyList, config)
+			}
 		case "metrics":
 			var metricsDiags hcl.Diagnostics
 			c.Metrics, metricsDiags = metrics.DecodeConfigBlock(block)
