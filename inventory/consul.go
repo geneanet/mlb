@@ -51,7 +51,7 @@ type InventoryConsul struct {
 	ticker         *time.Ticker
 	ctx            context.Context
 	cancel         context.CancelFunc
-	subscribers    []chan backend.BackendMessage
+	subscribers    []chan backend.BackendUpdate
 	backends       backend.BackendsMap
 	backends_mutex sync.RWMutex
 	log            zerolog.Logger
@@ -89,7 +89,7 @@ func (w ConsulInventoryFactory) parseConfig(tc *Config) *ConsulInventoryConfig {
 	return config
 }
 
-func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) backend.Subscribable {
+func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) backend.BackendUpdateProvider {
 	config := w.parseConfig(tc)
 
 	c := &InventoryConsul{
@@ -97,7 +97,7 @@ func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.
 		url:            config.URL,
 		service:        config.Service,
 		backoff_factor: config.BackoffFactor,
-		subscribers:    make([]chan backend.BackendMessage, 0),
+		subscribers:    make([]chan backend.BackendUpdate, 0),
 		backends:       make(backend.BackendsMap),
 		log:            log.With().Str("id", config.FullName).Logger(),
 	}
@@ -150,8 +150,8 @@ func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.
 						Weight:  service.Service.Weights.Passing,
 						Meta:    map[string]backend.MetaValue{},
 					}
-					c.sendMessage(backend.BackendMessage{
-						Kind:    backend.MsgBackendAdded,
+					c.sendUpdate(backend.BackendUpdate{
+						Kind:    backend.UpdBackendAdded,
 						Address: address,
 						Backend: c.backends[address],
 					})
@@ -161,8 +161,8 @@ func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.
 					log.Debug().Str("address", address).Msg("Service modified")
 					c.backends[address].Tags = backend.NewTagList(service.Service.Tags)
 					c.backends[address].Weight = service.Service.Weights.Passing
-					c.sendMessage(backend.BackendMessage{
-						Kind:    backend.MsgBackendModified,
+					c.sendUpdate(backend.BackendUpdate{
+						Kind:    backend.UpdBackendModified,
 						Address: address,
 						Backend: c.backends[address],
 					})
@@ -171,8 +171,8 @@ func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.
 				for address := range removed {
 					log.Debug().Str("address", address).Msg("Service removed")
 					delete(c.backends, address)
-					c.sendMessage(backend.BackendMessage{
-						Kind:    backend.MsgBackendRemoved,
+					c.sendUpdate(backend.BackendUpdate{
+						Kind:    backend.UpdBackendRemoved,
 						Address: address,
 					})
 				}
@@ -194,8 +194,8 @@ func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.
 	return c
 }
 
-func (c *InventoryConsul) Subscribe() chan backend.BackendMessage {
-	ch := make(chan backend.BackendMessage)
+func (c *InventoryConsul) Subscribe() chan backend.BackendUpdate {
+	ch := make(chan backend.BackendUpdate)
 	c.subscribers = append(c.subscribers, ch)
 
 	go func() {
@@ -203,8 +203,8 @@ func (c *InventoryConsul) Subscribe() chan backend.BackendMessage {
 		defer c.backends_mutex.RUnlock()
 
 		for _, b := range c.backends {
-			c.sendMessage(backend.BackendMessage{
-				Kind:    backend.MsgBackendAdded,
+			c.sendUpdate(backend.BackendUpdate{
+				Kind:    backend.UpdBackendAdded,
 				Address: b.Address,
 				Backend: b,
 			})
@@ -214,7 +214,7 @@ func (c *InventoryConsul) Subscribe() chan backend.BackendMessage {
 	return ch
 }
 
-func (c *InventoryConsul) sendMessage(m backend.BackendMessage) {
+func (c *InventoryConsul) sendUpdate(m backend.BackendUpdate) {
 	for _, s := range c.subscribers {
 		s <- m
 	}

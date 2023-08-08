@@ -18,8 +18,8 @@ func init() {
 
 type SimpleFilter struct {
 	fullname       string
-	source         backend.Subscribable
-	subscribers    []chan backend.BackendMessage
+	source         backend.BackendUpdateProvider
+	subscribers    []chan backend.BackendUpdate
 	include_tags   []string
 	exclude_tags   []string
 	status         string
@@ -57,13 +57,13 @@ func (w SimpleFilterFactory) parseConfig(tc *Config) *SimpleFilterConfig {
 	return config
 }
 
-func (w SimpleFilterFactory) New(tc *Config, sources map[string]backend.Subscribable, wg *sync.WaitGroup, ctx context.Context) backend.Subscribable {
+func (w SimpleFilterFactory) New(tc *Config, sources map[string]backend.BackendUpdateProvider, wg *sync.WaitGroup, ctx context.Context) backend.BackendUpdateProvider {
 	config := w.parseConfig(tc)
 
 	f := &SimpleFilter{
 		fullname:     config.FullName,
 		source:       sources[config.Source],
-		subscribers:  []chan backend.BackendMessage{},
+		subscribers:  []chan backend.BackendUpdate{},
 		include_tags: config.IncludeTags,
 		exclude_tags: config.ExcludeTags,
 		status:       config.Status,
@@ -86,47 +86,47 @@ func (w SimpleFilterFactory) New(tc *Config, sources map[string]backend.Subscrib
 		defer f.log.Info().Msg("Filter stopped")
 		defer cancel()
 
-		msg_chan := f.source.Subscribe()
+		upd_chan := f.source.Subscribe()
 
 	mainloop:
 		for {
 			select {
-			case msg := <-msg_chan: // Backend changed
+			case upd := <-upd_chan: // Backend changed
 				f.backends_mutex.Lock()
-				switch msg.Kind {
-				case backend.MsgBackendAdded, backend.MsgBackendModified:
-					if _, ok := f.backends[msg.Address]; ok { // Modified
-						if f.matchFilter(msg.Backend) { // Still passes the filter
-							f.backends[msg.Address] = msg.Backend.Clone()
-							f.sendMessage(backend.BackendMessage{
-								Kind:    backend.MsgBackendModified,
-								Address: f.backends[msg.Address].Address,
-								Backend: f.backends[msg.Address],
+				switch upd.Kind {
+				case backend.UpdBackendAdded, backend.UpdBackendModified:
+					if _, ok := f.backends[upd.Address]; ok { // Modified
+						if f.matchFilter(upd.Backend) { // Still passes the filter
+							f.backends[upd.Address] = upd.Backend.Clone()
+							f.sendUpdate(backend.BackendUpdate{
+								Kind:    backend.UpdBackendModified,
+								Address: f.backends[upd.Address].Address,
+								Backend: f.backends[upd.Address],
 							})
 						} else { // Do not pass the filter anymore
-							delete(f.backends, msg.Address)
-							f.sendMessage(backend.BackendMessage{
-								Kind:    backend.MsgBackendRemoved,
-								Address: msg.Address,
+							delete(f.backends, upd.Address)
+							f.sendUpdate(backend.BackendUpdate{
+								Kind:    backend.UpdBackendRemoved,
+								Address: upd.Address,
 							})
 						}
 					} else { // Added
-						if f.matchFilter(msg.Backend) {
-							f.backends[msg.Address] = msg.Backend.Clone()
-							f.sendMessage(backend.BackendMessage{
-								Kind:    backend.MsgBackendAdded,
-								Address: f.backends[msg.Address].Address,
-								Backend: f.backends[msg.Address],
+						if f.matchFilter(upd.Backend) {
+							f.backends[upd.Address] = upd.Backend.Clone()
+							f.sendUpdate(backend.BackendUpdate{
+								Kind:    backend.UpdBackendAdded,
+								Address: f.backends[upd.Address].Address,
+								Backend: f.backends[upd.Address],
 							})
 						}
 					}
-				case backend.MsgBackendRemoved:
+				case backend.UpdBackendRemoved:
 					// Removed
-					if _, ok := f.backends[msg.Address]; ok {
-						delete(f.backends, msg.Address)
-						f.sendMessage(backend.BackendMessage{
-							Kind:    backend.MsgBackendRemoved,
-							Address: msg.Address,
+					if _, ok := f.backends[upd.Address]; ok {
+						delete(f.backends, upd.Address)
+						f.sendUpdate(backend.BackendUpdate{
+							Kind:    backend.UpdBackendRemoved,
+							Address: upd.Address,
 						})
 					}
 				}
@@ -140,8 +140,8 @@ func (w SimpleFilterFactory) New(tc *Config, sources map[string]backend.Subscrib
 	return f
 }
 
-func (f *SimpleFilter) Subscribe() chan backend.BackendMessage {
-	ch := make(chan backend.BackendMessage)
+func (f *SimpleFilter) Subscribe() chan backend.BackendUpdate {
+	ch := make(chan backend.BackendUpdate)
 	f.subscribers = append(f.subscribers, ch)
 
 	go func() {
@@ -149,8 +149,8 @@ func (f *SimpleFilter) Subscribe() chan backend.BackendMessage {
 		defer f.backends_mutex.RUnlock()
 
 		for _, b := range f.backends {
-			f.sendMessage(backend.BackendMessage{
-				Kind:    backend.MsgBackendAdded,
+			f.sendUpdate(backend.BackendUpdate{
+				Kind:    backend.UpdBackendAdded,
 				Address: b.Address,
 				Backend: b,
 			})
@@ -160,7 +160,7 @@ func (f *SimpleFilter) Subscribe() chan backend.BackendMessage {
 	return ch
 }
 
-func (f *SimpleFilter) sendMessage(m backend.BackendMessage) {
+func (f *SimpleFilter) sendUpdate(m backend.BackendUpdate) {
 	for _, s := range f.subscribers {
 		s <- m
 	}

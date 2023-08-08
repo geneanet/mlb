@@ -27,8 +27,8 @@ type MySQLChecker struct {
 	default_period time.Duration
 	max_period     time.Duration
 	backoff_factor float64
-	source         backend.Subscribable
-	subscribers    []chan backend.BackendMessage
+	source         backend.BackendUpdateProvider
+	subscribers    []chan backend.BackendUpdate
 	ctx            context.Context
 	cancel         context.CancelFunc
 	log            zerolog.Logger
@@ -67,7 +67,7 @@ func (w MySQLCheckerFactory) parseConfig(tc *Config) *MySQLCheckerConfig {
 	return config
 }
 
-func (w MySQLCheckerFactory) New(tc *Config, sources map[string]backend.Subscribable, wg *sync.WaitGroup, ctx context.Context) backend.Subscribable {
+func (w MySQLCheckerFactory) New(tc *Config, sources map[string]backend.BackendUpdateProvider, wg *sync.WaitGroup, ctx context.Context) backend.BackendUpdateProvider {
 	config := w.parseConfig(tc)
 
 	c := &MySQLChecker{
@@ -97,7 +97,7 @@ func (w MySQLCheckerFactory) New(tc *Config, sources map[string]backend.Subscrib
 		defer c.log.Info().Msg("MySQL checker stopped")
 		defer c.cancel()
 
-		msg_chan := c.source.Subscribe()
+		upd_chan := c.source.Subscribe()
 		status_chan := make(chan *backend.Backend)
 
 	mainloop:
@@ -105,28 +105,28 @@ func (w MySQLCheckerFactory) New(tc *Config, sources map[string]backend.Subscrib
 			select {
 			case b := <-status_chan: // Backend status changed
 				c.checks_mutex.Lock()
-				c.sendMessage(backend.BackendMessage{
-					Kind:    backend.MsgBackendModified,
+				c.sendUpdate(backend.BackendUpdate{
+					Kind:    backend.UpdBackendModified,
 					Address: b.Address,
 					Backend: b,
 				})
 				c.checks_mutex.Unlock()
 
-			case msg := <-msg_chan: // Backend changed
+			case upd := <-upd_chan: // Backend changed
 				c.checks_mutex.Lock()
-				switch msg.Kind {
-				case backend.MsgBackendAdded, backend.MsgBackendModified:
-					if check, ok := c.checks[msg.Address]; ok { // Modified
-						check.UpdateBackend(msg.Backend)
-						c.sendMessage(backend.BackendMessage{
-							Kind:    backend.MsgBackendModified,
+				switch upd.Kind {
+				case backend.UpdBackendAdded, backend.UpdBackendModified:
+					if check, ok := c.checks[upd.Address]; ok { // Modified
+						check.UpdateBackend(upd.Backend)
+						c.sendUpdate(backend.BackendUpdate{
+							Kind:    backend.UpdBackendModified,
 							Address: check.backend.Address,
 							Backend: check.backend,
 						})
 					} else { // Added
-						c.log.Info().Str("address", msg.Address).Msg("Adding MySQL check")
+						c.log.Info().Str("address", upd.Address).Msg("Adding MySQL check")
 						check := NewCheckerMySQLCheck(
-							msg.Backend.Clone(),
+							upd.Backend.Clone(),
 							c.user,
 							c.password,
 							c.default_period,
@@ -136,25 +136,25 @@ func (w MySQLCheckerFactory) New(tc *Config, sources map[string]backend.Subscrib
 						)
 						err := check.StartPolling()
 						if err != nil {
-							c.log.Error().Str("address", msg.Address).Err(err).Msg("Error while adding MySQL check")
+							c.log.Error().Str("address", upd.Address).Err(err).Msg("Error while adding MySQL check")
 						} else {
-							c.checks[msg.Address] = check
-							c.sendMessage(backend.BackendMessage{
-								Kind:    backend.MsgBackendAdded,
+							c.checks[upd.Address] = check
+							c.sendUpdate(backend.BackendUpdate{
+								Kind:    backend.UpdBackendAdded,
 								Address: check.backend.Address,
 								Backend: check.backend,
 							})
 						}
 					}
-				case backend.MsgBackendRemoved:
+				case backend.UpdBackendRemoved:
 					// Removed
-					if check, ok := c.checks[msg.Address]; ok {
-						c.log.Info().Str("address", msg.Address).Msg("Removing MySQL check")
+					if check, ok := c.checks[upd.Address]; ok {
+						c.log.Info().Str("address", upd.Address).Msg("Removing MySQL check")
 						check.StopPolling()
-						delete(c.checks, msg.Address)
-						c.sendMessage(backend.BackendMessage{
-							Kind:    backend.MsgBackendRemoved,
-							Address: msg.Address,
+						delete(c.checks, upd.Address)
+						c.sendUpdate(backend.BackendUpdate{
+							Kind:    backend.UpdBackendRemoved,
+							Address: upd.Address,
 						})
 					}
 				}
@@ -174,8 +174,8 @@ func (w MySQLCheckerFactory) New(tc *Config, sources map[string]backend.Subscrib
 	return c
 }
 
-func (c *MySQLChecker) Subscribe() chan backend.BackendMessage {
-	ch := make(chan backend.BackendMessage)
+func (c *MySQLChecker) Subscribe() chan backend.BackendUpdate {
+	ch := make(chan backend.BackendUpdate)
 	c.subscribers = append(c.subscribers, ch)
 
 	go func() {
@@ -183,8 +183,8 @@ func (c *MySQLChecker) Subscribe() chan backend.BackendMessage {
 		defer c.checks_mutex.RUnlock()
 
 		for _, check := range c.checks {
-			c.sendMessage(backend.BackendMessage{
-				Kind:    backend.MsgBackendAdded,
+			c.sendUpdate(backend.BackendUpdate{
+				Kind:    backend.UpdBackendAdded,
 				Address: check.backend.Address,
 				Backend: check.backend,
 			})
@@ -194,7 +194,7 @@ func (c *MySQLChecker) Subscribe() chan backend.BackendMessage {
 	return ch
 }
 
-func (c *MySQLChecker) sendMessage(m backend.BackendMessage) {
+func (c *MySQLChecker) sendUpdate(m backend.BackendUpdate) {
 	for _, s := range c.subscribers {
 		s <- m
 	}

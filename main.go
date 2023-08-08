@@ -54,7 +54,7 @@ func main() {
 	}
 
 	// Start serious business
-	subscribables := make(map[string]backend.Subscribable, 0)
+	subscribables := make(map[string]backend.BackendUpdateProvider, 0)
 	backendProviders := make(map[string]backend.BackendProvider, 0)
 
 	for _, c := range conf.InventoryList {

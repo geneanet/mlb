@@ -43,23 +43,23 @@ func (b *Backend) UpdateMeta(new_meta MetaMap, except ...string) {
 type BackendsMap map[string]*Backend
 
 // Messages
-type BackendMessage struct {
-	Kind    BackendMessageKind
+type BackendUpdate struct {
+	Kind    BackendUpdateKind
 	Address string
 	Backend *Backend
 }
 
-type BackendMessageKind int
+type BackendUpdateKind int
 
 const (
-	MsgBackendAdded BackendMessageKind = iota
-	MsgBackendModified
-	MsgBackendRemoved
+	UpdBackendAdded BackendUpdateKind = iota
+	UpdBackendModified
+	UpdBackendRemoved
 )
 
 // Interfaces
-type Subscribable interface {
-	Subscribe() chan BackendMessage
+type BackendUpdateProvider interface {
+	Subscribe() chan BackendUpdate
 }
 
 type BackendProvider interface {

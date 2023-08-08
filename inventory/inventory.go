@@ -35,7 +35,7 @@ func DecodeConfigBlock(block *hcl.Block) (*Config, hcl.Diagnostics) {
 	return tc, diags
 }
 
-func New(tc *Config, wg *sync.WaitGroup, ctx context.Context) backend.Subscribable {
+func New(tc *Config, wg *sync.WaitGroup, ctx context.Context) backend.BackendUpdateProvider {
 	return factories[tc.Type].New(tc, wg, ctx)
 }
 
@@ -44,7 +44,7 @@ func ValidateConfig(tc *Config) hcl.Diagnostics {
 }
 
 type FactoryInterface interface {
-	New(config *Config, wg *sync.WaitGroup, ctx context.Context) backend.Subscribable
+	New(config *Config, wg *sync.WaitGroup, ctx context.Context) backend.BackendUpdateProvider
 	ValidateConfig(config *Config) hcl.Diagnostics
 }
 

@@ -46,7 +46,7 @@ func (w WRRBalancerFactory) parseConfig(tc *Config) *WRRBalancerConfig {
 	return config
 }
 
-func (w WRRBalancerFactory) New(tc *Config, sources map[string]backend.Subscribable, wg *sync.WaitGroup, ctx context.Context) backend.BackendProvider {
+func (w WRRBalancerFactory) New(tc *Config, sources map[string]backend.BackendUpdateProvider, wg *sync.WaitGroup, ctx context.Context) backend.BackendProvider {
 	config := w.parseConfig(tc)
 
 	b := &WRRBalancer{
@@ -67,31 +67,31 @@ func (w WRRBalancerFactory) New(tc *Config, sources map[string]backend.Subscriba
 		defer b.log.Info().Msg("WRR Balancer stopped")
 		defer cancel()
 
-		msg_chan := sources[config.Source].Subscribe()
+		upd_chan := sources[config.Source].Subscribe()
 
 	mainloop:
 		for {
 			select {
-			case msg := <-msg_chan: // Backend changed
+			case upd := <-upd_chan: // Backend changed
 				b.mu.Lock()
-				switch msg.Kind {
-				case backend.MsgBackendAdded:
-					b.log.Info().Str("address", msg.Address).Int("weight", msg.Backend.Weight).Msg("Adding backend to WRR balancer")
-					b.backends[msg.Address] = msg.Backend.Clone()
-					for i := 0; i < msg.Backend.Weight; i++ {
-						b.weightedlist = append(b.weightedlist, msg.Address)
+				switch upd.Kind {
+				case backend.UpdBackendAdded:
+					b.log.Info().Str("address", upd.Address).Int("weight", upd.Backend.Weight).Msg("Adding backend to WRR balancer")
+					b.backends[upd.Address] = upd.Backend.Clone()
+					for i := 0; i < upd.Backend.Weight; i++ {
+						b.weightedlist = append(b.weightedlist, upd.Address)
 					}
-				case backend.MsgBackendModified:
-					b.log.Info().Str("address", msg.Address).Int("weight", msg.Backend.Weight).Msg("Updating backend in WRR balancer")
-					b.backends[msg.Address] = msg.Backend.Clone()
-					b.weightedlist = slices.DeleteFunc(b.weightedlist, func(a string) bool { return a == msg.Address })
-					for i := 0; i < msg.Backend.Weight; i++ {
-						b.weightedlist = append(b.weightedlist, msg.Address)
+				case backend.UpdBackendModified:
+					b.log.Info().Str("address", upd.Address).Int("weight", upd.Backend.Weight).Msg("Updating backend in WRR balancer")
+					b.backends[upd.Address] = upd.Backend.Clone()
+					b.weightedlist = slices.DeleteFunc(b.weightedlist, func(a string) bool { return a == upd.Address })
+					for i := 0; i < upd.Backend.Weight; i++ {
+						b.weightedlist = append(b.weightedlist, upd.Address)
 					}
-				case backend.MsgBackendRemoved:
-					b.log.Info().Str("address", msg.Address).Msg("Removing backend from WRR balancer")
-					b.weightedlist = slices.DeleteFunc(b.weightedlist, func(a string) bool { return a == msg.Address })
-					delete(b.backends, msg.Address)
+				case backend.UpdBackendRemoved:
+					b.log.Info().Str("address", upd.Address).Msg("Removing backend from WRR balancer")
+					b.weightedlist = slices.DeleteFunc(b.weightedlist, func(a string) bool { return a == upd.Address })
+					delete(b.backends, upd.Address)
 				}
 				if b.iterator >= len(b.weightedlist) {
 					b.iterator = 0
