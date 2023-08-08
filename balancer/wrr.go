@@ -20,7 +20,7 @@ func init() {
 
 type WRRBalancer struct {
 	fullname     string
-	backends     map[string]*backend.Backend
+	backends     backend.BackendsMap
 	weightedlist []string
 	mu           sync.Mutex
 	iterator     int
@@ -51,7 +51,7 @@ func (w WRRBalancerFactory) New(tc *Config, sources map[string]backend.Subscriba
 
 	b := &WRRBalancer{
 		fullname:     config.FullName,
-		backends:     make(map[string]*backend.Backend),
+		backends:     make(backend.BackendsMap),
 		weightedlist: make([]string, 0),
 		iterator:     0,
 		log:          log.With().Str("id", config.FullName).Logger(),
@@ -77,13 +77,13 @@ func (w WRRBalancerFactory) New(tc *Config, sources map[string]backend.Subscriba
 				switch msg.Kind {
 				case backend.MsgBackendAdded:
 					b.log.Info().Str("address", msg.Address).Int("weight", msg.Backend.Weight).Msg("Adding backend to WRR balancer")
-					b.backends[msg.Address] = msg.Backend.Copy()
+					b.backends[msg.Address] = msg.Backend.Clone()
 					for i := 0; i < msg.Backend.Weight; i++ {
 						b.weightedlist = append(b.weightedlist, msg.Address)
 					}
 				case backend.MsgBackendModified:
 					b.log.Info().Str("address", msg.Address).Int("weight", msg.Backend.Weight).Msg("Updating backend in WRR balancer")
-					b.backends[msg.Address] = msg.Backend.Copy()
+					b.backends[msg.Address] = msg.Backend.Clone()
 					b.weightedlist = slices.DeleteFunc(b.weightedlist, func(a string) bool { return a == msg.Address })
 					for i := 0; i < msg.Backend.Weight; i++ {
 						b.weightedlist = append(b.weightedlist, msg.Address)

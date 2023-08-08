@@ -18,7 +18,7 @@ type MetaValue interface {
 	ToInt() (int64, error)
 	ToFloat() (float64, error)
 	ToBool() (bool, error)
-	Copy() MetaValue
+	Clone() MetaValue
 }
 
 // Map
@@ -39,10 +39,10 @@ func (m MetaMap) Equal(other MetaMap) bool {
 	return true
 }
 
-func (m MetaMap) Copy() MetaMap {
+func (m MetaMap) Clone() MetaMap {
 	new := make(MetaMap, len(m))
 	for k, v := range m {
-		new[k] = v.Copy()
+		new[k] = v.Clone()
 	}
 	return new
 }
@@ -80,7 +80,7 @@ func (v MetaStringValue) Equal(m MetaValue) bool {
 	}
 }
 
-func (v MetaStringValue) Copy() MetaValue {
+func (v MetaStringValue) Clone() MetaValue {
 	return MetaStringValue{
 		Value: v.Value,
 	}
@@ -130,7 +130,7 @@ func (v MetaBoolValue) Equal(m MetaValue) bool {
 		return false
 	}
 }
-func (v MetaBoolValue) Copy() MetaValue {
+func (v MetaBoolValue) Clone() MetaValue {
 	return MetaBoolValue{
 		Value: v.Value,
 	}

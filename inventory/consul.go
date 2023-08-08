@@ -52,7 +52,7 @@ type InventoryConsul struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	subscribers    []chan backend.BackendMessage
-	backends       map[string]*backend.Backend
+	backends       backend.BackendsMap
 	backends_mutex sync.RWMutex
 	log            zerolog.Logger
 }
@@ -98,7 +98,7 @@ func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.
 		service:        config.Service,
 		backoff_factor: config.BackoffFactor,
 		subscribers:    make([]chan backend.BackendMessage, 0),
-		backends:       make(map[string]*backend.Backend),
+		backends:       make(backend.BackendsMap),
 		log:            log.With().Str("id", config.FullName).Logger(),
 	}
 
@@ -145,7 +145,7 @@ func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.
 					c.backends[address] = &backend.Backend{
 						Address: address,
 						Status:  "unk",
-						Tags:    service.Service.Tags,
+						Tags:    backend.NewTagList(service.Service.Tags),
 						Weight:  service.Service.Weights.Passing,
 						Meta:    map[string]backend.MetaValue{},
 					}
@@ -157,7 +157,7 @@ func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.
 				}
 
 				for address, service := range modified {
-					c.backends[address].UpdateTags(service.Service.Tags)
+					c.backends[address].Tags = backend.NewTagList(service.Service.Tags)
 					c.backends[address].Weight = service.Service.Weights.Passing
 					c.sendMessage(backend.BackendMessage{
 						Kind:    backend.MsgBackendModified,

@@ -10,7 +10,6 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"golang.org/x/exp/slices"
 )
 
 func init() {
@@ -25,7 +24,7 @@ type SimpleFilter struct {
 	exclude_tags   []string
 	status         string
 	meta           []MetaConditionConfig
-	backends       map[string]*backend.Backend
+	backends       backend.BackendsMap
 	backends_mutex sync.RWMutex
 	log            zerolog.Logger
 }
@@ -69,7 +68,7 @@ func (w SimpleFilterFactory) New(tc *Config, sources map[string]backend.Subscrib
 		exclude_tags: config.ExcludeTags,
 		status:       config.Status,
 		meta:         config.Meta,
-		backends:     make(map[string]*backend.Backend),
+		backends:     make(backend.BackendsMap),
 		log:          log.With().Str("id", config.FullName).Logger(),
 	}
 
@@ -98,7 +97,7 @@ func (w SimpleFilterFactory) New(tc *Config, sources map[string]backend.Subscrib
 				case backend.MsgBackendAdded, backend.MsgBackendModified:
 					if _, ok := f.backends[msg.Address]; ok { // Modified
 						if f.matchFilter(msg.Backend) { // Still passes the filter
-							f.backends[msg.Address] = msg.Backend.Copy()
+							f.backends[msg.Address] = msg.Backend.Clone()
 							f.sendMessage(backend.BackendMessage{
 								Kind:    backend.MsgBackendModified,
 								Address: f.backends[msg.Address].Address,
@@ -113,7 +112,7 @@ func (w SimpleFilterFactory) New(tc *Config, sources map[string]backend.Subscrib
 						}
 					} else { // Added
 						if f.matchFilter(msg.Backend) {
-							f.backends[msg.Address] = msg.Backend.Copy()
+							f.backends[msg.Address] = msg.Backend.Clone()
 							f.sendMessage(backend.BackendMessage{
 								Kind:    backend.MsgBackendAdded,
 								Address: f.backends[msg.Address].Address,
@@ -173,13 +172,13 @@ func (f *SimpleFilter) matchFilter(b *backend.Backend) bool {
 	}
 
 	for _, t := range f.include_tags {
-		if !slices.Contains(b.Tags, t) {
+		if !b.Tags.Has(t) {
 			return false
 		}
 	}
 
 	for _, t := range f.exclude_tags {
-		if slices.Contains(b.Tags, t) {
+		if b.Tags.Has(t) {
 			return false
 		}
 	}

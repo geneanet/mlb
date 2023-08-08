@@ -126,7 +126,7 @@ func (w MySQLCheckerFactory) New(tc *Config, sources map[string]backend.Subscrib
 					} else { // Added
 						c.log.Info().Str("address", msg.Address).Msg("Adding MySQL check")
 						check := NewCheckerMySQLCheck(
-							msg.Backend.Copy(),
+							msg.Backend.Clone(),
 							c.user,
 							c.password,
 							c.default_period,
