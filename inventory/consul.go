@@ -142,6 +142,7 @@ func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.
 				c.backends_mutex.Lock()
 
 				for address, service := range added {
+					log.Debug().Str("address", address).Msg("Service added")
 					c.backends[address] = &backend.Backend{
 						Address: address,
 						Status:  "unk",
@@ -157,6 +158,7 @@ func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.
 				}
 
 				for address, service := range modified {
+					log.Debug().Str("address", address).Msg("Service modified")
 					c.backends[address].Tags = backend.NewTagList(service.Service.Tags)
 					c.backends[address].Weight = service.Service.Weights.Passing
 					c.sendMessage(backend.BackendMessage{
@@ -167,6 +169,7 @@ func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.
 				}
 
 				for address := range removed {
+					log.Debug().Str("address", address).Msg("Service removed")
 					delete(c.backends, address)
 					c.sendMessage(backend.BackendMessage{
 						Kind:    backend.MsgBackendRemoved,
