@@ -28,6 +28,7 @@ func (b *Backend) UpdateTags(new_tags TagList) {
 	b.Tags = new_tags.Clone()
 }
 
+// Replace all the metadata with the provided ones, except for the specified ones that are preserved
 func (b *Backend) UpdateMeta(new_meta MetaMap, except ...string) {
 	new := new_meta.Clone()
 	for _, k := range except {

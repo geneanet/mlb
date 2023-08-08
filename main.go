@@ -29,11 +29,13 @@ func main() {
 	var wg sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Parse CLI args
 	arg_config := flag.String("config", "config.hcl", "config file")
 	arg_kill := flag.Int("kill", 0, "Kill process PID")
 	arg_debug := flag.Bool("debug", false, "sets log level to debug")
 	flag.Parse()
 
+	// Setup logger
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Int("pid", os.Getpid()).Logger()
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	if *arg_debug {
@@ -46,6 +48,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Adjust max allowed file descriptors
 	if conf.System.RLimit.NOFile > 0 {
 		system.SetRlimitNOFILE(conf.System.RLimit.NOFile)
 	}
