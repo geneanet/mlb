@@ -27,8 +27,9 @@ checker "mysql" "mysql" {
 
 filter "simple" "mysql_main_ro" {
   source = "checker.mysql.mysql"
-  tag = "main"
-  // status = "*"
+  include_tags = ["main"]
+  exclude_tags = ["backup"]
+  // status = "ok"
   meta {
     key = "readonly"
     value = true

@@ -21,7 +21,8 @@ type SimpleFilter struct {
 	fullname       string
 	source         backend.Subscribable
 	subscribers    []chan backend.BackendMessage
-	tag            string
+	include_tags   []string
+	exclude_tags   []string
 	status         string
 	meta           []MetaConditionConfig
 	backends       map[string]*backend.Backend
@@ -30,11 +31,12 @@ type SimpleFilter struct {
 }
 
 type SimpleFilterConfig struct {
-	FullName string                `hcl:"name,label"`
-	Source   string                `hcl:"source"`
-	Tag      string                `hcl:"tag"`
-	Status   string                `hcl:"status,optional"`
-	Meta     []MetaConditionConfig `hcl:"meta,block"`
+	FullName    string                `hcl:"name,label"`
+	Source      string                `hcl:"source"`
+	IncludeTags []string              `hcl:"include_tags,optional"`
+	ExcludeTags []string              `hcl:"exclude_tags,optional"`
+	Status      string                `hcl:"status,optional"`
+	Meta        []MetaConditionConfig `hcl:"meta,block"`
 }
 
 type MetaConditionConfig struct {
@@ -60,21 +62,19 @@ func (w SimpleFilterFactory) New(tc *Config, sources map[string]backend.Subscrib
 	config := w.parseConfig(tc)
 
 	f := &SimpleFilter{
-		fullname:    config.FullName,
-		source:      sources[config.Source],
-		subscribers: []chan backend.BackendMessage{},
-		tag:         config.Tag,
-		status:      config.Status,
-		meta:        config.Meta,
-		backends:    make(map[string]*backend.Backend),
-		log:         log.With().Str("id", config.FullName).Logger(),
+		fullname:     config.FullName,
+		source:       sources[config.Source],
+		subscribers:  []chan backend.BackendMessage{},
+		include_tags: config.IncludeTags,
+		exclude_tags: config.ExcludeTags,
+		status:       config.Status,
+		meta:         config.Meta,
+		backends:     make(map[string]*backend.Backend),
+		log:          log.With().Str("id", config.FullName).Logger(),
 	}
 
 	if f.status == "" {
-		f.status = "*"
-	}
-	if f.tag == "" {
-		f.tag = "*"
+		f.status = "ok"
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -168,23 +168,32 @@ func (f *SimpleFilter) sendMessage(m backend.BackendMessage) {
 }
 
 func (f *SimpleFilter) matchFilter(b *backend.Backend) bool {
-	match_tags := (slices.Contains(b.Tags, f.tag) || f.tag == "*")
+	if !(b.Status == f.status || f.status == "*") {
+		return false
+	}
 
-	match_status := (b.Status == f.status || f.status == "*")
-
-	match_meta := true
-	for _, m := range f.meta { // Check each requested metadata
-		v, ok := b.Meta[m.Key]
-		if !ok { // If the metadata is not available
-			match_meta = false
-			break
-		}
-		sv, err := v.ToString()
-		if sv != m.Value || err != nil { // If the metadata do not match
-			match_meta = false
-			break
+	for _, t := range f.include_tags {
+		if !slices.Contains(b.Tags, t) {
+			return false
 		}
 	}
 
-	return match_tags && match_status && match_meta
+	for _, t := range f.exclude_tags {
+		if slices.Contains(b.Tags, t) {
+			return false
+		}
+	}
+
+	for _, m := range f.meta { // Check each requested metadata
+		v, ok := b.Meta[m.Key]
+		if !ok { // If the metadata is not available
+			return false
+		}
+		sv, err := v.ToString()
+		if sv != m.Value || err != nil { // If the metadata do not match
+			return false
+		}
+	}
+
+	return true
 }
