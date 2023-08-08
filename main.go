@@ -94,7 +94,12 @@ func main() {
 
 	// Plug update subscribers to providers
 	for _, bus := range backendUpdateSubscribers {
-		bus.SubscribeTo(backendUpdatesProviders[bus.GetUpdateSource()])
+		source := bus.GetUpdateSource()
+		provider, ok := backendUpdatesProviders[source]
+		if !ok {
+			log.Panic().Str("subscriber", bus.(misc.GetIDInterface).GetID()).Str("provider", source).Msg("Backend update provider not found !")
+		}
+		bus.SubscribeTo(provider)
 	}
 
 	// Termination signals
