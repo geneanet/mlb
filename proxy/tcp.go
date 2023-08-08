@@ -130,7 +130,7 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan bool) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
-			p.log.Error().Str("input", input.RemoteAddr().String()).Str("output", output.RemoteAddr().String()).Err(r.(error)).Msg("Error while processing pipe")
+			p.log.Error().Str("input", input.RemoteAddr().String()).Str("output", output.RemoteAddr().String()).Err(misc.EnsureError(r)).Msg("Error while processing pipe")
 		}
 		close(done)
 	}()
@@ -188,7 +188,7 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
-			p.log.Error().Str("peer", conn_front.RemoteAddr().String()).Err(r.(error)).Msg("Error while processing connection")
+			p.log.Error().Str("peer", conn_front.RemoteAddr().String()).Err(misc.EnsureError(r)).Msg("Error while processing connection")
 			// Prometheus
 			metrics.FeCnxErrors.WithLabelValues(p.address).Inc()
 		}

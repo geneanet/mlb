@@ -241,7 +241,7 @@ func (c *InventoryConsul) fetch() (ret_s consulServicesSlice, ret_e error) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
-			ret_e = r.(error)
+			ret_e = misc.EnsureError(r)
 		}
 	}()
 

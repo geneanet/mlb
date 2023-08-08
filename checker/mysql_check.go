@@ -52,7 +52,7 @@ func (c *CheckerMySQLCheck) fetchStatus() (ret_status string, ret_readonly bool,
 		if r := recover(); r != nil {
 			ret_status = "err"
 			ret_readonly = false
-			ret_err = r.(error)
+			ret_err = misc.EnsureError(r)
 
 			c.applyBackoff()
 		}
