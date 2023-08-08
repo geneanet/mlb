@@ -23,16 +23,23 @@ type SimpleFilter struct {
 	subscribers    []chan backend.BackendMessage
 	tag            string
 	status         string
+	meta           []MetaConditionConfig
 	backends       map[string]*backend.Backend
 	backends_mutex sync.RWMutex
 	log            zerolog.Logger
 }
 
 type SimpleFilterConfig struct {
-	FullName string `hcl:"name,label"`
-	Source   string `hcl:"source"`
-	Tag      string `hcl:"tag"`
-	Status   string `hcl:"status"`
+	FullName string                `hcl:"name,label"`
+	Source   string                `hcl:"source"`
+	Tag      string                `hcl:"tag"`
+	Status   string                `hcl:"status,optional"`
+	Meta     []MetaConditionConfig `hcl:"meta,block"`
+}
+
+type MetaConditionConfig struct {
+	Key   string `hcl:"key"`
+	Value string `hcl:"value"`
 }
 
 type SimpleFilterFactory struct{}
@@ -58,8 +65,16 @@ func (w SimpleFilterFactory) New(tc *Config, sources map[string]backend.Subscrib
 		subscribers: []chan backend.BackendMessage{},
 		tag:         config.Tag,
 		status:      config.Status,
+		meta:        config.Meta,
 		backends:    make(map[string]*backend.Backend),
 		log:         log.With().Str("id", config.FullName).Logger(),
+	}
+
+	if f.status == "" {
+		f.status = "*"
+	}
+	if f.tag == "" {
+		f.tag = "*"
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -82,7 +97,7 @@ func (w SimpleFilterFactory) New(tc *Config, sources map[string]backend.Subscrib
 				switch msg.Kind {
 				case backend.MsgBackendAdded, backend.MsgBackendModified:
 					if _, ok := f.backends[msg.Address]; ok { // Modified
-						if (slices.Contains(msg.Backend.Tags, f.tag) || f.tag == "*") && (msg.Backend.Status == f.status || f.status == "*") { // Still passes the filter
+						if f.matchFilter(msg.Backend) { // Still passes the filter
 							f.backends[msg.Address] = msg.Backend.Copy()
 							f.sendMessage(backend.BackendMessage{
 								Kind:    backend.MsgBackendModified,
@@ -97,7 +112,7 @@ func (w SimpleFilterFactory) New(tc *Config, sources map[string]backend.Subscrib
 							})
 						}
 					} else { // Added
-						if (slices.Contains(msg.Backend.Tags, f.tag) || f.tag == "*") && (msg.Backend.Status == f.status || f.status == "*") {
+						if f.matchFilter(msg.Backend) {
 							f.backends[msg.Address] = msg.Backend.Copy()
 							f.sendMessage(backend.BackendMessage{
 								Kind:    backend.MsgBackendAdded,
@@ -150,4 +165,26 @@ func (f *SimpleFilter) sendMessage(m backend.BackendMessage) {
 	for _, s := range f.subscribers {
 		s <- m
 	}
+}
+
+func (f *SimpleFilter) matchFilter(b *backend.Backend) bool {
+	match_tags := (slices.Contains(b.Tags, f.tag) || f.tag == "*")
+
+	match_status := (b.Status == f.status || f.status == "*")
+
+	match_meta := true
+	for _, m := range f.meta { // Check each requested metadata
+		v, ok := b.Meta[m.Key]
+		if !ok { // If the metadata is not available
+			match_meta = false
+			break
+		}
+		sv, err := v.ToString()
+		if sv != m.Value || err != nil { // If the metadata do not match
+			match_meta = false
+			break
+		}
+	}
+
+	return match_tags && match_status && match_meta
 }

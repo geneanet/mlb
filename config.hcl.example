@@ -28,7 +28,11 @@ checker "mysql" "mysql" {
 filter "simple" "mysql_main_ro" {
   source = "checker.mysql.mysql"
   tag = "main"
-  status = "ro"
+  // status = "*"
+  meta {
+    key = "readonly"
+    value = true
+  }
 }
 
 balancer "wrr" "mysql_main_ro" {

@@ -147,6 +147,7 @@ func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.
 						Status:  "unk",
 						Tags:    service.Service.Tags,
 						Weight:  service.Service.Weights.Passing,
+						Meta:    map[string]backend.MetaValue{},
 					}
 					c.sendMessage(backend.BackendMessage{
 						Kind:    backend.MsgBackendAdded,
