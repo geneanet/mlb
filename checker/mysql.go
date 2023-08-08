@@ -19,7 +19,7 @@ func init() {
 }
 
 type MySQLChecker struct {
-	fullname       string
+	id             string
 	checks         map[string]*CheckerMySQLCheck
 	checks_mutex   sync.RWMutex
 	user           string
@@ -36,7 +36,7 @@ type MySQLChecker struct {
 }
 
 type MySQLCheckerConfig struct {
-	FullName      string  `hcl:"name,label"`
+	ID            string  `hcl:"id,label"`
 	Source        string  `hcl:"source"`
 	User          string  `hcl:"user,optional"`
 	Password      string  `hcl:"password,optional"`
@@ -55,7 +55,7 @@ func (w MySQLCheckerFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 func (w MySQLCheckerFactory) parseConfig(tc *Config) *MySQLCheckerConfig {
 	config := &MySQLCheckerConfig{}
 	gohcl.DecodeBody(tc.Config, nil, config)
-	config.FullName = fmt.Sprintf("checker.%s.%s", tc.Type, tc.Name)
+	config.ID = fmt.Sprintf("checker.%s.%s", tc.Type, tc.Name)
 	if config.Period == "" {
 		config.Period = "500ms"
 	}
@@ -72,12 +72,12 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 	config := w.parseConfig(tc)
 
 	c := &MySQLChecker{
-		fullname:       config.FullName,
+		id:             config.ID,
 		checks:         make(map[string]*CheckerMySQLCheck),
 		user:           config.User,
 		password:       config.Password,
 		backoff_factor: config.BackoffFactor,
-		log:            log.With().Str("id", config.FullName).Logger(),
+		log:            log.With().Str("id", config.ID).Logger(),
 		upd_chan:       make(chan backend.BackendUpdate),
 		source:         config.Source,
 	}
@@ -204,4 +204,8 @@ func (c *MySQLChecker) SubscribeTo(bup backend.BackendUpdateProvider) {
 
 func (c *MySQLChecker) GetUpdateSource() string {
 	return c.source
+}
+
+func (c *MySQLChecker) GetID() string {
+	return c.id
 }

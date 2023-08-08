@@ -11,6 +11,7 @@ import (
 	"mlb/filter"
 	"mlb/inventory"
 	"mlb/metrics"
+	"mlb/misc"
 	"mlb/proxy"
 	"mlb/system"
 	"os"
@@ -58,29 +59,29 @@ func main() {
 	backendUpdateSubscribers := make(map[string]backend.BackendUpdateSubscriber, 0)
 	backendProviders := make(map[string]backend.BackendProvider, 0)
 
-	for _, c := range conf.InventoryList {
-		id := fmt.Sprintf("inventory.%s.%s", c.Type, c.Name)
-		s := inventory.New(c, &wg, ctx)
-		backendUpdatesProviders[id] = s.(backend.BackendUpdateProvider)
+	for _, tc := range conf.InventoryList {
+		i := inventory.New(tc, &wg, ctx)
+		id := i.(misc.GetIDInterface).GetID()
+		backendUpdatesProviders[id] = i.(backend.BackendUpdateProvider)
 	}
 
-	for _, c := range conf.CheckerList {
-		id := fmt.Sprintf("checker.%s.%s", c.Type, c.Name)
-		s := checker.New(c, &wg, ctx)
-		backendUpdatesProviders[id] = s.(backend.BackendUpdateProvider)
-		backendUpdateSubscribers[id] = s.(backend.BackendUpdateSubscriber)
+	for _, tc := range conf.CheckerList {
+		c := checker.New(tc, &wg, ctx)
+		id := c.(misc.GetIDInterface).GetID()
+		backendUpdatesProviders[id] = c.(backend.BackendUpdateProvider)
+		backendUpdateSubscribers[id] = c.(backend.BackendUpdateSubscriber)
 	}
 
-	for _, c := range conf.FilterList {
-		id := fmt.Sprintf("filter.%s.%s", c.Type, c.Name)
-		s := filter.New(c, &wg, ctx)
-		backendUpdatesProviders[id] = s.(backend.BackendUpdateProvider)
-		backendUpdateSubscribers[id] = s.(backend.BackendUpdateSubscriber)
+	for _, tc := range conf.FilterList {
+		f := filter.New(tc, &wg, ctx)
+		id := f.(misc.GetIDInterface).GetID()
+		backendUpdatesProviders[id] = f.(backend.BackendUpdateProvider)
+		backendUpdateSubscribers[id] = f.(backend.BackendUpdateSubscriber)
 	}
 
-	for _, c := range conf.BalancerList {
-		id := fmt.Sprintf("balancer.%s.%s", c.Type, c.Name)
-		b := balancer.New(c, &wg, ctx)
+	for _, tc := range conf.BalancerList {
+		b := balancer.New(tc, &wg, ctx)
+		id := b.(misc.GetIDInterface).GetID()
 		backendProviders[id] = b.(backend.BackendProvider)
 		backendUpdateSubscribers[id] = b.(backend.BackendUpdateSubscriber)
 	}

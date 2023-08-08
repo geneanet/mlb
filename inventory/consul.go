@@ -40,7 +40,7 @@ type consulServicesMap map[string]consulService
 type consulServicesSlice []consulService
 
 type InventoryConsul struct {
-	fullname       string
+	id             string
 	url            string
 	service        string
 	period         time.Duration
@@ -58,7 +58,7 @@ type InventoryConsul struct {
 }
 
 type ConsulInventoryConfig struct {
-	FullName      string  `hcl:"name,label"`
+	ID            string  `hcl:"id,label"`
 	URL           string  `hcl:"url"`
 	Service       string  `hcl:"service"`
 	Period        string  `hcl:"period,optional"`
@@ -76,7 +76,7 @@ func (w ConsulInventoryFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 func (w ConsulInventoryFactory) parseConfig(tc *Config) *ConsulInventoryConfig {
 	config := &ConsulInventoryConfig{}
 	gohcl.DecodeBody(tc.Config, nil, config)
-	config.FullName = fmt.Sprintf("consul.%s.%s", tc.Type, tc.Name)
+	config.ID = fmt.Sprintf("inventory.%s.%s", tc.Type, tc.Name)
 	if config.Period == "" {
 		config.Period = "1s"
 	}
@@ -93,13 +93,13 @@ func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.
 	config := w.parseConfig(tc)
 
 	c := &InventoryConsul{
-		fullname:       config.FullName,
+		id:             config.ID,
 		url:            config.URL,
 		service:        config.Service,
 		backoff_factor: config.BackoffFactor,
 		subscribers:    make([]chan backend.BackendUpdate, 0),
 		backends:       make(backend.BackendsMap),
-		log:            log.With().Str("id", config.FullName).Logger(),
+		log:            log.With().Str("id", config.ID).Logger(),
 	}
 
 	var err error
@@ -273,6 +273,10 @@ func (c *InventoryConsul) fetch() (ret_s consulServicesSlice, ret_e error) {
 	c.index = resp.Header.Get("X-Consul-Index")
 
 	return data, nil
+}
+
+func (c *InventoryConsul) GetID() string {
+	return c.id
 }
 
 func consulServicesSliceToMap(services consulServicesSlice) consulServicesMap {

@@ -27,7 +27,7 @@ func init() {
 }
 
 type ProxyTCP struct {
-	fullname        string
+	id              string
 	address         string
 	backendProvider backend.BackendProvider
 	close_timeout   time.Duration
@@ -39,7 +39,7 @@ type ProxyTCP struct {
 }
 
 type TCPProxyConfig struct {
-	FullName     string `hcl:"name,label"`
+	ID           string `hcl:"id,label"`
 	Source       string `hcl:"source"`
 	Address      string `hcl:"address"`
 	CloseTimeout string `hcl:"close_timeout,optional"`
@@ -55,7 +55,7 @@ func (w TCPProxyFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 func (w TCPProxyFactory) parseConfig(tc *Config) *TCPProxyConfig {
 	config := &TCPProxyConfig{}
 	gohcl.DecodeBody(tc.Config, nil, config)
-	config.FullName = fmt.Sprintf("filter.%s.%s", tc.Type, tc.Name)
+	config.ID = fmt.Sprintf("filter.%s.%s", tc.Type, tc.Name)
 	if config.CloseTimeout == "" {
 		config.CloseTimeout = "0s"
 	}
@@ -66,10 +66,10 @@ func (w TCPProxyFactory) New(tc *Config, backendProviders map[string]backend.Bac
 	config := w.parseConfig(tc)
 
 	p := &ProxyTCP{
-		fullname:        config.FullName,
+		id:              config.ID,
 		address:         config.Address,
 		backendProvider: backendProviders[config.Source],
-		log:             log.With().Str("id", config.FullName).Logger(),
+		log:             log.With().Str("id", config.ID).Logger(),
 	}
 
 	var err error
@@ -237,4 +237,8 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 	// Ensure both ends are closed so both pipes will exit
 	conn_front.Close()
 	conn_back.Close()
+}
+
+func (p *ProxyTCP) GetID() string {
+	return p.id
 }

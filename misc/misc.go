@@ -5,3 +5,7 @@ func PanicIfErr(err error) {
 		panic(err)
 	}
 }
+
+type GetIDInterface interface {
+	GetID() string
+}

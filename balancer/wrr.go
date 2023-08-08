@@ -19,7 +19,7 @@ func init() {
 }
 
 type WRRBalancer struct {
-	fullname     string
+	id           string
 	backends     backend.BackendsMap
 	weightedlist []string
 	mu           sync.Mutex
@@ -30,8 +30,8 @@ type WRRBalancer struct {
 }
 
 type WRRBalancerConfig struct {
-	FullName string `hcl:"name,label"`
-	Source   string `hcl:"source"`
+	ID     string
+	Source string `hcl:"source"`
 }
 
 type WRRBalancerFactory struct{}
@@ -44,7 +44,7 @@ func (w WRRBalancerFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 func (w WRRBalancerFactory) parseConfig(tc *Config) *WRRBalancerConfig {
 	config := &WRRBalancerConfig{}
 	gohcl.DecodeBody(tc.Config, nil, config)
-	config.FullName = fmt.Sprintf("balancer.%s.%s", tc.Type, tc.Name)
+	config.ID = fmt.Sprintf("balancer.%s.%s", tc.Type, tc.Name)
 	return config
 }
 
@@ -52,11 +52,11 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 	config := w.parseConfig(tc)
 
 	b := &WRRBalancer{
-		fullname:     config.FullName,
+		id:           config.ID,
 		backends:     make(backend.BackendsMap),
 		weightedlist: make([]string, 0),
 		iterator:     0,
-		log:          log.With().Str("id", config.FullName).Logger(),
+		log:          log.With().Str("id", config.ID).Logger(),
 		upd_chan:     make(chan backend.BackendUpdate),
 		source:       config.Source,
 	}
@@ -132,4 +132,8 @@ func (b *WRRBalancer) SubscribeTo(bup backend.BackendUpdateProvider) {
 
 func (b *WRRBalancer) GetUpdateSource() string {
 	return b.source
+}
+
+func (b *WRRBalancer) GetID() string {
+	return b.id
 }

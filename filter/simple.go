@@ -17,7 +17,7 @@ func init() {
 }
 
 type SimpleFilter struct {
-	fullname       string
+	id             string
 	subscribers    []chan backend.BackendUpdate
 	include_tags   []string
 	exclude_tags   []string
@@ -31,7 +31,7 @@ type SimpleFilter struct {
 }
 
 type SimpleFilterConfig struct {
-	FullName    string                `hcl:"name,label"`
+	ID          string                `hcl:"id,label"`
 	Source      string                `hcl:"source"`
 	IncludeTags []string              `hcl:"include_tags,optional"`
 	ExcludeTags []string              `hcl:"exclude_tags,optional"`
@@ -54,7 +54,7 @@ func (w SimpleFilterFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 func (w SimpleFilterFactory) parseConfig(tc *Config) *SimpleFilterConfig {
 	config := &SimpleFilterConfig{}
 	gohcl.DecodeBody(tc.Config, nil, config)
-	config.FullName = fmt.Sprintf("filter.%s.%s", tc.Type, tc.Name)
+	config.ID = fmt.Sprintf("filter.%s.%s", tc.Type, tc.Name)
 	return config
 }
 
@@ -62,14 +62,14 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 	config := w.parseConfig(tc)
 
 	f := &SimpleFilter{
-		fullname:     config.FullName,
+		id:           config.ID,
 		subscribers:  []chan backend.BackendUpdate{},
 		include_tags: config.IncludeTags,
 		exclude_tags: config.ExcludeTags,
 		status:       config.Status,
 		meta:         config.Meta,
 		backends:     make(backend.BackendsMap),
-		log:          log.With().Str("id", config.FullName).Logger(),
+		log:          log.With().Str("id", config.ID).Logger(),
 		upd_chan:     make(chan backend.BackendUpdate),
 		source:       config.Source,
 	}
@@ -200,4 +200,8 @@ func (f *SimpleFilter) SubscribeTo(bup backend.BackendUpdateProvider) {
 
 func (f *SimpleFilter) GetUpdateSource() string {
 	return f.source
+}
+
+func (f *SimpleFilter) GetID() string {
+	return f.id
 }
