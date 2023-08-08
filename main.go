@@ -54,27 +54,35 @@ func main() {
 	}
 
 	// Start serious business
-	subscribables := make(map[string]backend.BackendUpdateProvider, 0)
+	backendUpdatesProviders := make(map[string]backend.BackendUpdateProvider, 0)
+	backendUpdateSubscribers := make(map[string]backend.BackendUpdateSubscriber, 0)
 	backendProviders := make(map[string]backend.BackendProvider, 0)
 
 	for _, c := range conf.InventoryList {
+		id := fmt.Sprintf("inventory.%s.%s", c.Type, c.Name)
 		s := inventory.New(c, &wg, ctx)
-		subscribables[fmt.Sprintf("inventory.%s.%s", c.Type, c.Name)] = s
+		backendUpdatesProviders[id] = s.(backend.BackendUpdateProvider)
 	}
 
 	for _, c := range conf.CheckerList {
-		s := checker.New(c, subscribables, &wg, ctx)
-		subscribables[fmt.Sprintf("checker.%s.%s", c.Type, c.Name)] = s
+		id := fmt.Sprintf("checker.%s.%s", c.Type, c.Name)
+		s := checker.New(c, &wg, ctx)
+		backendUpdatesProviders[id] = s.(backend.BackendUpdateProvider)
+		backendUpdateSubscribers[id] = s.(backend.BackendUpdateSubscriber)
 	}
 
 	for _, c := range conf.FilterList {
-		s := filter.New(c, subscribables, &wg, ctx)
-		subscribables[fmt.Sprintf("filter.%s.%s", c.Type, c.Name)] = s
+		id := fmt.Sprintf("filter.%s.%s", c.Type, c.Name)
+		s := filter.New(c, &wg, ctx)
+		backendUpdatesProviders[id] = s.(backend.BackendUpdateProvider)
+		backendUpdateSubscribers[id] = s.(backend.BackendUpdateSubscriber)
 	}
 
 	for _, c := range conf.BalancerList {
-		b := balancer.New(c, subscribables, &wg, ctx)
-		backendProviders[fmt.Sprintf("balancer.%s.%s", c.Type, c.Name)] = b
+		id := fmt.Sprintf("balancer.%s.%s", c.Type, c.Name)
+		b := balancer.New(c, &wg, ctx)
+		backendProviders[id] = b.(backend.BackendProvider)
+		backendUpdateSubscribers[id] = b.(backend.BackendUpdateSubscriber)
 	}
 
 	for _, c := range conf.ProxyList {
@@ -82,6 +90,11 @@ func main() {
 	}
 
 	metrics.NewHTTPServer(conf.Metrics.Address, &wg, ctx)
+
+	// Plug update subscribers to providers
+	for _, bus := range backendUpdateSubscribers {
+		bus.SubscribeTo(backendUpdatesProviders[bus.GetUpdateSource()])
+	}
 
 	// Termination signals
 	chan_signals := make(chan os.Signal, 1)

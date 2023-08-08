@@ -194,8 +194,7 @@ func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.
 	return c
 }
 
-func (c *InventoryConsul) Subscribe() chan backend.BackendUpdate {
-	ch := make(chan backend.BackendUpdate)
+func (c *InventoryConsul) ProvideUpdates(ch chan backend.BackendUpdate) {
 	c.subscribers = append(c.subscribers, ch)
 
 	go func() {
@@ -210,8 +209,6 @@ func (c *InventoryConsul) Subscribe() chan backend.BackendUpdate {
 			})
 		}
 	}()
-
-	return ch
 }
 
 func (c *InventoryConsul) sendUpdate(m backend.BackendUpdate) {

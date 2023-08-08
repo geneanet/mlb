@@ -25,6 +25,8 @@ type WRRBalancer struct {
 	mu           sync.Mutex
 	iterator     int
 	log          zerolog.Logger
+	upd_chan     chan backend.BackendUpdate
+	source       string
 }
 
 type WRRBalancerConfig struct {
@@ -46,7 +48,7 @@ func (w WRRBalancerFactory) parseConfig(tc *Config) *WRRBalancerConfig {
 	return config
 }
 
-func (w WRRBalancerFactory) New(tc *Config, sources map[string]backend.BackendUpdateProvider, wg *sync.WaitGroup, ctx context.Context) backend.BackendProvider {
+func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) backend.BackendProvider {
 	config := w.parseConfig(tc)
 
 	b := &WRRBalancer{
@@ -55,6 +57,8 @@ func (w WRRBalancerFactory) New(tc *Config, sources map[string]backend.BackendUp
 		weightedlist: make([]string, 0),
 		iterator:     0,
 		log:          log.With().Str("id", config.FullName).Logger(),
+		upd_chan:     make(chan backend.BackendUpdate),
+		source:       config.Source,
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -67,12 +71,10 @@ func (w WRRBalancerFactory) New(tc *Config, sources map[string]backend.BackendUp
 		defer b.log.Info().Msg("WRR Balancer stopped")
 		defer cancel()
 
-		upd_chan := sources[config.Source].Subscribe()
-
 	mainloop:
 		for {
 			select {
-			case upd := <-upd_chan: // Backend changed
+			case upd := <-b.upd_chan: // Backend changed
 				b.mu.Lock()
 				switch upd.Kind {
 				case backend.UpdBackendAdded:
@@ -122,4 +124,12 @@ func (b *WRRBalancer) GetBackend() *backend.Backend {
 	} else {
 		return nil
 	}
+}
+
+func (b *WRRBalancer) SubscribeTo(bup backend.BackendUpdateProvider) {
+	bup.ProvideUpdates(b.upd_chan)
+}
+
+func (b *WRRBalancer) GetUpdateSource() string {
+	return b.source
 }

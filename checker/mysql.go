@@ -27,11 +27,12 @@ type MySQLChecker struct {
 	default_period time.Duration
 	max_period     time.Duration
 	backoff_factor float64
-	source         backend.BackendUpdateProvider
 	subscribers    []chan backend.BackendUpdate
 	ctx            context.Context
 	cancel         context.CancelFunc
 	log            zerolog.Logger
+	upd_chan       chan backend.BackendUpdate
+	source         string
 }
 
 type MySQLCheckerConfig struct {
@@ -67,7 +68,7 @@ func (w MySQLCheckerFactory) parseConfig(tc *Config) *MySQLCheckerConfig {
 	return config
 }
 
-func (w MySQLCheckerFactory) New(tc *Config, sources map[string]backend.BackendUpdateProvider, wg *sync.WaitGroup, ctx context.Context) backend.BackendUpdateProvider {
+func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) backend.BackendUpdateProvider {
 	config := w.parseConfig(tc)
 
 	c := &MySQLChecker{
@@ -76,8 +77,9 @@ func (w MySQLCheckerFactory) New(tc *Config, sources map[string]backend.BackendU
 		user:           config.User,
 		password:       config.Password,
 		backoff_factor: config.BackoffFactor,
-		source:         sources[config.Source],
 		log:            log.With().Str("id", config.FullName).Logger(),
+		upd_chan:       make(chan backend.BackendUpdate),
+		source:         config.Source,
 	}
 
 	var err error
@@ -97,7 +99,6 @@ func (w MySQLCheckerFactory) New(tc *Config, sources map[string]backend.BackendU
 		defer c.log.Info().Msg("MySQL checker stopped")
 		defer c.cancel()
 
-		upd_chan := c.source.Subscribe()
 		status_chan := make(chan *backend.Backend)
 
 	mainloop:
@@ -112,7 +113,7 @@ func (w MySQLCheckerFactory) New(tc *Config, sources map[string]backend.BackendU
 				})
 				c.checks_mutex.Unlock()
 
-			case upd := <-upd_chan: // Backend changed
+			case upd := <-c.upd_chan: // Backend changed
 				c.checks_mutex.Lock()
 				switch upd.Kind {
 				case backend.UpdBackendAdded, backend.UpdBackendModified:
@@ -174,8 +175,7 @@ func (w MySQLCheckerFactory) New(tc *Config, sources map[string]backend.BackendU
 	return c
 }
 
-func (c *MySQLChecker) Subscribe() chan backend.BackendUpdate {
-	ch := make(chan backend.BackendUpdate)
+func (c *MySQLChecker) ProvideUpdates(ch chan backend.BackendUpdate) {
 	c.subscribers = append(c.subscribers, ch)
 
 	go func() {
@@ -190,12 +190,18 @@ func (c *MySQLChecker) Subscribe() chan backend.BackendUpdate {
 			})
 		}
 	}()
-
-	return ch
 }
 
 func (c *MySQLChecker) sendUpdate(m backend.BackendUpdate) {
 	for _, s := range c.subscribers {
 		s <- m
 	}
+}
+
+func (c *MySQLChecker) SubscribeTo(bup backend.BackendUpdateProvider) {
+	bup.ProvideUpdates(c.upd_chan)
+}
+
+func (c *MySQLChecker) GetUpdateSource() string {
+	return c.source
 }

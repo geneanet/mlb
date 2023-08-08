@@ -18,7 +18,6 @@ func init() {
 
 type SimpleFilter struct {
 	fullname       string
-	source         backend.BackendUpdateProvider
 	subscribers    []chan backend.BackendUpdate
 	include_tags   []string
 	exclude_tags   []string
@@ -27,6 +26,8 @@ type SimpleFilter struct {
 	backends       backend.BackendsMap
 	backends_mutex sync.RWMutex
 	log            zerolog.Logger
+	upd_chan       chan backend.BackendUpdate
+	source         string
 }
 
 type SimpleFilterConfig struct {
@@ -57,12 +58,11 @@ func (w SimpleFilterFactory) parseConfig(tc *Config) *SimpleFilterConfig {
 	return config
 }
 
-func (w SimpleFilterFactory) New(tc *Config, sources map[string]backend.BackendUpdateProvider, wg *sync.WaitGroup, ctx context.Context) backend.BackendUpdateProvider {
+func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) backend.BackendUpdateProvider {
 	config := w.parseConfig(tc)
 
 	f := &SimpleFilter{
 		fullname:     config.FullName,
-		source:       sources[config.Source],
 		subscribers:  []chan backend.BackendUpdate{},
 		include_tags: config.IncludeTags,
 		exclude_tags: config.ExcludeTags,
@@ -70,6 +70,8 @@ func (w SimpleFilterFactory) New(tc *Config, sources map[string]backend.BackendU
 		meta:         config.Meta,
 		backends:     make(backend.BackendsMap),
 		log:          log.With().Str("id", config.FullName).Logger(),
+		upd_chan:     make(chan backend.BackendUpdate),
+		source:       config.Source,
 	}
 
 	if f.status == "" {
@@ -86,12 +88,10 @@ func (w SimpleFilterFactory) New(tc *Config, sources map[string]backend.BackendU
 		defer f.log.Info().Msg("Filter stopped")
 		defer cancel()
 
-		upd_chan := f.source.Subscribe()
-
 	mainloop:
 		for {
 			select {
-			case upd := <-upd_chan: // Backend changed
+			case upd := <-f.upd_chan: // Backend changed
 				f.backends_mutex.Lock()
 				switch upd.Kind {
 				case backend.UpdBackendAdded, backend.UpdBackendModified:
@@ -140,8 +140,7 @@ func (w SimpleFilterFactory) New(tc *Config, sources map[string]backend.BackendU
 	return f
 }
 
-func (f *SimpleFilter) Subscribe() chan backend.BackendUpdate {
-	ch := make(chan backend.BackendUpdate)
+func (f *SimpleFilter) ProvideUpdates(ch chan backend.BackendUpdate) {
 	f.subscribers = append(f.subscribers, ch)
 
 	go func() {
@@ -156,8 +155,6 @@ func (f *SimpleFilter) Subscribe() chan backend.BackendUpdate {
 			})
 		}
 	}()
-
-	return ch
 }
 
 func (f *SimpleFilter) sendUpdate(m backend.BackendUpdate) {
@@ -195,4 +192,12 @@ func (f *SimpleFilter) matchFilter(b *backend.Backend) bool {
 	}
 
 	return true
+}
+
+func (f *SimpleFilter) SubscribeTo(bup backend.BackendUpdateProvider) {
+	bup.ProvideUpdates(f.upd_chan)
+}
+
+func (f *SimpleFilter) GetUpdateSource() string {
+	return f.source
 }
