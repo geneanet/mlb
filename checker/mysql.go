@@ -209,3 +209,16 @@ func (c *MySQLChecker) GetUpdateSource() string {
 func (c *MySQLChecker) GetID() string {
 	return c.id
 }
+
+func (c *MySQLChecker) GetBackendList() []*backend.Backend {
+	c.checks_mutex.RLock()
+	defer c.checks_mutex.RUnlock()
+
+	backends := []*backend.Backend{}
+
+	for _, check := range c.checks {
+		backends = append(backends, check.backend)
+	}
+
+	return backends
+}

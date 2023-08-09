@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"mlb/backend"
@@ -14,12 +15,14 @@ import (
 	"mlb/misc"
 	"mlb/proxy"
 	"mlb/system"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/exp/slices"
@@ -58,17 +61,20 @@ func main() {
 	backendUpdatesProviders := make(map[string]backend.BackendUpdateProvider, 0)
 	backendUpdateSubscribers := make(map[string]backend.BackendUpdateSubscriber, 0)
 	backendProviders := make(map[string]backend.BackendProvider, 0)
+	backendListProviders := make(map[string]backend.BackendListProvider, 0)
 
 	for _, tc := range conf.InventoryList {
 		i := inventory.New(tc, &wg, ctx)
 		id := i.(misc.GetIDInterface).GetID()
 		backendUpdatesProviders[id] = i.(backend.BackendUpdateProvider)
+		backendListProviders[id] = i.(backend.BackendListProvider)
 	}
 
 	for _, tc := range conf.CheckerList {
 		c := checker.New(tc, &wg, ctx)
 		id := c.(misc.GetIDInterface).GetID()
 		backendUpdatesProviders[id] = c.(backend.BackendUpdateProvider)
+		backendListProviders[id] = c.(backend.BackendListProvider)
 		backendUpdateSubscribers[id] = c.(backend.BackendUpdateSubscriber)
 	}
 
@@ -76,6 +82,7 @@ func main() {
 		f := filter.New(tc, &wg, ctx)
 		id := f.(misc.GetIDInterface).GetID()
 		backendUpdatesProviders[id] = f.(backend.BackendUpdateProvider)
+		backendListProviders[id] = f.(backend.BackendListProvider)
 		backendUpdateSubscribers[id] = f.(backend.BackendUpdateSubscriber)
 	}
 
@@ -83,14 +90,13 @@ func main() {
 		b := balancer.New(tc, &wg, ctx)
 		id := b.(misc.GetIDInterface).GetID()
 		backendProviders[id] = b.(backend.BackendProvider)
+		backendListProviders[id] = b.(backend.BackendListProvider)
 		backendUpdateSubscribers[id] = b.(backend.BackendUpdateSubscriber)
 	}
 
 	for _, c := range conf.ProxyList {
 		proxy.New(c, backendProviders, &wg, ctx)
 	}
-
-	metrics.NewHTTPServer(conf.Metrics.Address, &wg, ctx)
 
 	// Plug update subscribers to providers
 	for _, bus := range backendUpdateSubscribers {
@@ -101,6 +107,20 @@ func main() {
 		}
 		bus.SubscribeTo(provider)
 	}
+
+	// HTTP Metrics
+	http.HandleFunc("/backends", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Content-Type", "application/json")
+		backendsByProvider := make(map[string]backend.BackendsList, len(backendListProviders))
+		for id := range backendListProviders {
+			backendsByProvider[id] = backendListProviders[id].GetBackendList()
+		}
+		out, _ := json.Marshal(backendsByProvider)
+		w.Write(out)
+	})
+	http.Handle("/metrics", metrics.HttpLogWrapper(promhttp.Handler()))
+
+	metrics.NewHTTPServer(conf.Metrics.Address, &wg, ctx)
 
 	// Termination signals
 	chan_signals := make(chan os.Signal, 1)

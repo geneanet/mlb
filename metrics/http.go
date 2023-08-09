@@ -12,7 +12,6 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sys/unix"
 )
@@ -27,7 +26,7 @@ func DecodeConfigBlock(block *hcl.Block) (*MetricsConfig, hcl.Diagnostics) {
 	return c, diag
 }
 
-func httpLogWrapper(original_handler http.Handler) http.Handler {
+func HttpLogWrapper(original_handler http.Handler) http.Handler {
 	logFn := func(rw http.ResponseWriter, r *http.Request) {
 		uri := r.RequestURI
 		method := r.Method
@@ -76,8 +75,6 @@ func NewHTTPServer(address string, wg *sync.WaitGroup, ctx context.Context) {
 		// Bind
 		listener, err := lc.Listen(context.Background(), "tcp", address)
 		misc.PanicIfErr(err)
-
-		http.Handle("/metrics", httpLogWrapper(promhttp.Handler()))
 
 		err = srv.Serve(listener)
 		if errors.Is(err, http.ErrServerClosed) {

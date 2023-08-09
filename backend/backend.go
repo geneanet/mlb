@@ -42,6 +42,9 @@ func (b *Backend) UpdateMeta(new_meta MetaMap, except ...string) {
 // Map
 type BackendsMap map[string]*Backend
 
+// List
+type BackendsList []*Backend
+
 // Messages
 type BackendUpdate struct {
 	Kind    BackendUpdateKind
@@ -69,4 +72,8 @@ type BackendUpdateSubscriber interface {
 
 type BackendProvider interface {
 	GetBackend() *Backend
+}
+
+type BackendListProvider interface {
+	GetBackendList() []*Backend
 }

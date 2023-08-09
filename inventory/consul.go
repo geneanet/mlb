@@ -279,6 +279,10 @@ func (c *InventoryConsul) GetID() string {
 	return c.id
 }
 
+func (c *InventoryConsul) GetBackendList() []*backend.Backend {
+	return misc.MapValues(c.backends)
+}
+
 func consulServicesSliceToMap(services consulServicesSlice) consulServicesMap {
 	index := consulServicesMap{}
 

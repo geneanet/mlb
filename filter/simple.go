@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"mlb/backend"
+	"mlb/misc"
 	"sync"
 
 	"github.com/hashicorp/hcl/v2"
@@ -204,4 +205,8 @@ func (f *SimpleFilter) GetUpdateSource() string {
 
 func (f *SimpleFilter) GetID() string {
 	return f.id
+}
+
+func (f *SimpleFilter) GetBackendList() []*backend.Backend {
+	return misc.MapValues(f.backends)
 }

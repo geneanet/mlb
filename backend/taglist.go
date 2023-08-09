@@ -1,6 +1,11 @@
 package backend
 
-import "reflect"
+import (
+	"encoding/json"
+	"reflect"
+
+	"golang.org/x/exp/slices"
+)
 
 // TagList
 type TagList map[string]interface{}
@@ -37,7 +42,12 @@ func (tl TagList) List() []string {
 		list[i] = k
 		i++
 	}
+	slices.Sort(list)
 	return list
+}
+
+func (tl TagList) MarshalJSON() ([]byte, error) {
+	return json.Marshal(tl.List())
 }
 
 func NewTagList(list []string) TagList {

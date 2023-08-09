@@ -1,6 +1,9 @@
 package backend
 
-import "strconv"
+import (
+	"encoding/json"
+	"strconv"
+)
 
 // Type
 type MetaType int
@@ -86,6 +89,10 @@ func (v MetaStringValue) Clone() MetaValue {
 	}
 }
 
+func (v MetaStringValue) MarshalJSON() ([]byte, error) {
+	return json.Marshal(v.Value)
+}
+
 // Bool Value
 type MetaBoolValue struct {
 	Value bool
@@ -130,8 +137,13 @@ func (v MetaBoolValue) Equal(m MetaValue) bool {
 		return false
 	}
 }
+
 func (v MetaBoolValue) Clone() MetaValue {
 	return MetaBoolValue{
 		Value: v.Value,
 	}
+}
+
+func (v MetaBoolValue) MarshalJSON() ([]byte, error) {
+	return json.Marshal(v.Value)
 }

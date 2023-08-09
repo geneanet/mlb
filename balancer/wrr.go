@@ -12,6 +12,7 @@ import (
 	"golang.org/x/exp/slices"
 
 	"mlb/backend"
+	"mlb/misc"
 )
 
 func init() {
@@ -136,4 +137,8 @@ func (b *WRRBalancer) GetUpdateSource() string {
 
 func (b *WRRBalancer) GetID() string {
 	return b.id
+}
+
+func (b *WRRBalancer) GetBackendList() []*backend.Backend {
+	return misc.MapValues(b.backends)
 }
