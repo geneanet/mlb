@@ -1,4 +1,4 @@
-package inventory
+package backends_inventory
 
 import (
 	"context"
@@ -20,8 +20,8 @@ func DecodeConfigBlock(block *hcl.Block) (*Config, hcl.Diagnostics) {
 		return nil, hcl.Diagnostics{
 			{
 				Severity: hcl.DiagError,
-				Summary:  "Reference to unsupported inventory type",
-				Detail:   fmt.Sprintf("Inventory type %q is not supported.", block.Labels[0]),
+				Summary:  "Reference to unsupported backends_inventory type",
+				Detail:   fmt.Sprintf("BackendsInventory type %q is not supported.", block.Labels[0]),
 				Subject:  &block.LabelRanges[0],
 			},
 		}

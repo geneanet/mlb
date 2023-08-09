@@ -6,10 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"mlb/backend"
+	"mlb/backends_inventory"
 	"mlb/backends_processor"
 	"mlb/balancer"
 	"mlb/config"
-	"mlb/inventory"
 	"mlb/metrics"
 	"mlb/misc"
 	"mlb/proxy"
@@ -62,8 +62,8 @@ func main() {
 	backendProviders := make(map[string]backend.BackendProvider, 0)
 	backendListProviders := make(map[string]backend.BackendListProvider, 0)
 
-	for _, tc := range conf.InventoryList {
-		i := inventory.New(tc, &wg, ctx)
+	for _, tc := range conf.BackendsInventoryList {
+		i := backends_inventory.New(tc, &wg, ctx)
 		id := i.(misc.GetIDInterface).GetID()
 		backendUpdatesProviders[id] = i.(backend.BackendUpdateProvider)
 		backendListProviders[id] = i.(backend.BackendListProvider)

@@ -1,9 +1,9 @@
 package config
 
 import (
+	"mlb/backends_inventory"
 	"mlb/backends_processor"
 	"mlb/balancer"
-	"mlb/inventory"
 	"mlb/metrics"
 	"mlb/proxy"
 	"mlb/system"
@@ -14,7 +14,7 @@ import (
 )
 
 type Config struct {
-	InventoryList         []*inventory.Config
+	BackendsInventoryList []*backends_inventory.Config
 	BackendsProcessorList []*backends_processor.Config
 	BalancerList          []*balancer.Config
 	ProxyList             []*proxy.Config
@@ -25,7 +25,7 @@ type Config struct {
 var configFileSchema = &hcl.BodySchema{
 	Blocks: []hcl.BlockHeaderSchema{
 		{
-			Type:       "inventory",
+			Type:       "backends_inventory",
 			LabelNames: []string{"type", "id"},
 		},
 		{
@@ -63,7 +63,7 @@ func LoadConfig(path string) (*Config, hcl.Diagnostics) {
 	diags := hcl.Diagnostics{}
 	p := hclparse.NewParser()
 	c := &Config{
-		InventoryList:         []*inventory.Config{},
+		BackendsInventoryList: []*backends_inventory.Config{},
 		BackendsProcessorList: []*backends_processor.Config{},
 		BalancerList:          []*balancer.Config{},
 		ProxyList:             []*proxy.Config{},
@@ -83,11 +83,11 @@ func LoadConfig(path string) (*Config, hcl.Diagnostics) {
 
 	for _, block := range content.Blocks {
 		switch block.Type {
-		case "inventory":
-			config, diagsInventory := inventory.DecodeConfigBlock(block)
-			diags = append(diags, diagsInventory...)
+		case "backends_inventory":
+			config, diagsBackendsInventory := backends_inventory.DecodeConfigBlock(block)
+			diags = append(diags, diagsBackendsInventory...)
 			if config != nil {
-				c.InventoryList = append(c.InventoryList, config)
+				c.BackendsInventoryList = append(c.BackendsInventoryList, config)
 			}
 		case "backends_processor":
 			config, diagsBackendsProcessor := backends_processor.DecodeConfigBlock(block)

@@ -1,4 +1,4 @@
-package inventory
+package backends_inventory
 
 import (
 	"context"
@@ -20,7 +20,7 @@ import (
 )
 
 func init() {
-	factories["consul"] = &ConsulInventoryFactory{}
+	factories["consul"] = &ConsulBackendsInventoryFactory{}
 }
 
 type consulService struct {
@@ -39,7 +39,7 @@ type consulService struct {
 type consulServicesMap map[string]consulService
 type consulServicesSlice []consulService
 
-type InventoryConsul struct {
+type BackendsInventoryConsul struct {
 	id             string
 	url            string
 	service        string
@@ -57,7 +57,7 @@ type InventoryConsul struct {
 	log            zerolog.Logger
 }
 
-type ConsulInventoryConfig struct {
+type ConsulBackendsInventoryConfig struct {
 	ID            string  `hcl:"id,label"`
 	URL           string  `hcl:"url"`
 	Service       string  `hcl:"service"`
@@ -66,17 +66,17 @@ type ConsulInventoryConfig struct {
 	BackoffFactor float64 `hcl:"backoff_factor,optional"`
 }
 
-type ConsulInventoryFactory struct{}
+type ConsulBackendsInventoryFactory struct{}
 
-func (w ConsulInventoryFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
-	config := &ConsulInventoryConfig{}
+func (w ConsulBackendsInventoryFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
+	config := &ConsulBackendsInventoryConfig{}
 	return gohcl.DecodeBody(tc.Config, nil, config)
 }
 
-func (w ConsulInventoryFactory) parseConfig(tc *Config) *ConsulInventoryConfig {
-	config := &ConsulInventoryConfig{}
+func (w ConsulBackendsInventoryFactory) parseConfig(tc *Config) *ConsulBackendsInventoryConfig {
+	config := &ConsulBackendsInventoryConfig{}
 	gohcl.DecodeBody(tc.Config, nil, config)
-	config.ID = fmt.Sprintf("inventory.%s.%s", tc.Type, tc.Name)
+	config.ID = fmt.Sprintf("backends_inventory.%s.%s", tc.Type, tc.Name)
 	if config.Period == "" {
 		config.Period = "1s"
 	}
@@ -89,10 +89,10 @@ func (w ConsulInventoryFactory) parseConfig(tc *Config) *ConsulInventoryConfig {
 	return config
 }
 
-func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) backend.BackendUpdateProvider {
+func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) backend.BackendUpdateProvider {
 	config := w.parseConfig(tc)
 
-	c := &InventoryConsul{
+	c := &BackendsInventoryConsul{
 		id:             config.ID,
 		url:            config.URL,
 		service:        config.Service,
@@ -194,7 +194,7 @@ func (w ConsulInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.
 	return c
 }
 
-func (c *InventoryConsul) ProvideUpdates(ch chan backend.BackendUpdate) {
+func (c *BackendsInventoryConsul) ProvideUpdates(ch chan backend.BackendUpdate) {
 	c.subscribers = append(c.subscribers, ch)
 
 	go func() {
@@ -211,13 +211,13 @@ func (c *InventoryConsul) ProvideUpdates(ch chan backend.BackendUpdate) {
 	}()
 }
 
-func (c *InventoryConsul) sendUpdate(m backend.BackendUpdate) {
+func (c *BackendsInventoryConsul) sendUpdate(m backend.BackendUpdate) {
 	for _, s := range c.subscribers {
 		s <- m
 	}
 }
 
-func (c *InventoryConsul) updatePeriod(period time.Duration) {
+func (c *BackendsInventoryConsul) updatePeriod(period time.Duration) {
 	if c.period != period {
 		c.period = period
 		c.ticker.Reset(c.period)
@@ -225,11 +225,11 @@ func (c *InventoryConsul) updatePeriod(period time.Duration) {
 	}
 }
 
-func (c *InventoryConsul) resetPeriod() {
+func (c *BackendsInventoryConsul) resetPeriod() {
 	c.updatePeriod(c.default_period)
 }
 
-func (c *InventoryConsul) applyBackoff() {
+func (c *BackendsInventoryConsul) applyBackoff() {
 	new_period := time.Duration(float64(c.period) * c.backoff_factor)
 	if new_period > c.max_period {
 		new_period = c.max_period
@@ -237,7 +237,7 @@ func (c *InventoryConsul) applyBackoff() {
 	c.updatePeriod(new_period)
 }
 
-func (c *InventoryConsul) fetch() (ret_s consulServicesSlice, ret_e error) {
+func (c *BackendsInventoryConsul) fetch() (ret_s consulServicesSlice, ret_e error) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
@@ -275,11 +275,11 @@ func (c *InventoryConsul) fetch() (ret_s consulServicesSlice, ret_e error) {
 	return data, nil
 }
 
-func (c *InventoryConsul) GetID() string {
+func (c *BackendsInventoryConsul) GetID() string {
 	return c.id
 }
 
-func (c *InventoryConsul) GetBackendList() []*backend.Backend {
+func (c *BackendsInventoryConsul) GetBackendList() []*backend.Backend {
 	return misc.MapValues(c.backends)
 }
 

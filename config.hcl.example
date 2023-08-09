@@ -8,7 +8,7 @@ system {
   }
 }
 
-inventory "consul" "mysql" {
+backends_inventory "consul" "mysql" {
   url = "http://localhost:8500"
   service = "mysql"
   // period = "1s"
@@ -17,7 +17,7 @@ inventory "consul" "mysql" {
 }
 
 backends_processor "mysql" "mysql" {
-  source = "inventory.consul.mysql"
+  source = "backends_inventory.consul.mysql"
   user = "mlb"
   password = "mlb_password"
   // period = "500ms"
