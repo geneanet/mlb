@@ -55,7 +55,7 @@ func (w TCPProxyFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 func (w TCPProxyFactory) parseConfig(tc *Config) *TCPProxyConfig {
 	config := &TCPProxyConfig{}
 	gohcl.DecodeBody(tc.Config, nil, config)
-	config.ID = fmt.Sprintf("filter.%s.%s", tc.Type, tc.Name)
+	config.ID = fmt.Sprintf("backends_processor.%s.%s", tc.Type, tc.Name)
 	if config.CloseTimeout == "" {
 		config.CloseTimeout = "0s"
 	}

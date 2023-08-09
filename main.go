@@ -6,10 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"mlb/backend"
+	"mlb/backends_processor"
 	"mlb/balancer"
-	"mlb/checker"
 	"mlb/config"
-	"mlb/filter"
 	"mlb/inventory"
 	"mlb/metrics"
 	"mlb/misc"
@@ -70,16 +69,8 @@ func main() {
 		backendListProviders[id] = i.(backend.BackendListProvider)
 	}
 
-	for _, tc := range conf.CheckerList {
-		c := checker.New(tc, &wg, ctx)
-		id := c.(misc.GetIDInterface).GetID()
-		backendUpdatesProviders[id] = c.(backend.BackendUpdateProvider)
-		backendListProviders[id] = c.(backend.BackendListProvider)
-		backendUpdateSubscribers[id] = c.(backend.BackendUpdateSubscriber)
-	}
-
-	for _, tc := range conf.FilterList {
-		f := filter.New(tc, &wg, ctx)
+	for _, tc := range conf.BackendsProcessorList {
+		f := backends_processor.New(tc, &wg, ctx)
 		id := f.(misc.GetIDInterface).GetID()
 		backendUpdatesProviders[id] = f.(backend.BackendUpdateProvider)
 		backendListProviders[id] = f.(backend.BackendListProvider)

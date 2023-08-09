@@ -1,4 +1,4 @@
-package filter
+package backends_processor
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 )
 
 func init() {
-	factories["simple"] = &SimpleFilterFactory{}
+	factories["simple_filter"] = &SimpleFilterFactory{}
 }
 
 type SimpleFilter struct {
@@ -55,7 +55,7 @@ func (w SimpleFilterFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 func (w SimpleFilterFactory) parseConfig(tc *Config) *SimpleFilterConfig {
 	config := &SimpleFilterConfig{}
 	gohcl.DecodeBody(tc.Config, nil, config)
-	config.ID = fmt.Sprintf("filter.%s.%s", tc.Type, tc.Name)
+	config.ID = fmt.Sprintf("backends_processor.%s.%s", tc.Type, tc.Name)
 	return config
 }
 

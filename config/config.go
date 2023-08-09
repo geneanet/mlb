@@ -1,9 +1,8 @@
 package config
 
 import (
+	"mlb/backends_processor"
 	"mlb/balancer"
-	"mlb/checker"
-	"mlb/filter"
 	"mlb/inventory"
 	"mlb/metrics"
 	"mlb/proxy"
@@ -15,13 +14,12 @@ import (
 )
 
 type Config struct {
-	InventoryList []*inventory.Config
-	CheckerList   []*checker.Config
-	FilterList    []*filter.Config
-	BalancerList  []*balancer.Config
-	ProxyList     []*proxy.Config
-	Metrics       *metrics.MetricsConfig
-	System        *system.SystemConfig
+	InventoryList         []*inventory.Config
+	BackendsProcessorList []*backends_processor.Config
+	BalancerList          []*balancer.Config
+	ProxyList             []*proxy.Config
+	Metrics               *metrics.MetricsConfig
+	System                *system.SystemConfig
 }
 
 var configFileSchema = &hcl.BodySchema{
@@ -31,11 +29,7 @@ var configFileSchema = &hcl.BodySchema{
 			LabelNames: []string{"type", "id"},
 		},
 		{
-			Type:       "checker",
-			LabelNames: []string{"type", "id"},
-		},
-		{
-			Type:       "filter",
+			Type:       "backends_processor",
 			LabelNames: []string{"type", "id"},
 		},
 		{
@@ -69,11 +63,10 @@ func LoadConfig(path string) (*Config, hcl.Diagnostics) {
 	diags := hcl.Diagnostics{}
 	p := hclparse.NewParser()
 	c := &Config{
-		InventoryList: []*inventory.Config{},
-		CheckerList:   []*checker.Config{},
-		FilterList:    []*filter.Config{},
-		BalancerList:  []*balancer.Config{},
-		ProxyList:     []*proxy.Config{},
+		InventoryList:         []*inventory.Config{},
+		BackendsProcessorList: []*backends_processor.Config{},
+		BalancerList:          []*balancer.Config{},
+		ProxyList:             []*proxy.Config{},
 	}
 
 	defer func() {
@@ -96,17 +89,11 @@ func LoadConfig(path string) (*Config, hcl.Diagnostics) {
 			if config != nil {
 				c.InventoryList = append(c.InventoryList, config)
 			}
-		case "checker":
-			config, diagsChecker := checker.DecodeConfigBlock(block)
-			diags = append(diags, diagsChecker...)
+		case "backends_processor":
+			config, diagsBackendsProcessor := backends_processor.DecodeConfigBlock(block)
+			diags = append(diags, diagsBackendsProcessor...)
 			if config != nil {
-				c.CheckerList = append(c.CheckerList, config)
-			}
-		case "filter":
-			config, diagsFilter := filter.DecodeConfigBlock(block)
-			diags = append(diags, diagsFilter...)
-			if config != nil {
-				c.FilterList = append(c.FilterList, config)
+				c.BackendsProcessorList = append(c.BackendsProcessorList, config)
 			}
 		case "balancer":
 			config, diagsBalancer := balancer.DecodeConfigBlock(block)

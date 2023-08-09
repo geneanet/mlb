@@ -1,4 +1,4 @@
-package checker
+package backends_processor
 
 import (
 	"database/sql"

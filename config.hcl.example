@@ -16,7 +16,7 @@ inventory "consul" "mysql" {
   // backoff_factor = 1.5
 }
 
-checker "mysql" "mysql" {
+backends_processor "mysql" "mysql" {
   source = "inventory.consul.mysql"
   user = "mlb"
   password = "mlb_password"
@@ -25,8 +25,8 @@ checker "mysql" "mysql" {
   // backoff_factor = 1.5
 }
 
-filter "simple" "mysql_main_ro" {
-  source = "checker.mysql.mysql"
+backends_processor "simple_filter" "mysql_main_ro" {
+  source = "backends_processor.mysql.mysql"
   include_tags = ["main"]
   exclude_tags = ["backup"]
   // status = "ok"
@@ -37,7 +37,7 @@ filter "simple" "mysql_main_ro" {
 }
 
 balancer "wrr" "mysql_main_ro" {
-  source = "filter.simple.mysql_main_ro"
+  source = "backends_processor.simple_filter.mysql_main_ro"
 }
 
 proxy "tcp" "mysql_main_ro" {

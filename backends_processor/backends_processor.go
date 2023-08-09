@@ -1,4 +1,4 @@
-package checker
+package backends_processor
 
 import (
 	"context"
@@ -20,8 +20,8 @@ func DecodeConfigBlock(block *hcl.Block) (*Config, hcl.Diagnostics) {
 		return nil, hcl.Diagnostics{
 			{
 				Severity: hcl.DiagError,
-				Summary:  "Reference to unsupported checker type",
-				Detail:   fmt.Sprintf("Checker type %q is not supported.", block.Labels[0]),
+				Summary:  "Reference to unsupported backend processor type",
+				Detail:   fmt.Sprintf("Backends processor type %q is not supported.", block.Labels[0]),
 				Subject:  &block.LabelRanges[0],
 			},
 		}
