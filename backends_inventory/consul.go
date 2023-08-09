@@ -24,6 +24,9 @@ func init() {
 }
 
 type consulService struct {
+	Node struct {
+		Node string
+	}
 	Service struct {
 		Tags    []string
 		Address string
@@ -148,7 +151,9 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 						Status:  "unk",
 						Tags:    backend.NewTagList(service.Service.Tags),
 						Weight:  service.Service.Weights.Passing,
-						Meta:    map[string]backend.MetaValue{},
+						Meta: map[string]backend.MetaValue{
+							"consul.node": backend.MetaStringValue{Value: service.Node.Node},
+						},
 					}
 					c.sendUpdate(backend.BackendUpdate{
 						Kind:    backend.UpdBackendAdded,
@@ -161,6 +166,7 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 					log.Debug().Str("address", address).Msg("Service modified")
 					c.backends[address].Tags = backend.NewTagList(service.Service.Tags)
 					c.backends[address].Weight = service.Service.Weights.Passing
+					c.backends[address].Meta["consul.node"] = backend.MetaStringValue{Value: service.Node.Node}
 					c.sendUpdate(backend.BackendUpdate{
 						Kind:    backend.UpdBackendModified,
 						Address: address,
