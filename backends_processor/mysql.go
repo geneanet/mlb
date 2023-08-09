@@ -260,7 +260,7 @@ func NewMySQLCheck(backend *backend.Backend, user string, password string, defau
 func (c *MySQLCheck) UpdateBackend(b *backend.Backend) {
 	c.backend.Weight = b.Weight
 	c.backend.UpdateTags(b.Tags)
-	c.backend.UpdateMeta(b.Meta, "readonly")
+	c.backend.UpdateMeta(b.Meta, "mysql.readonly")
 }
 
 func (c *MySQLCheck) fetchStatus() (ret_status string, ret_readonly bool, ret_err error) {
@@ -305,16 +305,16 @@ func (c *MySQLCheck) updateStatus() {
 		c.status_chan <- c.backend
 	}
 
-	meta_readonly, ok := c.backend.Meta["readonly"]
+	meta_readonly, ok := c.backend.Meta["mysql.readonly"]
 	if ok { // Metadata readonly exists
 		old_readonly, _ := meta_readonly.ToBool()
 		if new_readonly != old_readonly { // Value has changed
-			c.backend.Meta["readonly"] = &backend.MetaBoolValue{Value: new_readonly}
+			c.backend.Meta["mysql.readonly"] = &backend.MetaBoolValue{Value: new_readonly}
 			log.Info().Str("address", c.backend.Address).Bool("old_readonly", old_readonly).Bool("new_readonly", new_readonly).Msg("Backend readonly changed")
 			c.status_chan <- c.backend
 		}
 	} else { // Metadata readonly does not exist
-		c.backend.Meta["readonly"] = &backend.MetaBoolValue{Value: new_readonly}
+		c.backend.Meta["mysql.readonly"] = &backend.MetaBoolValue{Value: new_readonly}
 		log.Info().Str("address", c.backend.Address).Bool("new_readonly", new_readonly).Msg("Backend readonly changed")
 		c.status_chan <- c.backend
 	}

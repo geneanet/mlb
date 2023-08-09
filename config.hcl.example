@@ -31,7 +31,7 @@ backends_processor "simple_filter" "mysql_main_ro" {
   exclude_tags = ["backup"]
   // status = "ok"
   meta {
-    key = "readonly"
+    key = "mysql.readonly"
     value = true
   }
 }
