@@ -15,16 +15,14 @@ import (
 )
 
 type Config struct {
-	InventoryList []*inventory.Config    `hcl:"inventory,block"`
-	CheckerList   []*checker.Config      `hcl:"checker,block"`
-	FilterList    []*filter.Config       `hcl:"filter,block"`
-	BalancerList  []*balancer.Config     `hcl:"balancer,block"`
-	ProxyList     []*proxy.Config        `hcl:"proxy,block"`
-	Metrics       *metrics.MetricsConfig `hcl:"metrics,block"`
-	System        *system.SystemConfig   `hcl:"system,block"`
+	InventoryList []*inventory.Config
+	CheckerList   []*checker.Config
+	FilterList    []*filter.Config
+	BalancerList  []*balancer.Config
+	ProxyList     []*proxy.Config
+	Metrics       *metrics.MetricsConfig
+	System        *system.SystemConfig
 }
-
-///////////////////////////
 
 var configFileSchema = &hcl.BodySchema{
 	Blocks: []hcl.BlockHeaderSchema{
