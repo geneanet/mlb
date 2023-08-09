@@ -13,6 +13,8 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 func init() {
