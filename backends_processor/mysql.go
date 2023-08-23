@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/zclconf/go-cty/cty"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -258,9 +259,8 @@ func NewMySQLCheck(backend *backend.Backend, user string, password string, defau
 }
 
 func (c *MySQLCheck) UpdateBackend(b *backend.Backend) {
-	c.backend.Weight = b.Weight
 	c.backend.UpdateTags(b.Tags)
-	c.backend.UpdateMeta(b.Meta, "mysql.readonly")
+	c.backend.UpdateMeta(b.Meta, "mysql")
 }
 
 func (c *MySQLCheck) fetchStatus() (ret_status string, ret_readonly bool, ret_err error) {
@@ -305,16 +305,16 @@ func (c *MySQLCheck) updateStatus() {
 		c.status_chan <- c.backend
 	}
 
-	meta_readonly, ok := c.backend.Meta["mysql.readonly"]
+	meta_readonly, ok := c.backend.Meta.Get("mysql", "readonly")
 	if ok { // Metadata readonly exists
-		old_readonly, _ := meta_readonly.ToBool()
+		old_readonly := meta_readonly.Equals(cty.True).True()
 		if new_readonly != old_readonly { // Value has changed
-			c.backend.Meta["mysql.readonly"] = &backend.MetaBoolValue{Value: new_readonly}
+			c.backend.Meta.Set("mysql", "readonly", cty.BoolVal(new_readonly))
 			log.Info().Str("address", c.backend.Address).Bool("old_readonly", old_readonly).Bool("new_readonly", new_readonly).Msg("Backend readonly changed")
 			c.status_chan <- c.backend
 		}
 	} else { // Metadata readonly does not exist
-		c.backend.Meta["mysql.readonly"] = &backend.MetaBoolValue{Value: new_readonly}
+		c.backend.Meta.Set("mysql", "readonly", cty.BoolVal(new_readonly))
 		log.Info().Str("address", c.backend.Address).Bool("new_readonly", new_readonly).Msg("Backend readonly changed")
 		c.status_chan <- c.backend
 	}

@@ -5,7 +5,6 @@ type Backend struct {
 	Address string
 	Status  string
 	Tags    TagList
-	Weight  int
 	Meta    MetaMap
 }
 
@@ -13,7 +12,6 @@ func (b *Backend) Clone() *Backend {
 	new := &Backend{
 		Address: b.Address,
 		Status:  b.Status,
-		Weight:  b.Weight,
 		Tags:    b.Tags.Clone(),
 		Meta:    b.Meta.Clone(),
 	}
@@ -21,14 +19,14 @@ func (b *Backend) Clone() *Backend {
 }
 
 func (b *Backend) Equal(other *Backend) bool {
-	return b.Address == other.Address && b.Status == other.Status && b.Weight == other.Weight && b.Tags.Equal(other.Tags) && b.Meta.Equal(other.Meta)
+	return b.Address == other.Address && b.Status == other.Status && b.Tags.Equal(other.Tags) && b.Meta.Equal(other.Meta)
 }
 
 func (b *Backend) UpdateTags(new_tags TagList) {
 	b.Tags = new_tags.Clone()
 }
 
-// Replace all the metadata with the provided ones, except for the specified ones that are preserved
+// Replace all the metadata with the provided ones, except for the specified bucket that is preserved
 func (b *Backend) UpdateMeta(new_meta MetaMap, except ...string) {
 	new := new_meta.Clone()
 	for _, k := range except {

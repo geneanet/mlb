@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/zclconf/go-cty/cty/gocty"
 
 	"mlb/backend"
 	"mlb/misc"
@@ -79,16 +80,24 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 				b.mu.Lock()
 				switch upd.Kind {
 				case backend.UpdBackendAdded:
-					b.log.Info().Str("address", upd.Address).Int("weight", upd.Backend.Weight).Msg("Adding backend to WRR balancer")
+					var weight int
+					weight_val, _ := upd.Backend.Meta.Get("consul", "weight")
+					gocty.FromCtyValue(weight_val, &weight)
+
+					b.log.Info().Str("address", upd.Address).Int("weight", weight).Msg("Adding backend to WRR balancer")
 					b.backends[upd.Address] = upd.Backend.Clone()
-					for i := 0; i < upd.Backend.Weight; i++ {
+					for i := 0; i < weight; i++ {
 						b.weightedlist = append(b.weightedlist, upd.Address)
 					}
 				case backend.UpdBackendModified:
-					b.log.Info().Str("address", upd.Address).Int("weight", upd.Backend.Weight).Msg("Updating backend in WRR balancer")
+					var weight int
+					weight_val, _ := upd.Backend.Meta.Get("consul", "weight")
+					gocty.FromCtyValue(weight_val, &weight)
+
+					b.log.Info().Str("address", upd.Address).Int("weight", weight).Msg("Updating backend in WRR balancer")
 					b.backends[upd.Address] = upd.Backend.Clone()
 					b.weightedlist = slices.DeleteFunc(b.weightedlist, func(a string) bool { return a == upd.Address })
-					for i := 0; i < upd.Backend.Weight; i++ {
+					for i := 0; i < weight; i++ {
 						b.weightedlist = append(b.weightedlist, upd.Address)
 					}
 				case backend.UpdBackendRemoved:

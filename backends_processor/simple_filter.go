@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/zclconf/go-cty/cty"
 )
 
 func init() {
@@ -41,8 +42,9 @@ type SimpleFilterConfig struct {
 }
 
 type MetaConditionConfig struct {
-	Key   string `hcl:"key"`
-	Value string `hcl:"value"`
+	Bucket string    `hcl:"bucket"`
+	Key    string    `hcl:"key"`
+	Value  cty.Value `hcl:"value"`
 }
 
 type SimpleFilterFactory struct{}
@@ -182,12 +184,12 @@ func (f *SimpleFilter) matchFilter(b *backend.Backend) bool {
 	}
 
 	for _, m := range f.meta { // Check each requested metadata
-		v, ok := b.Meta[m.Key]
+		v, ok := b.Meta.Get(m.Bucket, m.Key)
 		if !ok { // If the metadata is not available
 			return false
 		}
-		sv, err := v.ToString()
-		if sv != m.Value || err != nil { // If the metadata do not match
+		// If the value does not match
+		if v.Equals(m.Value).False() {
 			return false
 		}
 	}

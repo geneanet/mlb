@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/zclconf/go-cty/cty"
 
 	"mlb/backend"
 	"mlb/misc"
@@ -32,8 +33,8 @@ type consulService struct {
 		Address string
 		Port    int
 		Weights struct {
-			Passing int
-			Warning int
+			Passing uint64
+			Warning uint64
 		}
 		ModifyIndex int
 	}
@@ -150,9 +151,11 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 						Address: address,
 						Status:  "unk",
 						Tags:    backend.NewTagList(service.Service.Tags),
-						Weight:  service.Service.Weights.Passing,
 						Meta: backend.MetaMap{
-							"consul.node": backend.MetaStringValue{Value: service.Node.Node},
+							"consul": backend.MetaBucket{
+								"node":   cty.StringVal(service.Node.Node),
+								"weight": cty.NumberUIntVal(service.Service.Weights.Passing),
+							},
 						},
 					}
 					c.sendUpdate(backend.BackendUpdate{
@@ -165,8 +168,8 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 				for address, service := range modified {
 					log.Debug().Str("address", address).Msg("Service modified")
 					c.backends[address].Tags = backend.NewTagList(service.Service.Tags)
-					c.backends[address].Weight = service.Service.Weights.Passing
-					c.backends[address].Meta["consul.node"] = backend.MetaStringValue{Value: service.Node.Node}
+					c.backends[address].Meta.Set("consul", "weight", cty.NumberUIntVal(service.Service.Weights.Passing))
+					c.backends[address].Meta.Set("consul", "node", cty.StringVal(service.Node.Node))
 					c.sendUpdate(backend.BackendUpdate{
 						Kind:    backend.UpdBackendModified,
 						Address: address,
