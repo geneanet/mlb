@@ -171,14 +171,19 @@ func (f *SimpleFilter) matchFilter(b *backend.Backend) bool {
 		return false
 	}
 
+	tags, ok := b.Meta.Get("consul", "tags")
+	if !ok {
+		tags = cty.SetValEmpty(cty.String)
+	}
+
 	for _, t := range f.include_tags {
-		if !b.Tags.Has(t) {
+		if tags.HasElement(cty.StringVal(t)).False() {
 			return false
 		}
 	}
 
 	for _, t := range f.exclude_tags {
-		if b.Tags.Has(t) {
+		if tags.HasElement(cty.StringVal(t)).True() {
 			return false
 		}
 	}

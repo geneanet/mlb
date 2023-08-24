@@ -15,6 +15,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/gocty"
 
 	"mlb/backend"
 	"mlb/misc"
@@ -150,11 +151,11 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 					c.backends[address] = &backend.Backend{
 						Address: address,
 						Status:  "unk",
-						Tags:    backend.NewTagList(service.Service.Tags),
 						Meta: backend.MetaMap{
 							"consul": backend.MetaBucket{
 								"node":   cty.StringVal(service.Node.Node),
 								"weight": cty.NumberUIntVal(service.Service.Weights.Passing),
+								"tags":   ctyTagSet(service.Service.Tags),
 							},
 						},
 					}
@@ -167,7 +168,7 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 
 				for address, service := range modified {
 					log.Debug().Str("address", address).Msg("Service modified")
-					c.backends[address].Tags = backend.NewTagList(service.Service.Tags)
+					c.backends[address].Meta.Set("consul", "tags", ctyTagSet(service.Service.Tags))
 					c.backends[address].Meta.Set("consul", "weight", cty.NumberUIntVal(service.Service.Weights.Passing))
 					c.backends[address].Meta.Set("consul", "node", cty.StringVal(service.Node.Node))
 					c.sendUpdate(backend.BackendUpdate{
@@ -341,4 +342,9 @@ func consulServicesDiff(old consulServicesSlice, new consulServicesSlice) (added
 	}
 
 	return added, modified, removed
+}
+
+func ctyTagSet(tags []string) cty.Value {
+	result, _ := gocty.ToCtyValue(tags, cty.Set(cty.String))
+	return result
 }

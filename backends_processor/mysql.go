@@ -259,7 +259,6 @@ func NewMySQLCheck(backend *backend.Backend, user string, password string, defau
 }
 
 func (c *MySQLCheck) UpdateBackend(b *backend.Backend) {
-	c.backend.UpdateTags(b.Tags)
 	c.backend.UpdateMeta(b.Meta, "mysql")
 }
 

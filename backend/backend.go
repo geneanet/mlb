@@ -10,7 +10,6 @@ import (
 type Backend struct {
 	Address string
 	Status  string
-	Tags    TagList
 	Meta    MetaMap
 }
 
@@ -18,18 +17,13 @@ func (b *Backend) Clone() *Backend {
 	new := &Backend{
 		Address: b.Address,
 		Status:  b.Status,
-		Tags:    b.Tags.Clone(),
 		Meta:    b.Meta.Clone(),
 	}
 	return new
 }
 
 func (b *Backend) Equal(other *Backend) bool {
-	return b.Address == other.Address && b.Status == other.Status && b.Tags.Equal(other.Tags) && b.Meta.Equal(other.Meta)
-}
-
-func (b *Backend) UpdateTags(new_tags TagList) {
-	b.Tags = new_tags.Clone()
+	return b.Address == other.Address && b.Status == other.Status && b.Meta.Equal(other.Meta)
 }
 
 // Replace all the metadata with the provided ones, except for the specified bucket that is preserved
