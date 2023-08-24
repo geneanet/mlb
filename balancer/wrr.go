@@ -10,7 +10,6 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/zclconf/go-cty/cty/gocty"
 
 	"mlb/backend"
 	"mlb/misc"
@@ -33,7 +32,8 @@ type WRRBalancer struct {
 
 type WRRBalancerConfig struct {
 	ID     string
-	Source string `hcl:"source"`
+	Source string         `hcl:"source"`
+	Weight hcl.Expression `hcl:"weight"`
 }
 
 type WRRBalancerFactory struct{}
@@ -81,8 +81,10 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 				switch upd.Kind {
 				case backend.UpdBackendAdded:
 					var weight int
-					weight_val, _ := upd.Backend.Meta.Get("consul", "weight")
-					gocty.FromCtyValue(weight_val, &weight)
+					diags := upd.Backend.ResolveExpression(config.Weight, &weight)
+					if diags.HasErrors() {
+						b.log.Error().Msg(diags.Error())
+					}
 
 					b.log.Info().Str("address", upd.Address).Int("weight", weight).Msg("Adding backend to WRR balancer")
 					b.backends[upd.Address] = upd.Backend.Clone()
@@ -91,8 +93,10 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 					}
 				case backend.UpdBackendModified:
 					var weight int
-					weight_val, _ := upd.Backend.Meta.Get("consul", "weight")
-					gocty.FromCtyValue(weight_val, &weight)
+					diags := upd.Backend.ResolveExpression(config.Weight, &weight)
+					if diags.HasErrors() {
+						b.log.Error().Msg(diags.Error())
+					}
 
 					b.log.Info().Str("address", upd.Address).Int("weight", weight).Msg("Updating backend in WRR balancer")
 					b.backends[upd.Address] = upd.Backend.Clone()

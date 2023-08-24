@@ -28,6 +28,16 @@ func (m MetaMap) Get(bucket string, key string) (cty.Value, bool) {
 	return m[bucket][key], true
 }
 
+func (m MetaMap) ToCtyObject() cty.Value {
+	buckets := map[string]cty.Value{}
+
+	for k, v := range m {
+		buckets[k] = cty.ObjectVal(v)
+	}
+
+	return cty.ObjectVal(buckets)
+}
+
 func (m MetaMap) Equal(other MetaMap) bool {
 	if len(m) != len(other) {
 		return false

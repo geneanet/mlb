@@ -1,5 +1,11 @@
 package backend
 
+import (
+	"github.com/hashicorp/hcl/v2"
+	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/gocty"
+)
+
 // Backend
 type Backend struct {
 	Address string
@@ -35,6 +41,33 @@ func (b *Backend) UpdateMeta(new_meta MetaMap, except ...string) {
 		}
 	}
 	b.Meta = new
+}
+
+func (b *Backend) ResolveExpression(expression hcl.Expression, target interface{}) hcl.Diagnostics {
+	meta_ctx := hcl.EvalContext{
+		Variables: map[string]cty.Value{
+			"backend": cty.ObjectVal(map[string]cty.Value{
+				"meta": b.Meta.ToCtyObject(),
+			}),
+		},
+	}
+
+	w, diags := expression.Value(&meta_ctx)
+
+	err := gocty.FromCtyValue(w, target)
+	if err != nil {
+		diags2 := hcl.Diagnostics{
+			{
+				Severity: hcl.DiagError,
+				Summary:  "Type conversion error",
+				Detail:   err.Error(),
+				Subject:  expression.Range().Ptr(),
+			},
+		}
+		diags = append(diags, diags2...)
+	}
+
+	return diags
 }
 
 // Map
