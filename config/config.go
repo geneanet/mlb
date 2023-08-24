@@ -114,7 +114,18 @@ func LoadConfig(path string) (*Config, hcl.Diagnostics) {
 	ctx := &hcl.EvalContext{
 		Variables: modulesCty,
 		Functions: map[string]function.Function{
+			"abs":      stdlib.AbsoluteFunc,
+			"ceil":     stdlib.CeilFunc,
 			"contains": stdlib.ContainsFunc,
+			"floor":    stdlib.FloorFunc,
+			"int":      stdlib.IntFunc,
+			"join":     stdlib.JoinFunc,
+			"len":      stdlib.LengthFunc,
+			"max":      stdlib.MaxFunc,
+			"min":      stdlib.MinFunc,
+			"parseint": stdlib.ParseIntFunc,
+			"split":    stdlib.SplitFunc,
+			"strlen":   stdlib.StrlenFunc,
 		},
 	}
 
