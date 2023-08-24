@@ -17,7 +17,7 @@ backends_inventory "consul" "mysql" {
 }
 
 backends_processor "mysql" "mysql" {
-  source = "backends_inventory.consul.mysql"
+  source = backends_inventory.consul.mysql
   user = "mlb"
   password = "mlb_password"
   // period = "500ms"
@@ -26,7 +26,7 @@ backends_processor "mysql" "mysql" {
 }
 
 backends_processor "simple_filter" "mysql_main_ro" {
-  source = "backends_processor.mysql.mysql"
+  source = backends_processor.mysql.mysql
   condition = (
     backend.meta.mysql.status == "ok"
     && backend.meta.mysql.readonly == true
@@ -36,12 +36,12 @@ backends_processor "simple_filter" "mysql_main_ro" {
 }
 
 balancer "wrr" "mysql_main_ro" {
-  source = "backends_processor.simple_filter.mysql_main_ro"
+  source = backends_processor.simple_filter.mysql_main_ro
   weight = backend.meta.consul.weight
 }
 
 proxy "tcp" "mysql_main_ro" {
-  source = "balancer.wrr.mysql_main_ro"
+  source = balancer.wrr.mysql_main_ro
   address = ":3306"
   // close_timeout = "10s"
 }

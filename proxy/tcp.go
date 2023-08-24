@@ -49,12 +49,12 @@ type TCPProxyFactory struct{}
 
 func (w TCPProxyFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 	config := &TCPProxyConfig{}
-	return gohcl.DecodeBody(tc.Config, nil, config)
+	return gohcl.DecodeBody(tc.Config, tc.ctx, config)
 }
 
 func (w TCPProxyFactory) parseConfig(tc *Config) *TCPProxyConfig {
 	config := &TCPProxyConfig{}
-	gohcl.DecodeBody(tc.Config, nil, config)
+	gohcl.DecodeBody(tc.Config, tc.ctx, config)
 	config.ID = fmt.Sprintf("backends_processor.%s.%s", tc.Type, tc.Name)
 	if config.CloseTimeout == "" {
 		config.CloseTimeout = "0s"

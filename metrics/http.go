@@ -20,9 +20,9 @@ type MetricsConfig struct {
 	Address string `hcl:"address"`
 }
 
-func DecodeConfigBlock(block *hcl.Block) (*MetricsConfig, hcl.Diagnostics) {
+func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*MetricsConfig, hcl.Diagnostics) {
 	c := &MetricsConfig{}
-	diag := gohcl.DecodeBody(block.Body, nil, c)
+	diag := gohcl.DecodeBody(block.Body, ctx, c)
 	return c, diag
 }
 

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"mlb/backends_inventory"
 	"mlb/backends_processor"
 	"mlb/balancer"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
+	"github.com/zclconf/go-cty/cty"
 )
 
 type Config struct {
@@ -81,39 +83,70 @@ func LoadConfig(path string) (*Config, hcl.Diagnostics) {
 	content, contentDiags := hclfile.Body.Content(configFileSchema)
 	diags = append(diags, contentDiags...)
 
+	// First pass over all blocks to list modules instances and create an eval context for the next pass
+	modules := map[string]map[string]map[string]string{}
+	for _, block := range content.Blocks {
+		switch block.Type {
+		case "backends_inventory", "backends_processor", "balancer", "proxy":
+			if _, ok := modules[block.Type]; !ok {
+				modules[block.Type] = make(map[string]map[string]string)
+			}
+			if _, ok := modules[block.Type][block.Labels[0]]; !ok {
+				modules[block.Type][block.Labels[0]] = make(map[string]string)
+			}
+			modules[block.Type][block.Labels[0]][block.Labels[1]] = fmt.Sprintf("%s.%s.%s", block.Type, block.Labels[0], block.Labels[1])
+		}
+	}
+	modulesCty := map[string]cty.Value{}
+	for module, buckets := range modules {
+		bucketsCty := map[string]cty.Value{}
+		for bucket, keys := range buckets {
+			bucketCty := map[string]cty.Value{}
+			for key, id := range keys {
+				bucketCty[key] = cty.StringVal(id)
+			}
+			bucketsCty[bucket] = cty.ObjectVal(bucketCty)
+		}
+		modulesCty[module] = cty.ObjectVal(bucketsCty)
+	}
+	ctx := &hcl.EvalContext{
+		Variables: modulesCty,
+	}
+
+	// Second pass to actually parse the blocks contents
 	for _, block := range content.Blocks {
 		switch block.Type {
 		case "backends_inventory":
-			config, diagsBackendsInventory := backends_inventory.DecodeConfigBlock(block)
+			config, diagsBackendsInventory := backends_inventory.DecodeConfigBlock(block, ctx)
 			diags = append(diags, diagsBackendsInventory...)
 			if config != nil {
 				c.BackendsInventoryList = append(c.BackendsInventoryList, config)
 			}
 		case "backends_processor":
-			config, diagsBackendsProcessor := backends_processor.DecodeConfigBlock(block)
+			config, diagsBackendsProcessor := backends_processor.DecodeConfigBlock(block, ctx)
 			diags = append(diags, diagsBackendsProcessor...)
 			if config != nil {
 				c.BackendsProcessorList = append(c.BackendsProcessorList, config)
 			}
 		case "balancer":
-			config, diagsBalancer := balancer.DecodeConfigBlock(block)
+			config, diagsBalancer := balancer.DecodeConfigBlock(block, ctx)
 			diags = append(diags, diagsBalancer...)
 			if config != nil {
 				c.BalancerList = append(c.BalancerList, config)
 			}
 		case "proxy":
-			config, diagsProxy := proxy.DecodeConfigBlock(block)
+			config, diagsProxy := proxy.DecodeConfigBlock(block, ctx)
 			diags = append(diags, diagsProxy...)
 			if config != nil {
 				c.ProxyList = append(c.ProxyList, config)
 			}
 		case "metrics":
 			var metricsDiags hcl.Diagnostics
-			c.Metrics, metricsDiags = metrics.DecodeConfigBlock(block)
+			c.Metrics, metricsDiags = metrics.DecodeConfigBlock(block, ctx)
 			diags = append(diags, metricsDiags...)
 		case "system":
 			var systemDiags hcl.Diagnostics
-			c.System, systemDiags = system.DecodeConfigBlock(block)
+			c.System, systemDiags = system.DecodeConfigBlock(block, ctx)
 			diags = append(diags, systemDiags...)
 		}
 	}

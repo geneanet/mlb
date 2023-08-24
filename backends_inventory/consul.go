@@ -75,12 +75,12 @@ type ConsulBackendsInventoryFactory struct{}
 
 func (w ConsulBackendsInventoryFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 	config := &ConsulBackendsInventoryConfig{}
-	return gohcl.DecodeBody(tc.Config, nil, config)
+	return gohcl.DecodeBody(tc.Config, tc.ctx, config)
 }
 
 func (w ConsulBackendsInventoryFactory) parseConfig(tc *Config) *ConsulBackendsInventoryConfig {
 	config := &ConsulBackendsInventoryConfig{}
-	gohcl.DecodeBody(tc.Config, nil, config)
+	gohcl.DecodeBody(tc.Config, tc.ctx, config)
 	config.ID = fmt.Sprintf("backends_inventory.%s.%s", tc.Type, tc.Name)
 	if config.Period == "" {
 		config.Period = "1s"

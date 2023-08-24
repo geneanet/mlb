@@ -13,9 +13,10 @@ type Config struct {
 	Type   string
 	Name   string
 	Config hcl.Body
+	ctx    *hcl.EvalContext
 }
 
-func DecodeConfigBlock(block *hcl.Block) (*Config, hcl.Diagnostics) {
+func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*Config, hcl.Diagnostics) {
 	if _, ok := factories[block.Labels[0]]; !ok {
 		return nil, hcl.Diagnostics{
 			{
@@ -30,6 +31,7 @@ func DecodeConfigBlock(block *hcl.Block) (*Config, hcl.Diagnostics) {
 		Type:   block.Labels[0],
 		Name:   block.Labels[1],
 		Config: block.Body,
+		ctx:    ctx,
 	}
 	diags := ValidateConfig(tc)
 	return tc, diags

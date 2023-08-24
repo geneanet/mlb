@@ -17,9 +17,9 @@ type RLimitConfig struct {
 	NOFile uint64 `hcl:"nofile"`
 }
 
-func DecodeConfigBlock(block *hcl.Block) (*SystemConfig, hcl.Diagnostics) {
+func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*SystemConfig, hcl.Diagnostics) {
 	c := &SystemConfig{}
-	diag := gohcl.DecodeBody(block.Body, nil, c)
+	diag := gohcl.DecodeBody(block.Body, ctx, c)
 	return c, diag
 }
 

@@ -38,12 +38,12 @@ type SimpleFilterFactory struct{}
 
 func (w SimpleFilterFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 	config := &SimpleFilterConfig{}
-	return gohcl.DecodeBody(tc.Config, nil, config)
+	return gohcl.DecodeBody(tc.Config, tc.ctx, config)
 }
 
 func (w SimpleFilterFactory) parseConfig(tc *Config) *SimpleFilterConfig {
 	config := &SimpleFilterConfig{}
-	gohcl.DecodeBody(tc.Config, nil, config)
+	gohcl.DecodeBody(tc.Config, tc.ctx, config)
 	config.ID = fmt.Sprintf("backends_processor.%s.%s", tc.Type, tc.Name)
 	return config
 }

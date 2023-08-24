@@ -40,12 +40,12 @@ type WRRBalancerFactory struct{}
 
 func (w WRRBalancerFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 	config := &WRRBalancerConfig{}
-	return gohcl.DecodeBody(tc.Config, nil, config)
+	return gohcl.DecodeBody(tc.Config, tc.ctx, config)
 }
 
 func (w WRRBalancerFactory) parseConfig(tc *Config) *WRRBalancerConfig {
 	config := &WRRBalancerConfig{}
-	gohcl.DecodeBody(tc.Config, nil, config)
+	gohcl.DecodeBody(tc.Config, tc.ctx, config)
 	config.ID = fmt.Sprintf("balancer.%s.%s", tc.Type, tc.Name)
 	return config
 }
