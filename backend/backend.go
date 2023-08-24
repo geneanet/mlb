@@ -3,8 +3,6 @@ package backend
 import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/zclconf/go-cty/cty"
-	"github.com/zclconf/go-cty/cty/function"
-	"github.com/zclconf/go-cty/cty/function/stdlib"
 	"github.com/zclconf/go-cty/cty/gocty"
 )
 
@@ -37,20 +35,23 @@ func (b *Backend) UpdateMeta(new_meta MetaMap, except ...string) {
 	b.Meta = new
 }
 
-func (b *Backend) ResolveExpression(expression hcl.Expression, target interface{}) (bool, hcl.Diagnostics) {
-	meta_ctx := hcl.EvalContext{
-		Variables: map[string]cty.Value{
-			"backend": cty.ObjectVal(map[string]cty.Value{
-				"meta":    b.Meta.ToCtyObject(),
-				"address": cty.StringVal(b.Address),
-			}),
-		},
-		Functions: map[string]function.Function{
-			"contains": stdlib.ContainsFunc,
-		},
+func (b *Backend) ResolveExpression(expression hcl.Expression, ctx *hcl.EvalContext, target interface{}) (bool, hcl.Diagnostics) {
+	var meta_ctx *hcl.EvalContext
+
+	if ctx != nil {
+		meta_ctx = ctx.NewChild()
+	} else {
+		meta_ctx = &hcl.EvalContext{}
 	}
 
-	w, diags := expression.Value(&meta_ctx)
+	meta_ctx.Variables = map[string]cty.Value{
+		"backend": cty.ObjectVal(map[string]cty.Value{
+			"meta":    b.Meta.ToCtyObject(),
+			"address": cty.StringVal(b.Address),
+		}),
+	}
+
+	w, diags := expression.Value(meta_ctx)
 
 	if !w.IsKnown() {
 		return false, diags

@@ -26,6 +26,7 @@ type SimpleFilter struct {
 	upd_chan       chan backend.BackendUpdate
 	source         string
 	condition      hcl.Expression
+	evalCtx        *hcl.EvalContext
 }
 
 type SimpleFilterConfig struct {
@@ -59,6 +60,7 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 		upd_chan:    make(chan backend.BackendUpdate),
 		source:      config.Source,
 		condition:   config.Condition,
+		evalCtx:     tc.ctx,
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -148,7 +150,7 @@ func (f *SimpleFilter) sendUpdate(m backend.BackendUpdate) {
 
 func (f *SimpleFilter) matchFilter(b *backend.Backend) bool {
 	var condition bool
-	known, diags := b.ResolveExpression(f.condition, &condition)
+	known, diags := b.ResolveExpression(f.condition, f.evalCtx, &condition)
 	if diags.HasErrors() {
 		f.log.Error().Msg(diags.Error())
 		return false

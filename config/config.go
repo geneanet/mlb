@@ -13,6 +13,8 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/function"
+	"github.com/zclconf/go-cty/cty/function/stdlib"
 )
 
 type Config struct {
@@ -111,6 +113,9 @@ func LoadConfig(path string) (*Config, hcl.Diagnostics) {
 	}
 	ctx := &hcl.EvalContext{
 		Variables: modulesCty,
+		Functions: map[string]function.Function{
+			"contains": stdlib.ContainsFunc,
+		},
 	}
 
 	// Second pass to actually parse the blocks contents

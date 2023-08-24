@@ -28,6 +28,7 @@ type WRRBalancer struct {
 	log          zerolog.Logger
 	upd_chan     chan backend.BackendUpdate
 	source       string
+	evalCtx      *hcl.EvalContext
 }
 
 type WRRBalancerConfig struct {
@@ -61,6 +62,7 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 		log:          log.With().Str("id", config.ID).Logger(),
 		upd_chan:     make(chan backend.BackendUpdate),
 		source:       config.Source,
+		evalCtx:      tc.ctx,
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -81,7 +83,7 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 				switch upd.Kind {
 				case backend.UpdBackendAdded:
 					var weight int
-					_, diags := upd.Backend.ResolveExpression(config.Weight, &weight)
+					_, diags := upd.Backend.ResolveExpression(config.Weight, b.evalCtx, &weight)
 					if diags.HasErrors() {
 						b.log.Error().Msg(diags.Error())
 					}
@@ -93,7 +95,7 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 					}
 				case backend.UpdBackendModified:
 					var weight int
-					_, diags := upd.Backend.ResolveExpression(config.Weight, &weight)
+					_, diags := upd.Backend.ResolveExpression(config.Weight, b.evalCtx, &weight)
 					if diags.HasErrors() {
 						b.log.Error().Msg(diags.Error())
 					}
