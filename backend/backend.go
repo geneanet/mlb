@@ -41,7 +41,8 @@ func (b *Backend) ResolveExpression(expression hcl.Expression, target interface{
 	meta_ctx := hcl.EvalContext{
 		Variables: map[string]cty.Value{
 			"backend": cty.ObjectVal(map[string]cty.Value{
-				"meta": b.Meta.ToCtyObject(),
+				"meta":    b.Meta.ToCtyObject(),
+				"address": cty.StringVal(b.Address),
 			}),
 		},
 		Functions: map[string]function.Function{
