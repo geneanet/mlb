@@ -81,7 +81,7 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 				switch upd.Kind {
 				case backend.UpdBackendAdded:
 					var weight int
-					diags := upd.Backend.ResolveExpression(config.Weight, &weight)
+					_, diags := upd.Backend.ResolveExpression(config.Weight, &weight)
 					if diags.HasErrors() {
 						b.log.Error().Msg(diags.Error())
 					}
@@ -93,7 +93,7 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 					}
 				case backend.UpdBackendModified:
 					var weight int
-					diags := upd.Backend.ResolveExpression(config.Weight, &weight)
+					_, diags := upd.Backend.ResolveExpression(config.Weight, &weight)
 					if diags.HasErrors() {
 						b.log.Error().Msg(diags.Error())
 					}

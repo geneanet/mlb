@@ -37,7 +37,7 @@ func (b *Backend) UpdateMeta(new_meta MetaMap, except ...string) {
 	b.Meta = new
 }
 
-func (b *Backend) ResolveExpression(expression hcl.Expression, target interface{}) hcl.Diagnostics {
+func (b *Backend) ResolveExpression(expression hcl.Expression, target interface{}) (bool, hcl.Diagnostics) {
 	meta_ctx := hcl.EvalContext{
 		Variables: map[string]cty.Value{
 			"backend": cty.ObjectVal(map[string]cty.Value{
@@ -52,6 +52,10 @@ func (b *Backend) ResolveExpression(expression hcl.Expression, target interface{
 
 	w, diags := expression.Value(&meta_ctx)
 
+	if !w.IsKnown() {
+		return false, diags
+	}
+
 	err := gocty.FromCtyValue(w, target)
 	if err != nil {
 		diags2 := hcl.Diagnostics{
@@ -65,7 +69,7 @@ func (b *Backend) ResolveExpression(expression hcl.Expression, target interface{
 		diags = append(diags, diags2...)
 	}
 
-	return diags
+	return true, diags
 }
 
 // Map

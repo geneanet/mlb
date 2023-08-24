@@ -148,12 +148,12 @@ func (f *SimpleFilter) sendUpdate(m backend.BackendUpdate) {
 
 func (f *SimpleFilter) matchFilter(b *backend.Backend) bool {
 	var condition bool
-	diags := b.ResolveExpression(f.condition, &condition)
+	known, diags := b.ResolveExpression(f.condition, &condition)
 	if diags.HasErrors() {
 		f.log.Error().Msg(diags.Error())
 		return false
 	}
-	return condition
+	return known && condition
 }
 
 func (f *SimpleFilter) SubscribeTo(bup backend.BackendUpdateProvider) {
