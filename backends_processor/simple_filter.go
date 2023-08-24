@@ -190,7 +190,7 @@ func (f *SimpleFilter) matchFilter(b *backend.Backend) bool {
 
 	for _, m := range f.meta { // Check each requested metadata
 		v, ok := b.Meta.Get(m.Bucket, m.Key)
-		if !ok { // If the metadata is not available
+		if !ok || !v.IsKnown() { // If the metadata is not available
 			return false
 		}
 		// If the value does not match

@@ -255,6 +255,8 @@ func NewMySQLCheck(backend *backend.Backend, user string, password string, defau
 		stop_chan:      make(chan bool),
 		running:        false,
 	}
+	backend.Meta.Set("mysql", "status", cty.UnknownVal(cty.String))
+	backend.Meta.Set("mysql", "readonly", cty.UnknownVal(cty.Bool))
 	return c
 }
 
@@ -305,7 +307,7 @@ func (c *MySQLCheck) updateStatus() {
 	}
 
 	meta_readonly, ok := c.backend.Meta.Get("mysql", "readonly")
-	if ok { // Metadata readonly exists
+	if ok && meta_readonly.IsKnown() { // Metadata readonly exists
 		old_readonly := meta_readonly.Equals(cty.True).True()
 		if new_readonly != old_readonly { // Value has changed
 			c.backend.Meta.Set("mysql", "readonly", cty.BoolVal(new_readonly))
