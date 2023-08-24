@@ -3,6 +3,8 @@ package backend
 import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/function"
+	"github.com/zclconf/go-cty/cty/function/stdlib"
 	"github.com/zclconf/go-cty/cty/gocty"
 )
 
@@ -41,6 +43,9 @@ func (b *Backend) ResolveExpression(expression hcl.Expression, target interface{
 			"backend": cty.ObjectVal(map[string]cty.Value{
 				"meta": b.Meta.ToCtyObject(),
 			}),
+		},
+		Functions: map[string]function.Function{
+			"contains": stdlib.ContainsFunc,
 		},
 	}
 

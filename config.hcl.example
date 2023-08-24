@@ -27,18 +27,12 @@ backends_processor "mysql" "mysql" {
 
 backends_processor "simple_filter" "mysql_main_ro" {
   source = "backends_processor.mysql.mysql"
-  include_tags = ["main"]
-  exclude_tags = ["backup"]
-  meta {
-    bucket = "mysql"
-    key = "status"
-    value = "ok"
-  }
-  meta {
-    bucket = "mysql"
-    key = "readonly"
-    value = true
-  }
+  condition = (
+    backend.meta.mysql.status == "ok"
+    && backend.meta.mysql.readonly == true
+    && contains(backend.meta.consul.tags, "main")
+    && !contains(backend.meta.consul.tags, "backup")
+  )
 }
 
 balancer "wrr" "mysql_main_ro" {

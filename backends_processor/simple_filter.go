@@ -11,7 +11,6 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/zclconf/go-cty/cty"
 )
 
 func init() {
@@ -21,28 +20,18 @@ func init() {
 type SimpleFilter struct {
 	id             string
 	subscribers    []chan backend.BackendUpdate
-	include_tags   []string
-	exclude_tags   []string
-	meta           []MetaConditionConfig
 	backends       backend.BackendsMap
 	backends_mutex sync.RWMutex
 	log            zerolog.Logger
 	upd_chan       chan backend.BackendUpdate
 	source         string
+	condition      hcl.Expression
 }
 
 type SimpleFilterConfig struct {
-	ID          string                `hcl:"id,label"`
-	Source      string                `hcl:"source"`
-	IncludeTags []string              `hcl:"include_tags,optional"`
-	ExcludeTags []string              `hcl:"exclude_tags,optional"`
-	Meta        []MetaConditionConfig `hcl:"meta,block"`
-}
-
-type MetaConditionConfig struct {
-	Bucket string    `hcl:"bucket"`
-	Key    string    `hcl:"key"`
-	Value  cty.Value `hcl:"value"`
+	ID        string         `hcl:"id,label"`
+	Source    string         `hcl:"source"`
+	Condition hcl.Expression `hcl:"condition"`
 }
 
 type SimpleFilterFactory struct{}
@@ -63,15 +52,13 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 	config := w.parseConfig(tc)
 
 	f := &SimpleFilter{
-		id:           config.ID,
-		subscribers:  []chan backend.BackendUpdate{},
-		include_tags: config.IncludeTags,
-		exclude_tags: config.ExcludeTags,
-		meta:         config.Meta,
-		backends:     make(backend.BackendsMap),
-		log:          log.With().Str("id", config.ID).Logger(),
-		upd_chan:     make(chan backend.BackendUpdate),
-		source:       config.Source,
+		id:          config.ID,
+		subscribers: []chan backend.BackendUpdate{},
+		backends:    make(backend.BackendsMap),
+		log:         log.With().Str("id", config.ID).Logger(),
+		upd_chan:    make(chan backend.BackendUpdate),
+		source:      config.Source,
+		condition:   config.Condition,
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -160,35 +147,13 @@ func (f *SimpleFilter) sendUpdate(m backend.BackendUpdate) {
 }
 
 func (f *SimpleFilter) matchFilter(b *backend.Backend) bool {
-	tags, ok := b.Meta.Get("consul", "tags")
-	if !ok {
-		tags = cty.SetValEmpty(cty.String)
+	var condition bool
+	diags := b.ResolveExpression(f.condition, &condition)
+	if diags.HasErrors() {
+		f.log.Error().Msg(diags.Error())
+		return false
 	}
-
-	for _, t := range f.include_tags {
-		if tags.HasElement(cty.StringVal(t)).False() {
-			return false
-		}
-	}
-
-	for _, t := range f.exclude_tags {
-		if tags.HasElement(cty.StringVal(t)).True() {
-			return false
-		}
-	}
-
-	for _, m := range f.meta { // Check each requested metadata
-		v, ok := b.Meta.Get(m.Bucket, m.Key)
-		if !ok || !v.IsKnown() { // If the metadata is not available
-			return false
-		}
-		// If the value does not match
-		if v.Equals(m.Value).False() {
-			return false
-		}
-	}
-
-	return true
+	return condition
 }
 
 func (f *SimpleFilter) SubscribeTo(bup backend.BackendUpdateProvider) {
