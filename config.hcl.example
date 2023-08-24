@@ -29,9 +29,14 @@ backends_processor "simple_filter" "mysql_main_ro" {
   source = "backends_processor.mysql.mysql"
   include_tags = ["main"]
   exclude_tags = ["backup"]
-  // status = "ok"
   meta {
-    key = "mysql.readonly"
+    bucket = "mysql"
+    key = "status"
+    value = "ok"
+  }
+  meta {
+    bucket = "mysql"
+    key = "readonly"
     value = true
   }
 }

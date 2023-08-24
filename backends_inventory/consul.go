@@ -150,7 +150,6 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 					log.Debug().Str("address", address).Msg("Service added")
 					c.backends[address] = &backend.Backend{
 						Address: address,
-						Status:  "unk",
 						Meta: backend.MetaMap{
 							"consul": backend.MetaBucket{
 								"node":   cty.StringVal(service.Node.Node),

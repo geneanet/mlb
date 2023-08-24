@@ -9,21 +9,19 @@ import (
 // Backend
 type Backend struct {
 	Address string
-	Status  string
 	Meta    MetaMap
 }
 
 func (b *Backend) Clone() *Backend {
 	new := &Backend{
 		Address: b.Address,
-		Status:  b.Status,
 		Meta:    b.Meta.Clone(),
 	}
 	return new
 }
 
 func (b *Backend) Equal(other *Backend) bool {
-	return b.Address == other.Address && b.Status == other.Status && b.Meta.Equal(other.Meta)
+	return b.Address == other.Address && b.Meta.Equal(other.Meta)
 }
 
 // Replace all the metadata with the provided ones, except for the specified bucket that is preserved

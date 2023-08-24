@@ -23,7 +23,6 @@ type SimpleFilter struct {
 	subscribers    []chan backend.BackendUpdate
 	include_tags   []string
 	exclude_tags   []string
-	status         string
 	meta           []MetaConditionConfig
 	backends       backend.BackendsMap
 	backends_mutex sync.RWMutex
@@ -37,7 +36,6 @@ type SimpleFilterConfig struct {
 	Source      string                `hcl:"source"`
 	IncludeTags []string              `hcl:"include_tags,optional"`
 	ExcludeTags []string              `hcl:"exclude_tags,optional"`
-	Status      string                `hcl:"status,optional"`
 	Meta        []MetaConditionConfig `hcl:"meta,block"`
 }
 
@@ -69,16 +67,11 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 		subscribers:  []chan backend.BackendUpdate{},
 		include_tags: config.IncludeTags,
 		exclude_tags: config.ExcludeTags,
-		status:       config.Status,
 		meta:         config.Meta,
 		backends:     make(backend.BackendsMap),
 		log:          log.With().Str("id", config.ID).Logger(),
 		upd_chan:     make(chan backend.BackendUpdate),
 		source:       config.Source,
-	}
-
-	if f.status == "" {
-		f.status = "ok"
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -167,10 +160,6 @@ func (f *SimpleFilter) sendUpdate(m backend.BackendUpdate) {
 }
 
 func (f *SimpleFilter) matchFilter(b *backend.Backend) bool {
-	if !(b.Status == f.status || f.status == "*") {
-		return false
-	}
-
 	tags, ok := b.Meta.Get("consul", "tags")
 	if !ok {
 		tags = cty.SetValEmpty(cty.String)

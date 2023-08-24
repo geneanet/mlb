@@ -264,11 +264,11 @@ func (c *MySQLCheck) UpdateBackend(b *backend.Backend) {
 	c.backend.UpdateMeta(b.Meta, "mysql")
 }
 
-func (c *MySQLCheck) fetchStatus() (ret_status string, ret_readonly bool, ret_err error) {
+func (c *MySQLCheck) fetchStatus() (ret_status cty.Value, ret_readonly cty.Value, ret_err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			ret_status = "err"
-			ret_readonly = false
+			ret_status = cty.StringVal("err")
+			ret_readonly = cty.BoolVal(false)
 			ret_err = misc.EnsureError(r)
 
 			c.applyBackoff()
@@ -289,7 +289,7 @@ func (c *MySQLCheck) fetchStatus() (ret_status string, ret_readonly bool, ret_er
 
 	c.resetPeriod()
 
-	return "ok", read_only, nil
+	return cty.StringVal("ok"), cty.BoolVal(read_only), nil
 }
 
 func (c *MySQLCheck) updateStatus() {
@@ -299,26 +299,32 @@ func (c *MySQLCheck) updateStatus() {
 		log.Error().Str("address", c.backend.Address).Err(err).Msg("Error while fetching status from backend")
 	}
 
-	old_status := c.backend.Status
-	if new_status != old_status {
-		c.backend.Status = new_status
-		log.Info().Str("address", c.backend.Address).Str("old_status", old_status).Str("new_status", new_status).Msg("Backend status changed")
+	old_status, ok := c.backend.Meta.Get("mysql", "status")
+	if !ok || !old_status.IsKnown() || old_status.Equals(new_status).False() {
+		c.backend.Meta.Set("mysql", "status", new_status)
+
+		if !old_status.IsKnown() {
+			log.Info().Str("address", c.backend.Address).Str("new_status", new_status.AsString()).Msg("Backend status changed")
+		} else {
+			log.Info().Str("address", c.backend.Address).Str("old_status", old_status.AsString()).Str("new_status", new_status.AsString()).Msg("Backend status changed")
+		}
+
 		c.status_chan <- c.backend
 	}
 
-	meta_readonly, ok := c.backend.Meta.Get("mysql", "readonly")
-	if ok && meta_readonly.IsKnown() { // Metadata readonly exists
-		old_readonly := meta_readonly.Equals(cty.True).True()
-		if new_readonly != old_readonly { // Value has changed
-			c.backend.Meta.Set("mysql", "readonly", cty.BoolVal(new_readonly))
-			log.Info().Str("address", c.backend.Address).Bool("old_readonly", old_readonly).Bool("new_readonly", new_readonly).Msg("Backend readonly changed")
-			c.status_chan <- c.backend
+	old_readonly, ok := c.backend.Meta.Get("mysql", "readonly")
+	if !ok || !old_readonly.IsKnown() || old_readonly.Equals(new_readonly).False() {
+		c.backend.Meta.Set("mysql", "readonly", new_readonly)
+
+		if !old_readonly.IsKnown() {
+			log.Info().Str("address", c.backend.Address).Bool("new_readonly", new_readonly.True()).Msg("Backend readonly changed")
+		} else {
+			log.Info().Str("address", c.backend.Address).Bool("old_readonly", old_readonly.True()).Bool("new_readonly", new_readonly.True()).Msg("Backend readonly changed")
 		}
-	} else { // Metadata readonly does not exist
-		c.backend.Meta.Set("mysql", "readonly", cty.BoolVal(new_readonly))
-		log.Info().Str("address", c.backend.Address).Bool("new_readonly", new_readonly).Msg("Backend readonly changed")
+
 		c.status_chan <- c.backend
 	}
+
 }
 
 func (c *MySQLCheck) StartPolling() error {
