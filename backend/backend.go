@@ -8,8 +8,8 @@ import (
 
 // Backend
 type Backend struct {
-	Address string
-	Meta    MetaMap
+	Address string  `json:"address"`
+	Meta    MetaMap `json:"meta"`
 }
 
 func (b *Backend) Clone() *Backend {
