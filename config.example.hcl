@@ -16,6 +16,18 @@ backends_inventory "consul" "mysql" {
   // backoff_factor = 1.5
 }
 
+backends_processor "consul_kv" "sqlweight" {
+  source = backends_inventory.consul.mysql
+  url = "http://localhost:8500"
+  // period = "1s"
+  // max_period = "5s"
+  // backoff_factor = 1.5
+  value "weight" {
+    consul_key = "server_weights/${backend.meta.consul.node}"
+    default = "0"
+  }
+}
+
 backends_processor "mysql" "mysql" {
   source = backends_inventory.consul.mysql
   user = "mlb"
