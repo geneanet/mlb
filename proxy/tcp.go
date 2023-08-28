@@ -9,7 +9,6 @@ import (
 	"mlb/metrics"
 	"mlb/misc"
 	"net"
-	"net/netip"
 	"os"
 	"sync"
 	"syscall"
@@ -31,6 +30,7 @@ type ProxyTCP struct {
 	address         string
 	backendProvider backend.BackendProvider
 	close_timeout   time.Duration
+	connect_timeout time.Duration
 	listener        net.Listener
 	connections_wg  sync.WaitGroup
 	ctx             context.Context
@@ -39,10 +39,11 @@ type ProxyTCP struct {
 }
 
 type TCPProxyConfig struct {
-	ID           string `hcl:"id,label"`
-	Source       string `hcl:"source"`
-	Address      string `hcl:"address"`
-	CloseTimeout string `hcl:"close_timeout,optional"`
+	ID             string `hcl:"id,label"`
+	Source         string `hcl:"source"`
+	Address        string `hcl:"address"`
+	ConnectTimeout string `hcl:"connect_timeout,optional"`
+	CloseTimeout   string `hcl:"close_timeout,optional"`
 }
 
 type TCPProxyFactory struct{}
@@ -56,6 +57,9 @@ func (w TCPProxyFactory) parseConfig(tc *Config) *TCPProxyConfig {
 	config := &TCPProxyConfig{}
 	gohcl.DecodeBody(tc.Config, tc.ctx, config)
 	config.ID = fmt.Sprintf("backends_processor.%s.%s", tc.Type, tc.Name)
+	if config.ConnectTimeout == "" {
+		config.ConnectTimeout = "0s"
+	}
 	if config.CloseTimeout == "" {
 		config.CloseTimeout = "0s"
 	}
@@ -73,7 +77,10 @@ func (w TCPProxyFactory) New(tc *Config, backendProviders map[string]backend.Bac
 	}
 
 	var err error
+
 	p.close_timeout, err = time.ParseDuration(config.CloseTimeout)
+	misc.PanicIfErr(err)
+	p.connect_timeout, err = time.ParseDuration(config.ConnectTimeout)
 	misc.PanicIfErr(err)
 
 	wg.Add(1)
@@ -208,16 +215,13 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 	defer metrics.BeActCnx.WithLabelValues(backend_address).Dec()
 
 	// Open backend connection
-	backend_addrport, err := netip.ParseAddrPort(backend_address)
-	misc.PanicIfErr(err)
-
 	p.log.Debug().Str("peer", backend_address).Msg("Opening Backend connection")
-	conn_back, err := net.DialTCP("tcp", nil, net.TCPAddrFromAddrPort(backend_addrport))
+	conn_back, err := net.DialTimeout("tcp", backend_address, p.connect_timeout)
 	misc.PanicIfErr(err)
 	defer conn_back.Close()
 	defer p.log.Debug().Str("peer", backend_address).Msg("Closing Backend connection")
 
-	err = conn_back.SetNoDelay(true)
+	err = conn_back.(*net.TCPConn).SetNoDelay(true)
 	misc.PanicIfErr(err)
 
 	// Pipe the connections both ways
