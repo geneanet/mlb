@@ -35,6 +35,9 @@ backends_processor "mysql" "mysql" {
   // period = "500ms"
   // max_period = "2s"
   // backoff_factor = 1.5
+	// connect_timeout = "0s"
+	// read_timeout = "0s"
+	// write_timeout = "0s"
 }
 
 backends_processor "simple_filter" "mysql_main_ro" {
@@ -55,5 +58,8 @@ balancer "wrr" "mysql_main_ro" {
 proxy "tcp" "mysql_main_ro" {
   source = balancer.wrr.mysql_main_ro
   address = ":3306"
-  // close_timeout = "10s"
+  // close_timeout = "0s"
+ 	// connect_timeout = "0s"
+	// client_timeout = "0s"
+	// server_timeout = "0s"
 }
