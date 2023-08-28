@@ -23,30 +23,36 @@ func init() {
 }
 
 type MySQLChecker struct {
-	id             string
-	checks         map[string]*MySQLCheck
-	checks_mutex   sync.RWMutex
-	user           string
-	password       string
-	default_period time.Duration
-	max_period     time.Duration
-	backoff_factor float64
-	subscribers    []chan backend.BackendUpdate
-	ctx            context.Context
-	cancel         context.CancelFunc
-	log            zerolog.Logger
-	upd_chan       chan backend.BackendUpdate
-	source         string
+	id              string
+	checks          map[string]*MySQLCheck
+	checks_mutex    sync.RWMutex
+	user            string
+	password        string
+	default_period  time.Duration
+	max_period      time.Duration
+	backoff_factor  float64
+	subscribers     []chan backend.BackendUpdate
+	ctx             context.Context
+	cancel          context.CancelFunc
+	log             zerolog.Logger
+	upd_chan        chan backend.BackendUpdate
+	source          string
+	connect_timeout time.Duration
+	read_timeout    time.Duration
+	write_timeout   time.Duration
 }
 
 type MySQLCheckerConfig struct {
-	ID            string  `hcl:"id,label"`
-	Source        string  `hcl:"source"`
-	User          string  `hcl:"user,optional"`
-	Password      string  `hcl:"password,optional"`
-	Period        string  `hcl:"period,optional"`
-	MaxPeriod     string  `hcl:"max_period,optional"`
-	BackoffFactor float64 `hcl:"backoff_factor,optional"`
+	ID             string  `hcl:"id,label"`
+	Source         string  `hcl:"source"`
+	User           string  `hcl:"user,optional"`
+	Password       string  `hcl:"password,optional"`
+	Period         string  `hcl:"period,optional"`
+	MaxPeriod      string  `hcl:"max_period,optional"`
+	BackoffFactor  float64 `hcl:"backoff_factor,optional"`
+	ConnectTimeout string  `hcl:"connect_timeout,optional"`
+	ReadTimeout    string  `hcl:"read_timeout,optional"`
+	WriteTimeout   string  `hcl:"write_timeout,optional"`
 }
 
 type MySQLCheckerFactory struct{}
@@ -68,6 +74,15 @@ func (w MySQLCheckerFactory) parseConfig(tc *Config) *MySQLCheckerConfig {
 	}
 	if config.BackoffFactor == 0 {
 		config.BackoffFactor = 1.5
+	}
+	if config.ConnectTimeout == "" {
+		config.ConnectTimeout = "0s"
+	}
+	if config.ReadTimeout == "" {
+		config.ReadTimeout = "0s"
+	}
+	if config.WriteTimeout == "" {
+		config.WriteTimeout = "0s"
 	}
 	return config
 }
@@ -91,6 +106,12 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 	c.default_period, err = time.ParseDuration(config.Period)
 	misc.PanicIfErr(err)
 	c.max_period, err = time.ParseDuration(config.MaxPeriod)
+	misc.PanicIfErr(err)
+	c.connect_timeout, err = time.ParseDuration(config.ConnectTimeout)
+	misc.PanicIfErr(err)
+	c.read_timeout, err = time.ParseDuration(config.ReadTimeout)
+	misc.PanicIfErr(err)
+	c.write_timeout, err = time.ParseDuration(config.WriteTimeout)
 	misc.PanicIfErr(err)
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
@@ -132,8 +153,7 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 						c.log.Info().Str("address", upd.Address).Msg("Adding MySQL check")
 						check := NewMySQLCheck(
 							upd.Backend.Clone(),
-							c.user,
-							c.password,
+							c.user+":"+c.password+"@tcp("+upd.Address+")/?readTimeout="+c.read_timeout.String()+"&writeTimeout="+c.write_timeout.String()+"&timeout="+c.connect_timeout.String(),
 							c.default_period,
 							c.max_period,
 							c.backoff_factor,
@@ -229,8 +249,7 @@ func (c *MySQLChecker) GetBackendList() []*backend.Backend {
 
 type MySQLCheck struct {
 	backend        *backend.Backend
-	user           string
-	password       string
+	dsn            string
 	period         time.Duration
 	default_period time.Duration
 	max_period     time.Duration
@@ -242,11 +261,10 @@ type MySQLCheck struct {
 	db             *sql.DB
 }
 
-func NewMySQLCheck(backend *backend.Backend, user string, password string, default_period time.Duration, max_period time.Duration, backoff_factor float64, status_chan chan *backend.Backend) *MySQLCheck {
+func NewMySQLCheck(backend *backend.Backend, dsn string, default_period time.Duration, max_period time.Duration, backoff_factor float64, status_chan chan *backend.Backend) *MySQLCheck {
 	c := &MySQLCheck{
 		backend:        backend,
-		user:           user,
-		password:       password,
+		dsn:            dsn,
 		period:         default_period,
 		default_period: default_period,
 		max_period:     max_period,
@@ -333,7 +351,7 @@ func (c *MySQLCheck) StartPolling() error {
 	}
 	c.running = true
 
-	db, err := sql.Open("mysql", c.user+":"+c.password+"@tcp("+c.backend.Address+")/")
+	db, err := sql.Open("mysql", c.dsn)
 	if err != nil {
 		return err
 	}
