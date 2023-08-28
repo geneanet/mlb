@@ -31,6 +31,8 @@ type ProxyTCP struct {
 	backendProvider backend.BackendProvider
 	close_timeout   time.Duration
 	connect_timeout time.Duration
+	client_timeout  time.Duration
+	server_timeout  time.Duration
 	listener        net.Listener
 	connections_wg  sync.WaitGroup
 	ctx             context.Context
@@ -43,6 +45,8 @@ type TCPProxyConfig struct {
 	Source         string `hcl:"source"`
 	Address        string `hcl:"address"`
 	ConnectTimeout string `hcl:"connect_timeout,optional"`
+	ClientTimeout  string `hcl:"client_timeout,optional"`
+	ServerTimeout  string `hcl:"server_timeout,optional"`
 	CloseTimeout   string `hcl:"close_timeout,optional"`
 }
 
@@ -59,6 +63,12 @@ func (w TCPProxyFactory) parseConfig(tc *Config) *TCPProxyConfig {
 	config.ID = fmt.Sprintf("backends_processor.%s.%s", tc.Type, tc.Name)
 	if config.ConnectTimeout == "" {
 		config.ConnectTimeout = "0s"
+	}
+	if config.ClientTimeout == "" {
+		config.ClientTimeout = "0s"
+	}
+	if config.ServerTimeout == "" {
+		config.ServerTimeout = "0s"
 	}
 	if config.CloseTimeout == "" {
 		config.CloseTimeout = "0s"
@@ -78,9 +88,13 @@ func (w TCPProxyFactory) New(tc *Config, backendProviders map[string]backend.Bac
 
 	var err error
 
-	p.close_timeout, err = time.ParseDuration(config.CloseTimeout)
-	misc.PanicIfErr(err)
 	p.connect_timeout, err = time.ParseDuration(config.ConnectTimeout)
+	misc.PanicIfErr(err)
+	p.client_timeout, err = time.ParseDuration(config.ClientTimeout)
+	misc.PanicIfErr(err)
+	p.server_timeout, err = time.ParseDuration(config.ServerTimeout)
+	misc.PanicIfErr(err)
+	p.close_timeout, err = time.ParseDuration(config.CloseTimeout)
 	misc.PanicIfErr(err)
 
 	wg.Add(1)
@@ -133,7 +147,7 @@ func (w TCPProxyFactory) New(tc *Config, backendProviders map[string]backend.Bac
 	}()
 }
 
-func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan bool) {
+func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan bool, input_timeout time.Duration, output_timeout time.Duration) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
@@ -145,11 +159,17 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan bool) {
 	buffer := make([]byte, 64*1024)
 
 	for {
+		if input_timeout != 0 {
+			input.SetReadDeadline(time.Now().Add(input_timeout))
+		}
 		nbytes, err := input.Read(buffer)
 		if err == io.EOF || errors.Is(err, net.ErrClosed) {
 			return
 		}
 		misc.PanicIfErr(err)
+		if output_timeout != 0 {
+			output.SetReadDeadline(time.Now().Add(output_timeout))
+		}
 		_, err = output.Write(buffer[:nbytes])
 		if errors.Is(err, net.ErrClosed) {
 			return
@@ -228,8 +248,8 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 	done_front_back := make(chan bool)
 	done_back_front := make(chan bool)
 
-	go p.pipe(conn_front, conn_back, done_front_back)
-	go p.pipe(conn_back, conn_front, done_back_front)
+	go p.pipe(conn_front, conn_back, done_front_back, p.client_timeout, p.server_timeout)
+	go p.pipe(conn_back, conn_front, done_back_front, p.server_timeout, p.client_timeout)
 
 	// Wait for one pipe to end or the context to be cancelled
 	select {
