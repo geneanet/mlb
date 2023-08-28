@@ -1,13 +1,18 @@
 stages:
   - build
   - test
+  - upload
+  - release
 
 include:
   - template: Security/Container-Scanning.gitlab-ci.yml
   - template: Security/SAST.gitlab-ci.yml
   - template: Security/Secret-Detection.gitlab-ci.yml
 
-build:
+variables:
+    PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/mlb/${CI_COMMIT_TAG}"
+
+build-container:
   stage: build
   image: "quay.io/buildah/stable:v1"
   script:
@@ -27,3 +32,40 @@ build:
     - if: '$BUILD_DISABLED'
       when: never
     - if: '$CI_COMMIT_TAG || $CI_COMMIT_BRANCH'
+
+build-binary:
+  stage: build
+  image: "docker.io/golang:1.21-alpine3.18"
+  script:
+    - "mkdir mlb-${CI_COMMIT_TAG}.linux-amd64"
+    - "go build -o mlb-${CI_COMMIT_TAG}.linux-amd64/mlb ."
+    - "tar cvzf mlb-${CI_COMMIT_TAG}.linux-amd64.tar.gz mlb-${CI_COMMIT_TAG}.linux-amd64"
+  artifacts:
+    when: on_success
+    paths:
+      - "mlb-${CI_COMMIT_TAG}.linux-amd64.tar.gz"
+  rules:
+    - if: '$BUILD_DISABLED'
+      when: never
+    - if: '$CI_COMMIT_TAG'
+
+upload-binary:
+    stage: upload
+    image: curlimages/curl:latest
+    script:
+        - 'curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file mlb-${CI_COMMIT_TAG}.linux-amd64.tar.gz ${PACKAGE_REGISTRY_URL}/mlb-${CI_COMMIT_TAG}.linux-amd64.tar.gz'
+    rules:
+      - if: '$BUILD_DISABLED'
+        when: never
+      - if: $CI_COMMIT_TAG
+          
+
+release-binary:
+    stage: release
+    image: registry.gitlab.com/gitlab-org/release-cli:latest
+    script:
+        - 'release-cli create --name "mlb-${CI_COMMIT_TAG}" --tag-name ${CI_COMMIT_TAG} --assets-link "{\"name\":\"mlb-${CI_COMMIT_TAG}.linux-amd64.tar.gz\", \"url\":\"${PACKAGE_REGISTRY_URL}/mlb-${CI_COMMIT_TAG}.linux-amd64.tar.gz\"}"'
+    rules:
+      - if: '$BUILD_DISABLED'
+        when: never
+      - if: $CI_COMMIT_TAG
