@@ -1,0 +1,29 @@
+stages:
+  - build
+  - test
+
+include:
+  - template: Security/Container-Scanning.gitlab-ci.yml
+  - template: Security/SAST.gitlab-ci.yml
+  - template: Security/Secret-Detection.gitlab-ci.yml
+
+build:
+  stage: build
+  image: "quay.io/buildah/stable:v1"
+  script:
+    - |
+      if [[ -z "$CI_COMMIT_TAG" ]]; then
+        export CI_APPLICATION_REPOSITORY=${CI_APPLICATION_REPOSITORY:-$CI_REGISTRY_IMAGE/$CI_COMMIT_REF_SLUG}
+        export CI_APPLICATION_TAG=${CI_APPLICATION_TAG:-$CI_COMMIT_SHA}
+      else
+        export CI_APPLICATION_REPOSITORY=${CI_APPLICATION_REPOSITORY:-$CI_REGISTRY_IMAGE}
+        export CI_APPLICATION_TAG=${CI_APPLICATION_TAG:-$CI_COMMIT_TAG}
+      fi
+    - "buildah bud -f Dockerfile -t ${CI_APPLICATION_REPOSITORY}:${CI_APPLICATION_TAG} ."
+    - "echo $CI_REGISTRY_PASSWORD | buildah login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY"
+    - "buildah push ${CI_APPLICATION_REPOSITORY}:${CI_APPLICATION_TAG}"
+    - "buildah push ${CI_APPLICATION_REPOSITORY}:${CI_APPLICATION_TAG} ${CI_APPLICATION_REPOSITORY}:latest"
+  rules:
+    - if: '$BUILD_DISABLED'
+      when: never
+    - if: '$CI_COMMIT_TAG || $CI_COMMIT_BRANCH'
