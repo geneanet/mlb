@@ -67,10 +67,10 @@ func (w MySQLCheckerFactory) parseConfig(tc *Config) *MySQLCheckerConfig {
 	gohcl.DecodeBody(tc.Config, tc.ctx, config)
 	config.ID = fmt.Sprintf("backends_processor.%s.%s", tc.Type, tc.Name)
 	if config.Period == "" {
-		config.Period = "500ms"
+		config.Period = "1s"
 	}
 	if config.MaxPeriod == "" {
-		config.MaxPeriod = "2s"
+		config.MaxPeriod = "5s"
 	}
 	if config.BackoffFactor == 0 {
 		config.BackoffFactor = 1.5

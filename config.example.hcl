@@ -32,8 +32,8 @@ backends_processor "mysql" "mysql" {
   source = backends_inventory.consul.mysql
   user = "mlb"
   password = "mlb_password"
-  // period = "500ms"
-  // max_period = "2s"
+  // period = "1s"
+  // max_period = "5s"
   // backoff_factor = 1.5
 	// connect_timeout = "0s"
 	// read_timeout = "0s"
