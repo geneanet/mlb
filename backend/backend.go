@@ -8,8 +8,8 @@ import (
 
 // Backend
 type Backend struct {
-	Address string  `json:"address"`
-	Meta    MetaMap `json:"meta"`
+	Address string   `json:"address"`
+	Meta    *MetaMap `json:"meta"`
 }
 
 func (b *Backend) Clone() *Backend {
@@ -22,17 +22,6 @@ func (b *Backend) Clone() *Backend {
 
 func (b *Backend) Equal(other *Backend) bool {
 	return b.Address == other.Address && b.Meta.Equal(other.Meta)
-}
-
-// Replace all the metadata with the provided ones, except for the specified bucket that is preserved
-func (b *Backend) UpdateMeta(new_meta MetaMap, except ...string) {
-	new := new_meta.Clone()
-	for _, k := range except {
-		if v, ok := b.Meta[k]; ok {
-			new[k] = v
-		}
-	}
-	b.Meta = new
 }
 
 func (b *Backend) ResolveExpression(expression hcl.Expression, ctx *hcl.EvalContext, target interface{}) (bool, hcl.Diagnostics) {

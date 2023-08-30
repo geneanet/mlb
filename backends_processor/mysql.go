@@ -143,7 +143,7 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 				switch upd.Kind {
 				case backend.UpdBackendAdded, backend.UpdBackendModified:
 					if check, ok := c.checks[upd.Address]; ok { // Modified
-						check.UpdateBackend(upd.Backend)
+						check.backend.Meta.Update(upd.Backend.Meta, "mysql")
 						c.sendUpdate(backend.BackendUpdate{
 							Kind:    backend.UpdBackendModified,
 							Address: check.backend.Address,
@@ -276,10 +276,6 @@ func NewMySQLCheck(backend *backend.Backend, dsn string, default_period time.Dur
 	backend.Meta.Set("mysql", "status", cty.UnknownVal(cty.String))
 	backend.Meta.Set("mysql", "readonly", cty.UnknownVal(cty.Bool))
 	return c
-}
-
-func (c *MySQLCheck) UpdateBackend(b *backend.Backend) {
-	c.backend.UpdateMeta(b.Meta, "mysql")
 }
 
 func (c *MySQLCheck) fetchStatus() (ret_status cty.Value, ret_readonly cty.Value, ret_err error) {
