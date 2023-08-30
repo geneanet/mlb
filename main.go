@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"mlb/backend"
 	"mlb/backends_inventory"
 	"mlb/backends_processor"
@@ -17,7 +16,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"slices"
 	"sync"
 	"syscall"
 	"time"
@@ -29,13 +27,11 @@ import (
 
 // Main
 func main() {
-	var wg sync.WaitGroup
-	ctx, cancel := context.WithCancel(context.Background())
-
 	// Parse CLI args
 	arg_config := flag.String("config", "config.hcl", "config file")
-	arg_kill := flag.Int("kill", 0, "Kill process PID")
 	arg_debug := flag.Bool("debug", false, "sets log level to debug")
+	arg_process_manager := flag.Bool("process-manager", false, "enable process manager mode")
+	arg_notify_parent := flag.Bool("notify-parent", false, "send SIGUSR1 to parent once everything is running")
 	flag.Parse()
 
 	// Setup logger
@@ -45,116 +41,108 @@ func main() {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
 
-	// Parse conf
-	conf, diags := config.LoadConfig(*arg_config)
-	if diags.HasErrors() {
-		os.Exit(1)
+	// CLI args validation
+	if *arg_process_manager && *arg_notify_parent {
+		log.Fatal().Msg("Parameters process-manager and notify-parent are mutually exclusives")
 	}
 
-	// Adjust max allowed file descriptors
-	if conf.System.RLimit.NOFile > 0 {
-		system.SetRlimitNOFILE(conf.System.RLimit.NOFile)
-	}
+	if *arg_process_manager { // Process manager mode
+		processManager()
 
-	// Start serious business
-	backendUpdatesProviders := make(map[string]backend.BackendUpdateProvider, 0)
-	backendUpdateSubscribers := make(map[string]backend.BackendUpdateSubscriber, 0)
-	backendProviders := make(map[string]backend.BackendProvider, 0)
-	backendListProviders := make(map[string]backend.BackendListProvider, 0)
+	} else { // Normal mode
+		var wg sync.WaitGroup
+		ctx, cancel := context.WithCancel(context.Background())
 
-	for _, tc := range conf.BackendsInventoryList {
-		i := backends_inventory.New(tc, &wg, ctx)
-		id := i.(misc.GetIDInterface).GetID()
-		backendUpdatesProviders[id] = i.(backend.BackendUpdateProvider)
-		backendListProviders[id] = i.(backend.BackendListProvider)
-	}
-
-	for _, tc := range conf.BackendsProcessorList {
-		f := backends_processor.New(tc, &wg, ctx)
-		id := f.(misc.GetIDInterface).GetID()
-		backendUpdatesProviders[id] = f.(backend.BackendUpdateProvider)
-		backendListProviders[id] = f.(backend.BackendListProvider)
-		backendUpdateSubscribers[id] = f.(backend.BackendUpdateSubscriber)
-	}
-
-	for _, tc := range conf.BalancerList {
-		b := balancer.New(tc, &wg, ctx)
-		id := b.(misc.GetIDInterface).GetID()
-		backendProviders[id] = b.(backend.BackendProvider)
-		backendListProviders[id] = b.(backend.BackendListProvider)
-		backendUpdateSubscribers[id] = b.(backend.BackendUpdateSubscriber)
-	}
-
-	for _, c := range conf.ProxyList {
-		proxy.New(c, backendProviders, &wg, ctx)
-	}
-
-	// Plug update subscribers to providers
-	for _, bus := range backendUpdateSubscribers {
-		source := bus.GetUpdateSource()
-		provider, ok := backendUpdatesProviders[source]
-		if !ok {
-			log.Panic().Str("subscriber", bus.(misc.GetIDInterface).GetID()).Str("provider", source).Msg("Backend update provider not found !")
+		// Parse conf
+		conf, diags := config.LoadConfig(*arg_config)
+		if diags.HasErrors() {
+			os.Exit(1)
 		}
-		bus.SubscribeTo(provider)
-	}
 
-	// HTTP Metrics
-	http.HandleFunc("/backends", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Add("Content-Type", "application/json")
-		backendsByProvider := make(map[string]backend.BackendsList, len(backendListProviders))
-		for id := range backendListProviders {
-			backendsByProvider[id] = backendListProviders[id].GetBackendList()
+		// Adjust max allowed file descriptors
+		if conf.System.RLimit.NOFile > 0 {
+			system.SetRlimitNOFILE(conf.System.RLimit.NOFile)
 		}
-		out, _ := json.Marshal(backendsByProvider)
-		w.Write(out)
-	})
-	http.Handle("/metrics", metrics.HttpLogWrapper(promhttp.Handler()))
 
-	metrics.NewHTTPServer(conf.Metrics.Address, &wg, ctx)
+		// Start serious business
+		backendUpdatesProviders := make(map[string]backend.BackendUpdateProvider, 0)
+		backendUpdateSubscribers := make(map[string]backend.BackendUpdateSubscriber, 0)
+		backendProviders := make(map[string]backend.BackendProvider, 0)
+		backendListProviders := make(map[string]backend.BackendListProvider, 0)
 
-	// Termination signals
-	chan_signals := make(chan os.Signal, 1)
-	signal.Notify(chan_signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGUSR1)
-	go func() {
-		for {
-			switch <-chan_signals {
-			case syscall.SIGINT, syscall.SIGTERM:
-				log.Info().Msg("Termination signal received")
-				cancel()
+		for _, tc := range conf.BackendsInventoryList {
+			i := backends_inventory.New(tc, &wg, ctx)
+			id := i.(misc.GetIDInterface).GetID()
+			backendUpdatesProviders[id] = i.(backend.BackendUpdateProvider)
+			backendListProviders[id] = i.(backend.BackendListProvider)
+		}
 
-			case syscall.SIGUSR1:
-				log.Info().Msg("Restart signal received")
+		for _, tc := range conf.BackendsProcessorList {
+			f := backends_processor.New(tc, &wg, ctx)
+			id := f.(misc.GetIDInterface).GetID()
+			backendUpdatesProviders[id] = f.(backend.BackendUpdateProvider)
+			backendListProviders[id] = f.(backend.BackendListProvider)
+			backendUpdateSubscribers[id] = f.(backend.BackendUpdateSubscriber)
+		}
 
-				procAttr := os.ProcAttr{
-					Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
-				}
+		for _, tc := range conf.BalancerList {
+			b := balancer.New(tc, &wg, ctx)
+			id := b.(misc.GetIDInterface).GetID()
+			backendProviders[id] = b.(backend.BackendProvider)
+			backendListProviders[id] = b.(backend.BackendListProvider)
+			backendUpdateSubscribers[id] = b.(backend.BackendUpdateSubscriber)
+		}
 
-				// Ensure the children has the kill switch with current PID
-				var args = make([]string, len(os.Args))
-				copy(args, os.Args)
-				if i := slices.Index(args, "--kill"); i >= 0 { // Update the PID if the switch was present
-					args[i+1] = fmt.Sprintf("%d", os.Getpid())
-				} else { // Add the switch if it was not present
-					args = append(args, "--kill", fmt.Sprintf("%d", os.Getpid()))
-				}
+		for _, c := range conf.ProxyList {
+			proxy.New(c, backendProviders, &wg, ctx)
+		}
 
-				_, err := os.StartProcess(args[0], args, &procAttr)
+		// Plug update subscribers to providers
+		for _, bus := range backendUpdateSubscribers {
+			source := bus.GetUpdateSource()
+			provider, ok := backendUpdatesProviders[source]
+			if !ok {
+				log.Panic().Str("subscriber", bus.(misc.GetIDInterface).GetID()).Str("provider", source).Msg("Backend update provider not found !")
+			}
+			bus.SubscribeTo(provider)
+		}
 
-				if err != nil {
-					log.Error().Err(err).Msg("Error while starting the new process")
+		// HTTP Metrics
+		http.HandleFunc("/backends", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Add("Content-Type", "application/json")
+			backendsByProvider := make(map[string]backend.BackendsList, len(backendListProviders))
+			for id := range backendListProviders {
+				backendsByProvider[id] = backendListProviders[id].GetBackendList()
+			}
+			out, _ := json.Marshal(backendsByProvider)
+			w.Write(out)
+		})
+		http.Handle("/metrics", metrics.HttpLogWrapper(promhttp.Handler()))
+
+		metrics.NewHTTPServer(conf.Metrics.Address, &wg, ctx)
+
+		// Termination signals
+		chan_signals := make(chan os.Signal, 1)
+		signal.Notify(chan_signals, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			for {
+				switch <-chan_signals {
+				case syscall.SIGINT, syscall.SIGTERM:
+					log.Info().Msg("Termination signal received")
+					cancel()
 				}
 			}
-		}
-	}()
-
-	// If we have the kill switch, kill the given PID after a short delay
-	if *arg_kill != 0 {
-		go func() {
-			time.Sleep(5 * time.Second)
-			syscall.Kill(*arg_kill, syscall.SIGTERM)
 		}()
-	}
 
-	wg.Wait()
+		// If requested, once everything is loaded, notify parent
+		if *arg_notify_parent {
+			go func() {
+				// Add a small delay to ensure modules are all started
+				time.Sleep(5 * time.Second)
+				syscall.Kill(syscall.Getppid(), syscall.SIGUSR1)
+			}()
+		}
+
+		wg.Wait()
+	}
 }
