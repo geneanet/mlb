@@ -3,6 +3,7 @@ package balancer
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"slices"
 	"sync"
 
@@ -24,8 +25,7 @@ type WRRBalancer struct {
 	id           string
 	backends     backend.BackendsMap
 	weightedlist []string
-	mu           sync.Mutex
-	iterator     int
+	mu           sync.RWMutex
 	log          zerolog.Logger
 	upd_chan     chan backend.BackendUpdate
 	source       string
@@ -59,7 +59,6 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 		id:           config.ID,
 		backends:     make(backend.BackendsMap),
 		weightedlist: make([]string, 0),
-		iterator:     0,
 		log:          log.With().Str("id", config.ID).Logger(),
 		upd_chan:     make(chan backend.BackendUpdate),
 		source:       config.Source,
@@ -114,9 +113,6 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 					b.weightedlist = slices.DeleteFunc(b.weightedlist, func(a string) bool { return a == upd.Address })
 					delete(b.backends, upd.Address)
 				}
-				if b.iterator >= len(b.weightedlist) {
-					b.iterator = 0
-				}
 				b.mu.Unlock()
 
 			case <-ctx.Done(): // Context cancelled
@@ -129,16 +125,11 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 }
 
 func (b *WRRBalancer) GetBackend() *backend.Backend {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
 	if len(b.weightedlist) > 0 {
-		address := b.weightedlist[b.iterator]
-
-		b.iterator++
-		if b.iterator >= len(b.weightedlist) {
-			b.iterator = 0
-		}
+		address := b.weightedlist[rand.Intn(len(b.weightedlist))]
 		return b.backends[address]
 	} else {
 		return nil
