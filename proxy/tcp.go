@@ -26,23 +26,25 @@ func init() {
 }
 
 type ProxyTCP struct {
-	id              string
-	address         string
-	backendProvider backend.BackendProvider
-	close_timeout   time.Duration
-	connect_timeout time.Duration
-	client_timeout  time.Duration
-	server_timeout  time.Duration
-	listener        net.Listener
-	connections_wg  sync.WaitGroup
-	ctx             context.Context
-	cancel          context.CancelFunc
-	log             zerolog.Logger
+	id                    string
+	address               string
+	backendProvider       backend.BackendProvider
+	backupBackendProvider backend.BackendProvider
+	close_timeout         time.Duration
+	connect_timeout       time.Duration
+	client_timeout        time.Duration
+	server_timeout        time.Duration
+	listener              net.Listener
+	connections_wg        sync.WaitGroup
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	log                   zerolog.Logger
 }
 
 type TCPProxyConfig struct {
 	ID             string `hcl:"id,label"`
 	Source         string `hcl:"source"`
+	BackupSource   string `hcl:"backup_source,optional"`
 	Address        string `hcl:"address"`
 	ConnectTimeout string `hcl:"connect_timeout,optional"`
 	ClientTimeout  string `hcl:"client_timeout,optional"`
@@ -84,6 +86,10 @@ func (w TCPProxyFactory) New(tc *Config, backendProviders map[string]backend.Bac
 		address:         config.Address,
 		backendProvider: backendProviders[config.Source],
 		log:             log.With().Str("id", config.ID).Logger(),
+	}
+
+	if config.BackupSource != "" {
+		p.backupBackendProvider = backendProviders[config.BackupSource]
 	}
 
 	var err error
@@ -222,6 +228,10 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 	}()
 
 	backend := p.backendProvider.GetBackend()
+	if backend == nil && p.backupBackendProvider != nil {
+		backend = p.backupBackendProvider.GetBackend()
+	}
+
 	var backend_address string
 	if backend != nil {
 		backend_address = backend.Address
