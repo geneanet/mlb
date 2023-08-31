@@ -115,6 +115,10 @@ func (m *MetaMap) Clone() *MetaMap {
 	return new
 }
 
+func (m *MetaMap) MarshalJSON() ([]byte, error) {
+	return json.Marshal(m.data)
+}
+
 // Bucket
 
 type MetaBucket map[string]cty.Value
