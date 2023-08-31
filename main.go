@@ -95,10 +95,6 @@ func main() {
 			backendUpdateSubscribers[id] = b.(backend.BackendUpdateSubscriber)
 		}
 
-		for _, c := range conf.ProxyList {
-			proxy.New(c, backendProviders, &wg, ctx)
-		}
-
 		// Plug update subscribers to providers
 		for _, bus := range backendUpdateSubscribers {
 			source := bus.GetUpdateSource()
@@ -122,6 +118,14 @@ func main() {
 		http.Handle("/metrics", metrics.HttpLogWrapper(promhttp.Handler()))
 
 		metrics.NewHTTPServer(conf.Metrics.Address, &wg, ctx)
+
+		// TODO: Replace that with a real retroaction from backend providers
+		time.Sleep(1 * time.Second) // Wait one second to ensure backends are available
+
+		// Start proxies
+		for _, c := range conf.ProxyList {
+			proxy.New(c, backendProviders, &wg, ctx)
+		}
 
 		// Termination signals
 		chan_signals := make(chan os.Signal, 1)
