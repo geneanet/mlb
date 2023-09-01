@@ -221,16 +221,16 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 	misc.PanicIfErr(err)
 
 	// Prometheus
-	metrics.FeCnxProcessed.WithLabelValues(frontend_address).Inc()
-	metrics.FeActCnx.WithLabelValues(frontend_address).Inc()
-	defer metrics.FeActCnx.WithLabelValues(frontend_address).Dec()
+	metrics.FeCnxProcessed.WithLabelValues(frontend_address, p.id).Inc()
+	metrics.FeActCnx.WithLabelValues(frontend_address, p.id).Inc()
+	defer metrics.FeActCnx.WithLabelValues(frontend_address, p.id).Dec()
 
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
 			p.log.Error().Str("peer", peer_address).Err(misc.EnsureError(r)).Msg("Error while processing connection")
 			// Prometheus
-			metrics.FeCnxErrors.WithLabelValues(frontend_address).Inc()
+			metrics.FeCnxErrors.WithLabelValues(frontend_address, p.id).Inc()
 		}
 	}()
 
@@ -247,9 +247,9 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 	}
 
 	// Prometheus
-	metrics.BeCnxProcessed.WithLabelValues(backend_address).Inc()
-	metrics.BeActCnx.WithLabelValues(backend_address).Inc()
-	defer metrics.BeActCnx.WithLabelValues(backend_address).Dec()
+	metrics.BeCnxProcessed.WithLabelValues(backend_address, p.id).Inc()
+	metrics.BeActCnx.WithLabelValues(backend_address, p.id).Inc()
+	defer metrics.BeActCnx.WithLabelValues(backend_address, p.id).Dec()
 
 	// Open backend connection
 	p.log.Debug().Str("peer", backend_address).Msg("Opening Backend connection")

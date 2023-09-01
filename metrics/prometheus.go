@@ -11,7 +11,7 @@ var (
 			Name: "mlb_frontend_connections_processed",
 			Help: "The number connections processed by frontend",
 		},
-		[]string{"address"},
+		[]string{"address", "proxy"},
 	)
 
 	BeCnxProcessed = promauto.NewCounterVec(
@@ -19,7 +19,7 @@ var (
 			Name: "mlb_backend_connections_processed",
 			Help: "The number connections processed by backend",
 		},
-		[]string{"address"},
+		[]string{"address", "proxy"},
 	)
 
 	FeCnxErrors = promauto.NewCounterVec(
@@ -27,7 +27,7 @@ var (
 			Name: "mlb_connection_errors",
 			Help: "The number of connection errors",
 		},
-		[]string{"frontend"},
+		[]string{"frontend", "proxy"},
 	)
 
 	FeActCnx = promauto.NewGaugeVec(
@@ -35,7 +35,7 @@ var (
 			Name: "mlb_frontend_active_connections",
 			Help: "The number of active connections at frontend",
 		},
-		[]string{"address"},
+		[]string{"address", "proxy"},
 	)
 
 	BeActCnx = promauto.NewGaugeVec(
@@ -43,6 +43,6 @@ var (
 			Name: "mlb_backend_active_connections",
 			Help: "The number of active connections at backend",
 		},
-		[]string{"address"},
+		[]string{"address", "proxy"},
 	)
 )
