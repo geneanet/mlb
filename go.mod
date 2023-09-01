@@ -8,6 +8,7 @@ require (
 	github.com/prometheus/client_golang v1.16.0
 	github.com/rs/zerolog v1.30.0
 	golang.org/x/sys v0.11.0
+	golang.org/x/sync v0.3.0
 )
 
 require (

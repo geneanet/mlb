@@ -6,12 +6,14 @@ import (
 	"math/rand"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/zclconf/go-cty/cty"
+	"golang.org/x/sync/semaphore"
 
 	"mlb/backend"
 	"mlb/misc"
@@ -22,20 +24,25 @@ func init() {
 }
 
 type WRRBalancer struct {
-	id           string
-	backends     backend.BackendsMap
-	weightedlist []string
-	mu           sync.RWMutex
-	log          zerolog.Logger
-	upd_chan     chan backend.BackendUpdate
-	source       string
-	evalCtx      *hcl.EvalContext
+	id            string
+	backends      backend.BackendsMap
+	weightedlist  []string
+	mu            sync.RWMutex
+	log           zerolog.Logger
+	upd_chan      chan backend.BackendUpdate
+	source        string
+	evalCtx       *hcl.EvalContext
+	ctx           context.Context
+	ctx_cancel    context.CancelFunc
+	wait_backends *semaphore.Weighted
+	timeout       time.Duration
 }
 
 type WRRBalancerConfig struct {
-	ID     string
-	Source string         `hcl:"source"`
-	Weight hcl.Expression `hcl:"weight"`
+	ID      string
+	Source  string         `hcl:"source"`
+	Weight  hcl.Expression `hcl:"weight"`
+	Timeout string         `hcl:"timeout,optional"`
 }
 
 type WRRBalancerFactory struct{}
@@ -49,6 +56,9 @@ func (w WRRBalancerFactory) parseConfig(tc *Config) *WRRBalancerConfig {
 	config := &WRRBalancerConfig{}
 	gohcl.DecodeBody(tc.Config, tc.ctx, config)
 	config.ID = fmt.Sprintf("balancer.%s.%s", tc.Type, tc.Name)
+	if config.Timeout == "" {
+		config.Timeout = "0s"
+	}
 	return config
 }
 
@@ -56,16 +66,22 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 	config := w.parseConfig(tc)
 
 	b := &WRRBalancer{
-		id:           config.ID,
-		backends:     make(backend.BackendsMap),
-		weightedlist: make([]string, 0),
-		log:          log.With().Str("id", config.ID).Logger(),
-		upd_chan:     make(chan backend.BackendUpdate),
-		source:       config.Source,
-		evalCtx:      tc.ctx,
+		id:            config.ID,
+		backends:      make(backend.BackendsMap),
+		weightedlist:  make([]string, 0),
+		log:           log.With().Str("id", config.ID).Logger(),
+		upd_chan:      make(chan backend.BackendUpdate),
+		source:        config.Source,
+		evalCtx:       tc.ctx,
+		wait_backends: semaphore.NewWeighted(1),
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
+	var err error
+
+	b.timeout, err = time.ParseDuration(config.Timeout)
+	misc.PanicIfErr(err)
+
+	b.ctx, b.ctx_cancel = context.WithCancel(ctx)
 
 	wg.Add(1)
 	b.log.Info().Msg("WRR Balancer starting")
@@ -73,14 +89,20 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 	go func() {
 		defer wg.Done()
 		defer b.log.Info().Msg("WRR Balancer stopped")
-		defer cancel()
+		defer b.ctx_cancel()
 		defer close(b.upd_chan)
+
+		b.log.Debug().Msg("No backends in the list, acquiring the lock")
+		b.wait_backends.Acquire(b.ctx, 1)
 
 	mainloop:
 		for {
 			select {
 			case upd := <-b.upd_chan: // Backend changed
 				b.mu.Lock()
+
+				list_previous_size := len(b.weightedlist)
+
 				switch upd.Kind {
 				case backend.UpdBackendAdded:
 					var weight int
@@ -114,9 +136,20 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 					b.weightedlist = slices.DeleteFunc(b.weightedlist, func(a string) bool { return a == upd.Address })
 					delete(b.backends, upd.Address)
 				}
+
+				list_new_size := len(b.weightedlist)
+
+				if list_previous_size == 0 && list_new_size > 0 {
+					b.log.Debug().Msg("At least one backend has been added to the list, releasing the lock")
+					b.wait_backends.Release(1)
+				} else if list_previous_size > 0 && list_new_size == 0 {
+					b.log.Debug().Msg("There are no more backends in the list, acquiring the lock")
+					b.wait_backends.Acquire(b.ctx, 1)
+				}
+
 				b.mu.Unlock()
 
-			case <-ctx.Done(): // Context cancelled
+			case <-b.ctx.Done(): // Context cancelled
 				break mainloop
 			}
 		}
@@ -128,6 +161,17 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 func (b *WRRBalancer) GetBackend() *backend.Backend {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+
+	// Wait for the backend list to be populated or a timeout to occur
+	if len(b.weightedlist) == 0 && b.timeout > 0 {
+		b.mu.RUnlock()
+		ctx, ctx_cancel := context.WithDeadline(b.ctx, time.Now().Add(b.timeout))
+		defer ctx_cancel()
+		if b.wait_backends.Acquire(ctx, 1) == nil {
+			b.wait_backends.Release(1)
+		}
+		b.mu.RLock()
+	}
 
 	if len(b.weightedlist) > 0 {
 		address := b.weightedlist[rand.Intn(len(b.weightedlist))]

@@ -119,9 +119,6 @@ func main() {
 
 		metrics.NewHTTPServer(conf.Metrics.Address, &wg, ctx)
 
-		// TODO: Replace that with a real retroaction from backend providers
-		time.Sleep(1 * time.Second) // Wait one second to ensure backends are available
-
 		// Start proxies
 		for _, c := range conf.ProxyList {
 			proxy.New(c, backendProviders, &wg, ctx)

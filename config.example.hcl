@@ -53,6 +53,7 @@ backends_processor "simple_filter" "mysql_main_ro" {
 balancer "wrr" "mysql_main_ro" {
   source = backends_processor.simple_filter.mysql_main_ro
   weight = backend.meta.consul.weight
+  timeout = "1s"
 }
 
 proxy "tcp" "mysql_main_ro" {
