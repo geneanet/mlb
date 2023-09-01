@@ -189,11 +189,12 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan bool, input_t
 }
 
 func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
-	frontend_address := conn_front.RemoteAddr().String()
+	frontend_address := conn_front.LocalAddr().String()
+	peer_address := conn_front.RemoteAddr().String()
 
 	defer p.connections_wg.Done()
 	defer conn_front.Close()
-	defer p.log.Debug().Str("peer", frontend_address).Msg("Closing Frontend connection")
+	defer p.log.Debug().Str("peer", peer_address).Msg("Closing Frontend connection")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -204,14 +205,14 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 		case <-ctx.Done():
 			return
 		case <-p.ctx.Done():
-			p.log.Debug().Str("peer", frontend_address).Msg("Frontend closed, waiting for connection to end.")
+			p.log.Debug().Str("peer", peer_address).Msg("Frontend closed, waiting for connection to end.")
 		}
 
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(p.close_timeout):
-			p.log.Warn().Str("peer", frontend_address).Msg("Timeout reached, force closing connection.")
+			p.log.Warn().Str("peer", peer_address).Msg("Timeout reached, force closing connection.")
 			cancel()
 		}
 	}()
@@ -227,7 +228,7 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
-			p.log.Error().Str("peer", frontend_address).Err(misc.EnsureError(r)).Msg("Error while processing connection")
+			p.log.Error().Str("peer", peer_address).Err(misc.EnsureError(r)).Msg("Error while processing connection")
 			// Prometheus
 			metrics.FeCnxErrors.WithLabelValues(frontend_address).Inc()
 		}
