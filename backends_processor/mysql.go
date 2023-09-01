@@ -123,6 +123,7 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 		defer wg.Done()
 		defer c.log.Info().Msg("MySQL checker stopped")
 		defer c.cancel()
+		defer close(c.upd_chan)
 
 		status_chan := make(chan *backend.Backend)
 

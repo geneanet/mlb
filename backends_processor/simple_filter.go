@@ -72,6 +72,7 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 		defer wg.Done()
 		defer f.log.Info().Msg("Filter stopped")
 		defer cancel()
+		defer close(f.upd_chan)
 
 	mainloop:
 		for {

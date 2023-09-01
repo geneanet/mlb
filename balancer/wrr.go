@@ -74,6 +74,7 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 		defer wg.Done()
 		defer b.log.Info().Msg("WRR Balancer stopped")
 		defer cancel()
+		defer close(b.upd_chan)
 
 	mainloop:
 		for {

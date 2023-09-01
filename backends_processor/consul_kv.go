@@ -119,6 +119,7 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 		defer wg.Done()
 		defer c.log.Info().Msg("Consul KV watcher stopped")
 		defer c.cancel()
+		defer close(c.upd_chan)
 
 		watcher_chan := make(chan *consulKVWatcherMessage)
 
