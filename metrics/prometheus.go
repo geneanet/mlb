@@ -45,4 +45,36 @@ var (
 		},
 		[]string{"address", "proxy"},
 	)
+
+	FeBytesIn = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mlb_frontend_bytes_in",
+			Help: "The number of inwards bytes processed by frontend",
+		},
+		[]string{"address", "proxy"},
+	)
+
+	FeBytesOut = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mlb_frontend_bytes_out",
+			Help: "The number of outwards bytes processed by frontend",
+		},
+		[]string{"address", "proxy"},
+	)
+
+	BeBytesIn = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mlb_backend_bytes_in",
+			Help: "The number of inwards bytes processed by backend",
+		},
+		[]string{"address", "proxy"},
+	)
+
+	BeBytesOut = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mlb_backend_bytes_out",
+			Help: "The number of outwards bytes processed by backend",
+		},
+		[]string{"address", "proxy"},
+	)
 )
