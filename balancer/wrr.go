@@ -158,12 +158,12 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 	return b
 }
 
-func (b *WRRBalancer) GetBackend() *backend.Backend {
+func (b *WRRBalancer) GetBackend(wait bool) *backend.Backend {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	// Wait for the backend list to be populated or a timeout to occur
-	if len(b.weightedlist) == 0 && b.timeout > 0 {
+	if len(b.weightedlist) == 0 && b.timeout > 0 && wait {
 		b.mu.RUnlock()
 		ctx, ctx_cancel := context.WithDeadline(b.ctx, time.Now().Add(b.timeout))
 		defer ctx_cancel()

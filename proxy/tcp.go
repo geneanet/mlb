@@ -234,9 +234,15 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 		}
 	}()
 
-	backend := p.backendProvider.GetBackend()
+	// Try to get a primary backend
+	backend := p.backendProvider.GetBackend(false)
+	// If no backend try to get a backup backend
 	if backend == nil && p.backupBackendProvider != nil {
-		backend = p.backupBackendProvider.GetBackend()
+		backend = p.backupBackendProvider.GetBackend(false)
+	}
+	// If still no backend try waiting for a primary backend
+	if backend == nil {
+		backend = p.backendProvider.GetBackend(true)
 	}
 
 	var backend_address string

@@ -94,7 +94,7 @@ type BackendUpdateSubscriber interface {
 }
 
 type BackendProvider interface {
-	GetBackend() *Backend
+	GetBackend(wait bool) *Backend
 }
 
 type BackendListProvider interface {
