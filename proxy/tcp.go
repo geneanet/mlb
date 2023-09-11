@@ -38,6 +38,8 @@ type ProxyTCP struct {
 	ctx                   context.Context
 	cancel                context.CancelFunc
 	log                   zerolog.Logger
+	buffer_size           int
+	nodelay               bool
 }
 
 type TCPProxyConfig struct {
@@ -49,6 +51,8 @@ type TCPProxyConfig struct {
 	ClientTimeout  string   `hcl:"client_timeout,optional"`
 	ServerTimeout  string   `hcl:"server_timeout,optional"`
 	CloseTimeout   string   `hcl:"close_timeout,optional"`
+	BufferSize     int      `hcl:"buffer_size,optional"`
+	NoDelay        bool     `hcl:"nodelay,optional"`
 }
 
 type TCPProxyFactory struct{}
@@ -74,6 +78,9 @@ func (w TCPProxyFactory) parseConfig(tc *Config) *TCPProxyConfig {
 	if config.CloseTimeout == "" {
 		config.CloseTimeout = "0s"
 	}
+	if config.BufferSize == 0 {
+		config.BufferSize = 16384
+	}
 	return config
 }
 
@@ -85,6 +92,8 @@ func (w TCPProxyFactory) New(tc *Config, backendProviders map[string]backend.Bac
 		addresses:       config.Addresses,
 		backendProvider: backendProviders[config.Source],
 		log:             log.With().Str("id", config.ID).Logger(),
+		buffer_size:     config.BufferSize,
+		nodelay:         config.NoDelay,
 	}
 
 	if config.BackupSource != "" {
@@ -166,7 +175,7 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan bool, input_t
 		close(done)
 	}()
 
-	buffer := make([]byte, 64*1024)
+	buffer := make([]byte, p.buffer_size)
 
 	for {
 		if input_timeout != 0 {
@@ -218,8 +227,10 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 		}
 	}()
 
-	err := conn_front.(*net.TCPConn).SetNoDelay(true)
-	misc.PanicIfErr(err)
+	if p.nodelay {
+		err := conn_front.(*net.TCPConn).SetNoDelay(true)
+		misc.PanicIfErr(err)
+	}
 
 	// Prometheus
 	metrics.FeCnxProcessed.WithLabelValues(frontend_address, p.id).Inc()
@@ -265,8 +276,10 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 	defer conn_back.Close()
 	defer p.log.Debug().Str("peer", backend_address).Msg("Closing Backend connection")
 
-	err = conn_back.(*net.TCPConn).SetNoDelay(true)
-	misc.PanicIfErr(err)
+	if p.nodelay {
+		err = conn_back.(*net.TCPConn).SetNoDelay(true)
+		misc.PanicIfErr(err)
+	}
 
 	// Pipe the connections both ways
 	done_front_back := make(chan bool)
