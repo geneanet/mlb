@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -166,7 +167,7 @@ func (p *ProxyTCP) listen(address string, wg *sync.WaitGroup, ctx context.Contex
 	}()
 }
 
-func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan bool, input_timeout time.Duration, output_timeout time.Duration, counter *int) {
+func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan bool, input_timeout time.Duration, output_timeout time.Duration, counter *atomic.Uint64) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
@@ -182,7 +183,7 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan bool, input_t
 			input.SetReadDeadline(time.Now().Add(input_timeout))
 		}
 		nbytes, err := input.Read(buffer)
-		*counter += nbytes
+		counter.Add(uint64(nbytes))
 		if err == io.EOF || errors.Is(err, net.ErrClosed) {
 			return
 		}
@@ -284,22 +285,39 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 	// Pipe the connections both ways
 	done_front_back := make(chan bool)
 	done_back_front := make(chan bool)
-	var bytes_in, bytes_out int
+	var bytes_in, bytes_out atomic.Uint64
 
 	go p.pipe(conn_front, conn_back, done_front_back, p.client_timeout, p.server_timeout, &bytes_in)
 	go p.pipe(conn_back, conn_front, done_back_front, p.server_timeout, p.client_timeout, &bytes_out)
 
-	// Wait for one pipe to end or the context to be cancelled
-	select {
-	case <-done_front_back:
-	case <-done_back_front:
-	case <-ctx.Done():
+	statsTicker := time.NewTicker(1 * time.Second)
+
+	// Wait for one pipe to end or the context to be cancelled + ricker every second for stats
+	break_loop := false
+	for {
+		select {
+		case <-done_front_back:
+			break_loop = true
+		case <-done_back_front:
+			break_loop = true
+		case <-ctx.Done():
+			break_loop = true
+		case <-statsTicker.C:
+		}
+
+		bytes_in_f := float64(bytes_in.Swap(0))
+		bytes_out_f := float64(bytes_out.Swap(0))
+		metrics.FeBytesIn.WithLabelValues(frontend_address, p.id).Add(bytes_in_f)
+		metrics.FeBytesOut.WithLabelValues(frontend_address, p.id).Add(bytes_out_f)
+		metrics.BeBytesIn.WithLabelValues(backend_address, p.id).Add(bytes_in_f)
+		metrics.BeBytesOut.WithLabelValues(backend_address, p.id).Add(bytes_out_f)
+
+		if break_loop {
+			break
+		}
 	}
 
-	metrics.FeBytesIn.WithLabelValues(frontend_address, p.id).Add(float64(bytes_in))
-	metrics.FeBytesOut.WithLabelValues(frontend_address, p.id).Add(float64(bytes_out))
-	metrics.BeBytesIn.WithLabelValues(backend_address, p.id).Add(float64(bytes_in))
-	metrics.BeBytesOut.WithLabelValues(backend_address, p.id).Add(float64(bytes_out))
+	statsTicker.Stop()
 
 	// Ensure both ends are closed so both pipes will exit
 	conn_front.Close()
