@@ -8,6 +8,7 @@ import (
 	"mlb/backend"
 	"mlb/metrics"
 	"mlb/misc"
+	"mlb/module"
 	"net"
 	"os"
 	"sync"
@@ -29,6 +30,8 @@ func init() {
 type ProxyTCP struct {
 	id                    string
 	addresses             []string
+	source                string
+	backup_source         string
 	backendProvider       backend.BackendProvider
 	backupBackendProvider backend.BackendProvider
 	close_timeout         time.Duration
@@ -39,6 +42,7 @@ type ProxyTCP struct {
 	ctx                   context.Context
 	cancel                context.CancelFunc
 	log                   zerolog.Logger
+	wg                    *sync.WaitGroup
 	buffer_size           int
 	nodelay               bool
 }
@@ -85,20 +89,18 @@ func (w TCPProxyFactory) parseConfig(tc *Config) *TCPProxyConfig {
 	return config
 }
 
-func (w TCPProxyFactory) New(tc *Config, backendProviders map[string]backend.BackendProvider, wg *sync.WaitGroup, ctx context.Context) {
+func (w TCPProxyFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
 	config := w.parseConfig(tc)
 
 	p := &ProxyTCP{
-		id:              config.ID,
-		addresses:       config.Addresses,
-		backendProvider: backendProviders[config.Source],
-		log:             log.With().Str("id", config.ID).Logger(),
-		buffer_size:     config.BufferSize,
-		nodelay:         config.NoDelay,
-	}
-
-	if config.BackupSource != "" {
-		p.backupBackendProvider = backendProviders[config.BackupSource]
+		id:            config.ID,
+		addresses:     config.Addresses,
+		log:           log.With().Str("id", config.ID).Logger(),
+		buffer_size:   config.BufferSize,
+		nodelay:       config.NoDelay,
+		source:        config.Source,
+		backup_source: config.BackupSource,
+		wg:            wg,
 	}
 
 	var err error
@@ -114,9 +116,7 @@ func (w TCPProxyFactory) New(tc *Config, backendProviders map[string]backend.Bac
 
 	p.ctx, p.cancel = context.WithCancel(ctx)
 
-	for _, v := range p.addresses {
-		p.listen(v, wg, p.ctx)
-	}
+	return p
 }
 
 func (p *ProxyTCP) listen(address string, wg *sync.WaitGroup, ctx context.Context) {
@@ -326,4 +326,17 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 
 func (p *ProxyTCP) GetID() string {
 	return p.id
+}
+
+func (p *ProxyTCP) Bind(modules module.ModulesList) {
+	p.backendProvider = modules.GetBackendProvider(p.source)
+
+	if p.backup_source != "" {
+		p.backupBackendProvider = modules.GetBackendProvider(p.backup_source)
+	}
+
+	// Listening to incoming connections only makes sense after backend providers are available
+	for _, v := range p.addresses {
+		p.listen(v, p.wg, p.ctx)
+	}
 }

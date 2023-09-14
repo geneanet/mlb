@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"mlb/backend"
 	"mlb/misc"
+	"mlb/module"
 	"sync"
 
 	"github.com/hashicorp/hcl/v2"
@@ -49,7 +50,7 @@ func (w SimpleFilterFactory) parseConfig(tc *Config) *SimpleFilterConfig {
 	return config
 }
 
-func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) backend.BackendUpdateProvider {
+func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
 	config := w.parseConfig(tc)
 
 	f := &SimpleFilter{
@@ -173,4 +174,8 @@ func (f *SimpleFilter) GetID() string {
 
 func (f *SimpleFilter) GetBackendList() []*backend.Backend {
 	return misc.MapValues(f.backends)
+}
+
+func (f *SimpleFilter) Bind(modules module.ModulesList) {
+	f.SubscribeTo(modules.GetBackendUpdateProvider(f.source))
 }

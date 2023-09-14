@@ -19,6 +19,7 @@ import (
 
 	"mlb/backend"
 	"mlb/misc"
+	"mlb/module"
 )
 
 func init() {
@@ -94,7 +95,7 @@ func (w ConsulBackendsInventoryFactory) parseConfig(tc *Config) *ConsulBackendsI
 	return config
 }
 
-func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) backend.BackendUpdateProvider {
+func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
 	config := w.parseConfig(tc)
 
 	c := &BackendsInventoryConsul{
@@ -290,6 +291,10 @@ func (c *BackendsInventoryConsul) GetID() string {
 
 func (c *BackendsInventoryConsul) GetBackendList() []*backend.Backend {
 	return misc.MapValues(c.backends)
+}
+
+func (c *BackendsInventoryConsul) Bind(modules module.ModulesList) {
+
 }
 
 func consulServicesSliceToMap(services consulServicesSlice) consulServicesMap {

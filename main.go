@@ -10,7 +10,7 @@ import (
 	"mlb/balancer"
 	"mlb/config"
 	"mlb/metrics"
-	"mlb/misc"
+	"mlb/module"
 	"mlb/proxy"
 	"mlb/system"
 	"net/http"
@@ -66,51 +66,34 @@ func main() {
 			system.SetRlimitNOFILE(conf.System.RLimit.NOFile)
 		}
 
-		// Start serious business
-		backendUpdatesProviders := make(map[string]backend.BackendUpdateProvider, 0)
-		backendUpdateSubscribers := make(map[string]backend.BackendUpdateSubscriber, 0)
-		backendProviders := make(map[string]backend.BackendProvider, 0)
-		backendListProviders := make(map[string]backend.BackendListProvider, 0)
+		// Instanciate modules
+		ml := module.NewModulesList()
 
-		for _, tc := range conf.BackendsInventoryList {
-			i := backends_inventory.New(tc, &wg, ctx)
-			id := i.(misc.GetIDInterface).GetID()
-			backendUpdatesProviders[id] = i.(backend.BackendUpdateProvider)
-			backendListProviders[id] = i.(backend.BackendListProvider)
+		for _, c := range conf.BackendsInventoryList {
+			ml.AddModule(backends_inventory.New(c, &wg, ctx))
+		}
+		for _, c := range conf.BackendsProcessorList {
+			ml.AddModule(backends_processor.New(c, &wg, ctx))
+		}
+		for _, c := range conf.BalancerList {
+			ml.AddModule(balancer.New(c, &wg, ctx))
+		}
+		for _, c := range conf.ProxyList {
+			ml.AddModule(proxy.New(c, &wg, ctx))
 		}
 
-		for _, tc := range conf.BackendsProcessorList {
-			f := backends_processor.New(tc, &wg, ctx)
-			id := f.(misc.GetIDInterface).GetID()
-			backendUpdatesProviders[id] = f.(backend.BackendUpdateProvider)
-			backendListProviders[id] = f.(backend.BackendListProvider)
-			backendUpdateSubscribers[id] = f.(backend.BackendUpdateSubscriber)
-		}
-
-		for _, tc := range conf.BalancerList {
-			b := balancer.New(tc, &wg, ctx)
-			id := b.(misc.GetIDInterface).GetID()
-			backendProviders[id] = b.(backend.BackendProvider)
-			backendListProviders[id] = b.(backend.BackendListProvider)
-			backendUpdateSubscribers[id] = b.(backend.BackendUpdateSubscriber)
-		}
-
-		// Plug update subscribers to providers
-		for _, bus := range backendUpdateSubscribers {
-			source := bus.GetUpdateSource()
-			provider, ok := backendUpdatesProviders[source]
-			if !ok {
-				log.Panic().Str("subscriber", bus.(misc.GetIDInterface).GetID()).Str("provider", source).Msg("Backend update provider not found !")
-			}
-			bus.SubscribeTo(provider)
+		// Bind modules together
+		for _, m := range ml {
+			m.Bind(ml)
 		}
 
 		// HTTP Metrics
 		http.HandleFunc("/backends", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Add("Content-Type", "application/json")
+			backendListProviders := ml.GetBackendListProviders()
 			backendsByProvider := make(map[string]backend.BackendsList, len(backendListProviders))
 			for id := range backendListProviders {
-				backendsByProvider[id] = backendListProviders[id].GetBackendList()
+				backendsByProvider[id] = backendListProviders.GetBackendListProvider(id).GetBackendList()
 			}
 			out, _ := json.Marshal(backendsByProvider)
 			w.Write(out)
@@ -118,11 +101,6 @@ func main() {
 		http.Handle("/metrics", metrics.HttpLogWrapper(promhttp.Handler()))
 
 		metrics.NewHTTPServer(conf.Metrics.Address, &wg, ctx)
-
-		// Start proxies
-		for _, c := range conf.ProxyList {
-			proxy.New(c, backendProviders, &wg, ctx)
-		}
 
 		// Termination signals
 		chan_signals := make(chan os.Signal, 1)

@@ -12,6 +12,7 @@ import (
 
 	"mlb/backend"
 	"mlb/misc"
+	"mlb/module"
 )
 
 func init() {
@@ -46,7 +47,7 @@ func (w staticBackendsInventoryFactory) parseConfig(tc *Config) *staticBackendsI
 	return config
 }
 
-func (w staticBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) backend.BackendUpdateProvider {
+func (w staticBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
 	config := w.parseConfig(tc)
 
 	c := &BackendsInventoryStatic{
@@ -94,4 +95,8 @@ func (c *BackendsInventoryStatic) GetID() string {
 
 func (c *BackendsInventoryStatic) GetBackendList() []*backend.Backend {
 	return misc.MapValues(c.backends)
+}
+
+func (c *BackendsInventoryStatic) Bind(modules module.ModulesList) {
+
 }

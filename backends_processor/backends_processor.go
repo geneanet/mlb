@@ -3,7 +3,7 @@ package backends_processor
 import (
 	"context"
 	"fmt"
-	"mlb/backend"
+	"mlb/module"
 	"sync"
 
 	"github.com/hashicorp/hcl/v2"
@@ -37,7 +37,7 @@ func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*Config, hcl.Dia
 	return tc, diags
 }
 
-func New(tc *Config, wg *sync.WaitGroup, ctx context.Context) backend.BackendUpdateProvider {
+func New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
 	return factories[tc.Type].New(tc, wg, ctx)
 }
 
@@ -46,7 +46,7 @@ func ValidateConfig(tc *Config) hcl.Diagnostics {
 }
 
 type FactoryInterface interface {
-	New(config *Config, wg *sync.WaitGroup, ctx context.Context) backend.BackendUpdateProvider
+	New(config *Config, wg *sync.WaitGroup, ctx context.Context) module.Module
 	ValidateConfig(config *Config) hcl.Diagnostics
 }
 

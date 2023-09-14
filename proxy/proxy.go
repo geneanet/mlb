@@ -3,7 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
-	"mlb/backend"
+	"mlb/module"
 	"sync"
 
 	"github.com/hashicorp/hcl/v2"
@@ -36,8 +36,8 @@ func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*Config, hcl.Dia
 	diags := ValidateConfig(tc)
 	return tc, diags
 }
-func New(tc *Config, sources map[string]backend.BackendProvider, wg *sync.WaitGroup, ctx context.Context) {
-	factories[tc.Type].New(tc, sources, wg, ctx)
+func New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+	return factories[tc.Type].New(tc, wg, ctx)
 }
 
 func ValidateConfig(tc *Config) hcl.Diagnostics {
@@ -45,7 +45,7 @@ func ValidateConfig(tc *Config) hcl.Diagnostics {
 }
 
 type FactoryInterface interface {
-	New(config *Config, sources map[string]backend.BackendProvider, wg *sync.WaitGroup, ctx context.Context)
+	New(config *Config, wg *sync.WaitGroup, ctx context.Context) module.Module
 	ValidateConfig(config *Config) hcl.Diagnostics
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"mlb/backend"
 	"mlb/misc"
+	"mlb/module"
 	"sync"
 	"time"
 
@@ -87,7 +88,7 @@ func (w MySQLCheckerFactory) parseConfig(tc *Config) *MySQLCheckerConfig {
 	return config
 }
 
-func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) backend.BackendUpdateProvider {
+func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
 	config := w.parseConfig(tc)
 
 	c := &MySQLChecker{
@@ -246,6 +247,10 @@ func (c *MySQLChecker) GetBackendList() []*backend.Backend {
 	}
 
 	return backends
+}
+
+func (c *MySQLChecker) Bind(modules module.ModulesList) {
+	c.SubscribeTo(modules.GetBackendUpdateProvider(c.source))
 }
 
 type MySQLCheck struct {

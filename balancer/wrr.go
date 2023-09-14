@@ -17,6 +17,7 @@ import (
 
 	"mlb/backend"
 	"mlb/misc"
+	"mlb/module"
 )
 
 func init() {
@@ -62,7 +63,7 @@ func (w WRRBalancerFactory) parseConfig(tc *Config) *WRRBalancerConfig {
 	return config
 }
 
-func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) backend.BackendProvider {
+func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
 	config := w.parseConfig(tc)
 
 	b := &WRRBalancer{
@@ -195,4 +196,8 @@ func (b *WRRBalancer) GetID() string {
 
 func (b *WRRBalancer) GetBackendList() []*backend.Backend {
 	return misc.MapValues(b.backends)
+}
+
+func (b *WRRBalancer) Bind(modules module.ModulesList) {
+	b.SubscribeTo(modules.GetBackendUpdateProvider(b.source))
 }

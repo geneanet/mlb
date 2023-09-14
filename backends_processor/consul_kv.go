@@ -9,6 +9,7 @@ import (
 	"io"
 	"mlb/backend"
 	"mlb/misc"
+	"mlb/module"
 	"net/http"
 	"sync"
 	"time"
@@ -82,7 +83,7 @@ func (w ConsulKVFactory) parseConfig(tc *Config) *ConsulKVConfig {
 	return config
 }
 
-func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) backend.BackendUpdateProvider {
+func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
 	config := w.parseConfig(tc)
 
 	c := &ConsulKV{
@@ -246,6 +247,10 @@ func (c *ConsulKV) GetID() string {
 
 func (c *ConsulKV) GetBackendList() []*backend.Backend {
 	return misc.MapValues(c.backends)
+}
+
+func (c *ConsulKV) Bind(modules module.ModulesList) {
+	c.SubscribeTo(modules.GetBackendUpdateProvider(c.source))
 }
 
 // Watcher
