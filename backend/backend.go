@@ -1,6 +1,10 @@
 package backend
 
 import (
+	"mlb/misc"
+	"sort"
+	"sync"
+
 	"github.com/hashicorp/hcl/v2"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/gocty"
@@ -63,7 +67,83 @@ func (b *Backend) ResolveExpression(expression hcl.Expression, ctx *hcl.EvalCont
 }
 
 // Map
-type BackendsMap map[string]*Backend
+type BackendsMap struct {
+	backends map[string]*Backend
+	lock     sync.RWMutex
+}
+
+func NewBackendsMap() *BackendsMap {
+	return &BackendsMap{
+		backends: make(map[string]*Backend),
+		lock:     sync.RWMutex{},
+	}
+}
+
+func (bm *BackendsMap) Get(address string) *Backend {
+	bm.lock.RLock()
+	defer bm.lock.RUnlock()
+
+	if b, ok := bm.backends[address]; ok {
+		return b
+	} else {
+		return nil
+	}
+}
+
+func (bm *BackendsMap) GetList() BackendsList {
+	bm.lock.RLock()
+	defer bm.lock.RUnlock()
+
+	return misc.MapValues(bm.backends)
+}
+
+func (bm *BackendsMap) GetSortedList() BackendsList {
+	backends := bm.GetList()
+	sort.Slice(backends, func(i, j int) bool {
+		return backends[i].Address < backends[j].Address
+	})
+	return backends
+}
+
+func (bm *BackendsMap) Add(backend *Backend) {
+	bm.lock.Lock()
+	defer bm.lock.Unlock()
+
+	bm.backends[backend.Address] = backend
+}
+
+func (bm *BackendsMap) Update(backend *Backend, except_meta ...string) {
+	bm.lock.Lock()
+	defer bm.lock.Unlock()
+
+	if b, ok := bm.backends[backend.Address]; ok {
+		b.Meta.Update(backend.Meta, except_meta...)
+	} else {
+		bm.backends[backend.Address] = backend
+	}
+}
+
+func (bm *BackendsMap) Remove(address string) {
+	bm.lock.Lock()
+	defer bm.lock.Unlock()
+
+	delete(bm.backends, address)
+}
+
+func (bm *BackendsMap) Has(address string) bool {
+	bm.lock.RLock()
+	defer bm.lock.RUnlock()
+
+	_, ok := bm.backends[address]
+	return ok
+}
+
+func (bm *BackendsMap) Size() int {
+	bm.lock.RLock()
+	defer bm.lock.RUnlock()
+
+	return len(bm.backends)
+}
 
 // List
 type BackendsList []*Backend

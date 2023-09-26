@@ -58,7 +58,7 @@ type BackendsInventoryConsul struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	subscribers    []chan backend.BackendUpdate
-	backends       backend.BackendsMap
+	backends       *backend.BackendsMap
 	backends_mutex sync.RWMutex
 	log            zerolog.Logger
 }
@@ -104,7 +104,7 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 		service:        config.Service,
 		backoff_factor: config.BackoffFactor,
 		subscribers:    make([]chan backend.BackendUpdate, 0),
-		backends:       make(backend.BackendsMap),
+		backends:       backend.NewBackendsMap(),
 		log:            log.With().Str("id", config.ID).Logger(),
 	}
 
@@ -149,7 +149,7 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 
 				for address, service := range added {
 					log.Debug().Str("address", address).Msg("Service added")
-					c.backends[address] = &backend.Backend{
+					c.backends.Add(&backend.Backend{
 						Address: address,
 						Meta: backend.NewMetaMap(map[string]backend.MetaBucket{
 							"consul": {
@@ -158,29 +158,30 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 								"tags":   ctyTagSet(service.Service.Tags),
 							},
 						}),
-					}
+					})
 					c.sendUpdate(backend.BackendUpdate{
 						Kind:    backend.UpdBackendAdded,
 						Address: address,
-						Backend: c.backends[address],
+						Backend: c.backends.Get(address),
 					})
 				}
 
 				for address, service := range modified {
 					log.Debug().Str("address", address).Msg("Service modified")
-					c.backends[address].Meta.Set("consul", "tags", ctyTagSet(service.Service.Tags))
-					c.backends[address].Meta.Set("consul", "weight", cty.NumberUIntVal(service.Service.Weights.Passing))
-					c.backends[address].Meta.Set("consul", "node", cty.StringVal(service.Node.Node))
+					b := c.backends.Get(address)
+					b.Meta.Set("consul", "tags", ctyTagSet(service.Service.Tags))
+					b.Meta.Set("consul", "weight", cty.NumberUIntVal(service.Service.Weights.Passing))
+					b.Meta.Set("consul", "node", cty.StringVal(service.Node.Node))
 					c.sendUpdate(backend.BackendUpdate{
 						Kind:    backend.UpdBackendModified,
 						Address: address,
-						Backend: c.backends[address],
+						Backend: b,
 					})
 				}
 
 				for address := range removed {
 					log.Debug().Str("address", address).Msg("Service removed")
-					delete(c.backends, address)
+					c.backends.Remove(address)
 					c.sendUpdate(backend.BackendUpdate{
 						Kind:    backend.UpdBackendRemoved,
 						Address: address,
@@ -211,7 +212,7 @@ func (c *BackendsInventoryConsul) ProvideUpdates(ch chan backend.BackendUpdate) 
 		c.backends_mutex.RLock()
 		defer c.backends_mutex.RUnlock()
 
-		for _, b := range c.backends {
+		for _, b := range c.backends.GetList() {
 			c.sendUpdate(backend.BackendUpdate{
 				Kind:    backend.UpdBackendAdded,
 				Address: b.Address,
@@ -289,8 +290,8 @@ func (c *BackendsInventoryConsul) GetID() string {
 	return c.id
 }
 
-func (c *BackendsInventoryConsul) GetBackendList() []*backend.Backend {
-	return misc.MapValues(c.backends)
+func (c *BackendsInventoryConsul) GetBackendList() backend.BackendsList {
+	return c.backends.GetList()
 }
 
 func (c *BackendsInventoryConsul) Bind(modules module.ModulesList) {

@@ -11,7 +11,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"mlb/backend"
-	"mlb/misc"
 	"mlb/module"
 )
 
@@ -24,7 +23,7 @@ type BackendsInventoryStatic struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	subscribers []chan backend.BackendUpdate
-	backends    backend.BackendsMap
+	backends    *backend.BackendsMap
 	log         zerolog.Logger
 }
 
@@ -53,15 +52,15 @@ func (w staticBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 	c := &BackendsInventoryStatic{
 		id:          config.ID,
 		subscribers: make([]chan backend.BackendUpdate, 0),
-		backends:    make(backend.BackendsMap),
+		backends:    backend.NewBackendsMap(),
 		log:         log.With().Str("id", config.ID).Logger(),
 	}
 
 	for _, address := range config.Hosts {
-		c.backends[address] = &backend.Backend{
+		c.backends.Add(&backend.Backend{
 			Address: address,
 			Meta:    backend.NewEmptyMetaMap(0),
-		}
+		})
 	}
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
@@ -73,7 +72,7 @@ func (c *BackendsInventoryStatic) ProvideUpdates(ch chan backend.BackendUpdate) 
 	c.subscribers = append(c.subscribers, ch)
 
 	go func() {
-		for _, b := range c.backends {
+		for _, b := range c.backends.GetList() {
 			c.sendUpdate(backend.BackendUpdate{
 				Kind:    backend.UpdBackendAdded,
 				Address: b.Address,
@@ -94,7 +93,7 @@ func (c *BackendsInventoryStatic) GetID() string {
 }
 
 func (c *BackendsInventoryStatic) GetBackendList() []*backend.Backend {
-	return misc.MapValues(c.backends)
+	return c.backends.GetList()
 }
 
 func (c *BackendsInventoryStatic) Bind(modules module.ModulesList) {

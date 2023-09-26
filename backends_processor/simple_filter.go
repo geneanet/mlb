@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"mlb/backend"
-	"mlb/misc"
 	"mlb/module"
 	"sync"
 
@@ -21,7 +20,7 @@ func init() {
 type SimpleFilter struct {
 	id             string
 	subscribers    []chan backend.BackendUpdate
-	backends       backend.BackendsMap
+	backends       *backend.BackendsMap
 	backends_mutex sync.RWMutex
 	log            zerolog.Logger
 	upd_chan       chan backend.BackendUpdate
@@ -56,7 +55,7 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 	f := &SimpleFilter{
 		id:          config.ID,
 		subscribers: []chan backend.BackendUpdate{},
-		backends:    make(backend.BackendsMap),
+		backends:    backend.NewBackendsMap(),
 		log:         log.With().Str("id", config.ID).Logger(),
 		upd_chan:    make(chan backend.BackendUpdate),
 		source:      config.Source,
@@ -82,16 +81,16 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 				f.backends_mutex.Lock()
 				switch upd.Kind {
 				case backend.UpdBackendAdded, backend.UpdBackendModified:
-					if _, ok := f.backends[upd.Address]; ok { // Modified
+					if f.backends.Has(upd.Address) { // Modified
 						if f.matchFilter(upd.Backend) { // Still passes the filter
-							f.backends[upd.Address] = upd.Backend.Clone()
+							f.backends.Update(upd.Backend.Clone())
 							f.sendUpdate(backend.BackendUpdate{
 								Kind:    backend.UpdBackendModified,
-								Address: f.backends[upd.Address].Address,
-								Backend: f.backends[upd.Address],
+								Address: upd.Address,
+								Backend: f.backends.Get(upd.Address),
 							})
 						} else { // Do not pass the filter anymore
-							delete(f.backends, upd.Address)
+							f.backends.Remove(upd.Address)
 							f.sendUpdate(backend.BackendUpdate{
 								Kind:    backend.UpdBackendRemoved,
 								Address: upd.Address,
@@ -99,18 +98,18 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 						}
 					} else { // Added
 						if f.matchFilter(upd.Backend) {
-							f.backends[upd.Address] = upd.Backend.Clone()
+							f.backends.Add(upd.Backend.Clone())
 							f.sendUpdate(backend.BackendUpdate{
 								Kind:    backend.UpdBackendAdded,
-								Address: f.backends[upd.Address].Address,
-								Backend: f.backends[upd.Address],
+								Address: upd.Address,
+								Backend: f.backends.Get(upd.Address),
 							})
 						}
 					}
 				case backend.UpdBackendRemoved:
 					// Removed
-					if _, ok := f.backends[upd.Address]; ok {
-						delete(f.backends, upd.Address)
+					if f.backends.Has(upd.Address) {
+						f.backends.Remove(upd.Address)
 						f.sendUpdate(backend.BackendUpdate{
 							Kind:    backend.UpdBackendRemoved,
 							Address: upd.Address,
@@ -134,7 +133,7 @@ func (f *SimpleFilter) ProvideUpdates(ch chan backend.BackendUpdate) {
 		f.backends_mutex.RLock()
 		defer f.backends_mutex.RUnlock()
 
-		for _, b := range f.backends {
+		for _, b := range f.backends.GetList() {
 			f.sendUpdate(backend.BackendUpdate{
 				Kind:    backend.UpdBackendAdded,
 				Address: b.Address,
@@ -173,7 +172,7 @@ func (f *SimpleFilter) GetID() string {
 }
 
 func (f *SimpleFilter) GetBackendList() []*backend.Backend {
-	return misc.MapValues(f.backends)
+	return f.backends.GetList()
 }
 
 func (f *SimpleFilter) Bind(modules module.ModulesList) {

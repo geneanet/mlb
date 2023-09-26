@@ -31,7 +31,7 @@ type ConsulKV struct {
 	default_period time.Duration
 	max_period     time.Duration
 	backoff_factor float64
-	backends       backend.BackendsMap
+	backends       *backend.BackendsMap
 	backends_mutex sync.RWMutex
 	default_values map[string]cty.Value
 	subscribers    []chan backend.BackendUpdate
@@ -93,7 +93,7 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 		log:            log.With().Str("id", config.ID).Logger(),
 		upd_chan:       make(chan backend.BackendUpdate),
 		source:         config.Source,
-		backends:       make(backend.BackendsMap),
+		backends:       backend.NewBackendsMap(),
 		default_values: make(map[string]cty.Value),
 		evalCtx:        tc.ctx,
 		watchers:       make(map[string][]*consulKVWatcher),
@@ -142,11 +142,11 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 				switch upd.Kind {
 				case backend.UpdBackendAdded, backend.UpdBackendModified:
 					// Add/Update the backend
-					c.backends[upd.Address] = upd.Backend.Clone()
+					c.backends.Add(upd.Backend.Clone())
 
 					// Set default values
 					for _, v := range config.Values {
-						c.backends[upd.Address].Meta.Set("consul_kv", v.ID, cty.StringVal(v.Default))
+						c.backends.Get(upd.Address).Meta.Set("consul_kv", v.ID, cty.StringVal(v.Default))
 					}
 
 					// First, cancel every watcher we may have for the backend
@@ -168,7 +168,7 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 							if _, ok := c.watchers[upd.Address]; !ok {
 								c.watchers[upd.Address] = []*consulKVWatcher{}
 							}
-							w := newConsulKVWatcher(c.backends[upd.Address], v.ID, c.url, consul_key, c.default_period, c.max_period, c.backoff_factor, watcher_chan, c.ctx, c.log)
+							w := newConsulKVWatcher(c.backends.Get(upd.Address), v.ID, c.url, consul_key, c.default_period, c.max_period, c.backoff_factor, watcher_chan, c.ctx, c.log)
 							c.watchers[upd.Address] = append(c.watchers[upd.Address], w)
 						}
 					}
@@ -176,12 +176,12 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 					// Send the update
 					c.sendUpdate(backend.BackendUpdate{
 						Kind:    upd.Kind,
-						Address: c.backends[upd.Address].Address,
-						Backend: c.backends[upd.Address],
+						Address: upd.Address,
+						Backend: c.backends.Get(upd.Address),
 					})
 				case backend.UpdBackendRemoved:
 					// If we actually have the backend
-					if _, ok := c.backends[upd.Address]; ok {
+					if c.backends.Has(upd.Address) {
 						// Cancel every watcher we may have for the backend
 						if _, ok := c.watchers[upd.Address]; ok {
 							for _, w := range c.watchers[upd.Address] {
@@ -191,7 +191,7 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 						}
 
 						// Remove the backend
-						delete(c.backends, upd.Address)
+						c.backends.Remove(upd.Address)
 
 						// Send the update
 						c.sendUpdate(backend.BackendUpdate{
@@ -217,7 +217,7 @@ func (c *ConsulKV) ProvideUpdates(ch chan backend.BackendUpdate) {
 		c.backends_mutex.RLock()
 		defer c.backends_mutex.RUnlock()
 
-		for _, b := range c.backends {
+		for _, b := range c.backends.GetList() {
 			c.sendUpdate(backend.BackendUpdate{
 				Kind:    backend.UpdBackendAdded,
 				Address: b.Address,
@@ -246,7 +246,7 @@ func (c *ConsulKV) GetID() string {
 }
 
 func (c *ConsulKV) GetBackendList() []*backend.Backend {
-	return misc.MapValues(c.backends)
+	return c.backends.GetList()
 }
 
 func (c *ConsulKV) Bind(modules module.ModulesList) {
