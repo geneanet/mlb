@@ -261,7 +261,7 @@ type MySQLCheck struct {
 	max_period     time.Duration
 	backoff_factor float64
 	status_chan    chan *backend.Backend
-	ticker         *time.Ticker
+	ticker         *misc.ExponentialBackoffTicker
 	stop_chan      chan bool
 	running        bool
 	db             *sql.DB
@@ -291,7 +291,9 @@ func (c *MySQLCheck) fetchStatus() (ret_status cty.Value, ret_readonly cty.Value
 			ret_readonly = cty.BoolVal(false)
 			ret_err = misc.EnsureError(r)
 
-			c.applyBackoff()
+			if period, updated := c.ticker.ApplyBackoff(); updated {
+				log.Warn().Str("address", c.backend.Address).Dur("period", period).Msg("Updating fetch period")
+			}
 		}
 	}()
 
@@ -307,7 +309,9 @@ func (c *MySQLCheck) fetchStatus() (ret_status cty.Value, ret_readonly cty.Value
 	err = result.Scan(&read_only)
 	misc.PanicIfErr(err)
 
-	c.resetPeriod()
+	if period, updated := c.ticker.Reset(); updated {
+		log.Warn().Str("address", c.backend.Address).Dur("period", period).Msg("Updating fetch period")
+	}
 
 	return cty.StringVal("ok"), cty.BoolVal(read_only), nil
 }
@@ -359,8 +363,7 @@ func (c *MySQLCheck) StartPolling() error {
 	}
 	c.db = db
 
-	c.period = c.default_period
-	c.ticker = time.NewTicker(c.period)
+	c.ticker = misc.NewExponentialBackoffTicker(c.default_period, c.max_period, c.backoff_factor)
 
 	go func() {
 		defer func() { c.running = false }()
@@ -388,25 +391,4 @@ func (c *MySQLCheck) StopPolling() {
 	c.db.Close()
 	c.ticker.Stop()
 	c.stop_chan <- true
-}
-
-func (c *MySQLCheck) updatePeriod(period time.Duration) {
-	if c.running && (c.period != period) {
-		c.period = period
-		c.ticker.Reset(c.period)
-
-		log.Warn().Dur("period", c.period).Str("address", c.backend.Address).Msg("Updating Backend probing period")
-	}
-}
-
-func (c *MySQLCheck) resetPeriod() {
-	c.updatePeriod(c.default_period)
-}
-
-func (c *MySQLCheck) applyBackoff() {
-	new_period := time.Duration(float64(c.period) * c.backoff_factor)
-	if new_period > c.max_period {
-		new_period = c.max_period
-	}
-	c.updatePeriod(new_period)
 }

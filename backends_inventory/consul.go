@@ -49,12 +49,8 @@ type BackendsInventoryConsul struct {
 	id             string
 	url            string
 	service        string
-	period         time.Duration
-	default_period time.Duration
-	max_period     time.Duration
-	backoff_factor float64
 	index          string
-	ticker         *time.Ticker
+	ticker         *misc.ExponentialBackoffTicker
 	ctx            context.Context
 	cancel         context.CancelFunc
 	subscribers    []chan backend.BackendUpdate
@@ -99,22 +95,20 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 	config := w.parseConfig(tc)
 
 	c := &BackendsInventoryConsul{
-		id:             config.ID,
-		url:            config.URL,
-		service:        config.Service,
-		backoff_factor: config.BackoffFactor,
-		subscribers:    make([]chan backend.BackendUpdate, 0),
-		backends:       backend.NewBackendsMap(),
-		log:            log.With().Str("id", config.ID).Logger(),
+		id:          config.ID,
+		url:         config.URL,
+		service:     config.Service,
+		subscribers: make([]chan backend.BackendUpdate, 0),
+		backends:    backend.NewBackendsMap(),
+		log:         log.With().Str("id", config.ID).Logger(),
 	}
 
 	var err error
 
-	c.default_period, err = time.ParseDuration(config.Period)
+	default_period, err := time.ParseDuration(config.Period)
 	misc.PanicIfErr(err)
-	c.period = c.default_period
 
-	c.max_period, err = time.ParseDuration(config.MaxPeriod)
+	max_period, err := time.ParseDuration(config.MaxPeriod)
 	misc.PanicIfErr(err)
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
@@ -122,7 +116,7 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 	wg.Add(1)
 	c.log.Info().Str("url", c.url).Msg("Polling Consul")
 
-	c.ticker = time.NewTicker(c.period)
+	c.ticker = misc.NewExponentialBackoffTicker(default_period, max_period, config.BackoffFactor)
 
 	go func() {
 		defer wg.Done()
@@ -139,9 +133,13 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 				return
 			} else if err != nil {
 				c.log.Error().Err(err).Msg("Error while fetching service list from Consul")
-				c.applyBackoff()
+				if period, updated := c.ticker.ApplyBackoff(); updated {
+					c.log.Warn().Dur("period", period).Msg("Updating fetch period")
+				}
 			} else {
-				c.resetPeriod()
+				if period, updated := c.ticker.Reset(); updated {
+					c.log.Warn().Dur("period", period).Msg("Updating fetch period")
+				}
 
 				added, modified, removed := consulServicesDiff(old, services)
 
@@ -226,26 +224,6 @@ func (c *BackendsInventoryConsul) sendUpdate(m backend.BackendUpdate) {
 	for _, s := range c.subscribers {
 		s <- m
 	}
-}
-
-func (c *BackendsInventoryConsul) updatePeriod(period time.Duration) {
-	if c.period != period {
-		c.period = period
-		c.ticker.Reset(c.period)
-		c.log.Warn().Dur("period", c.period).Msg("Updating Consul fetch period")
-	}
-}
-
-func (c *BackendsInventoryConsul) resetPeriod() {
-	c.updatePeriod(c.default_period)
-}
-
-func (c *BackendsInventoryConsul) applyBackoff() {
-	new_period := time.Duration(float64(c.period) * c.backoff_factor)
-	if new_period > c.max_period {
-		new_period = c.max_period
-	}
-	c.updatePeriod(new_period)
 }
 
 func (c *BackendsInventoryConsul) fetch() (ret_s consulServicesSlice, ret_e error) {

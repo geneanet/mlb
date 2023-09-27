@@ -262,20 +262,16 @@ type consulKVWatcherMessage struct {
 }
 
 type consulKVWatcher struct {
-	backend        *backend.Backend
-	id             string
-	url            string
-	key            string
-	period         time.Duration
-	default_period time.Duration
-	max_period     time.Duration
-	backoff_factor float64
-	channel        chan *consulKVWatcherMessage
-	ctx            context.Context
-	cancel         context.CancelFunc
-	ticker         *time.Ticker
-	log            zerolog.Logger
-	index          string
+	backend *backend.Backend
+	id      string
+	url     string
+	key     string
+	channel chan *consulKVWatcherMessage
+	ctx     context.Context
+	cancel  context.CancelFunc
+	ticker  *misc.ExponentialBackoffTicker
+	log     zerolog.Logger
+	index   string
 }
 
 type consulKVValue struct {
@@ -285,23 +281,19 @@ type consulKVValue struct {
 
 func newConsulKVWatcher(backend *backend.Backend, id string, url string, key string, default_period time.Duration, max_period time.Duration, backoff_factor float64, channel chan *consulKVWatcherMessage, ctx context.Context, log zerolog.Logger) *consulKVWatcher {
 	w := &consulKVWatcher{
-		backend:        backend,
-		id:             id,
-		url:            url,
-		key:            key,
-		period:         default_period,
-		default_period: default_period,
-		max_period:     max_period,
-		backoff_factor: backoff_factor,
-		channel:        channel,
-		log:            log.With().Str("backend", backend.Address).Str("key", key).Logger(),
+		backend: backend,
+		id:      id,
+		url:     url,
+		key:     key,
+		channel: channel,
+		log:     log.With().Str("backend", backend.Address).Str("key", key).Logger(),
 	}
 
 	w.ctx, w.cancel = context.WithCancel(ctx)
 
 	w.log.Info().Msg("Polling Consul")
 
-	w.ticker = time.NewTicker(w.period)
+	w.ticker = misc.NewExponentialBackoffTicker(default_period, max_period, backoff_factor)
 
 	go func() {
 		defer w.log.Info().Msg("Consul polling stopped")
@@ -317,9 +309,13 @@ func newConsulKVWatcher(backend *backend.Backend, id string, url string, key str
 				return
 			} else if err != nil {
 				w.log.Error().Err(err).Msg("Error while fetching data")
-				w.applyBackoff()
+				if period, updated := w.ticker.ApplyBackoff(); updated {
+					w.log.Warn().Dur("period", period).Msg("Updating fetch period")
+				}
 			} else {
-				w.resetPeriod()
+				if period, updated := w.ticker.Reset(); updated {
+					w.log.Warn().Dur("period", period).Msg("Updating fetch period")
+				}
 
 				// Value has changed
 				if cty.UnknownAsNull(old_value).Equals(cty.UnknownAsNull(value)).False() {
@@ -346,26 +342,6 @@ func newConsulKVWatcher(backend *backend.Backend, id string, url string, key str
 	}()
 
 	return w
-}
-
-func (w *consulKVWatcher) resetPeriod() {
-	w.updatePeriod(w.default_period)
-}
-
-func (w *consulKVWatcher) applyBackoff() {
-	new_period := time.Duration(float64(w.period) * w.backoff_factor)
-	if new_period > w.max_period {
-		new_period = w.max_period
-	}
-	w.updatePeriod(new_period)
-}
-
-func (w *consulKVWatcher) updatePeriod(period time.Duration) {
-	if w.period != period {
-		w.period = period
-		w.ticker.Reset(w.period)
-		w.log.Warn().Dur("period", w.period).Msg("Updating Consul fetch period")
-	}
 }
 
 func (w *consulKVWatcher) fetch() (ret_v cty.Value, ret_e error) {
