@@ -3,7 +3,6 @@ package proxy
 import (
 	"bytes"
 	"fmt"
-	"mlb/misc"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -44,19 +43,7 @@ func (q RedisQuery) Reply(item []byte) (e error) {
 }
 
 func (q RedisQuery) Abort() (e error) {
-	// Error handler
-	defer func() {
-		if r := recover(); r != nil {
-			e = misc.EnsureError(r)
-		}
-	}()
-
-	q.response_chan <- RedisReponse{
-		query: q,
-		item:  nil,
-	}
-
-	return nil
+	return q.Reply(nil)
 }
 
 func (q RedisQuery) IsRestricted() (bool, string) {
