@@ -291,8 +291,9 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 	go p.pipe(conn_back, conn_front, done_back_front, p.server_timeout, p.client_timeout, &bytes_out)
 
 	statsTicker := time.NewTicker(1 * time.Second)
+	defer statsTicker.Stop()
 
-	// Wait for one pipe to end or the context to be cancelled + ricker every second for stats
+	// Wait for one pipe to end or the context to be cancelled + ticker every second for stats
 	break_loop := false
 	for {
 		select {
@@ -316,8 +317,6 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 			break
 		}
 	}
-
-	statsTicker.Stop()
 
 	// Ensure both ends are closed so both pipes will exit
 	conn_front.Close()

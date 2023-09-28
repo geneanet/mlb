@@ -308,10 +308,10 @@ func newConsulKVWatcher(backend *backend.Backend, id string, url string, key str
 	go func() {
 		defer w.log.Info().Msg("Consul polling stopped")
 		defer w.cancel()
+		defer w.ticker.Stop()
 
 		old_value := cty.UnknownVal(cty.String)
 
-	mainloop:
 		for {
 			value, err := w.fetch()
 
@@ -344,8 +344,7 @@ func newConsulKVWatcher(backend *backend.Backend, id string, url string, key str
 			select {
 			case <-w.ticker.C: // Wait next iteration
 			case <-w.ctx.Done(): // Context cancelled
-				w.ticker.Stop()
-				break mainloop
+				return
 			}
 		}
 

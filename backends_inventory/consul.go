@@ -122,10 +122,10 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 		defer wg.Done()
 		defer c.log.Info().Str("url", c.url).Msg("Consul polling stopped")
 		defer c.cancel()
+		defer c.ticker.Stop()
 
 		var old consulServicesSlice
 
-	mainloop:
 		for {
 			services, err := c.fetch()
 
@@ -194,8 +194,7 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 			select {
 			case <-c.ticker.C: // Wait next iteration
 			case <-c.ctx.Done(): // Context cancelled
-				c.ticker.Stop()
-				break mainloop
+				return
 			}
 		}
 	}()

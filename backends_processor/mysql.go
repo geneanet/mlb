@@ -128,10 +128,10 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 		defer c.log.Info().Msg("MySQL checker stopped")
 		defer c.cancel()
 		defer close(c.upd_chan_stop)
+		defer c.stopChecks()
 
 		status_chan := make(chan *backend.Backend)
 
-	mainloop:
 		for {
 			select {
 			case b := <-status_chan: // Backend status changed
@@ -191,17 +191,19 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 				c.checks_mutex.Unlock()
 
 			case <-c.ctx.Done(): // Context cancelled
-				// Stop backends
-				for _, backend := range c.checks {
-					backend.StopPolling()
-				}
-				break mainloop
+				return
 			}
-
 		}
 	}()
 
 	return c
+}
+
+func (c *MySQLChecker) stopChecks() {
+	// Stop backend checks
+	for _, backend := range c.checks {
+		backend.StopPolling()
+	}
 }
 
 func (c *MySQLChecker) ProvideUpdates(s backend.BackendUpdateSubscriber) {
