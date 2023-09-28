@@ -19,11 +19,12 @@ func init() {
 
 type SimpleFilter struct {
 	id             string
-	subscribers    []chan backend.BackendUpdate
+	subscribers    []backend.BackendUpdateSubscriber
 	backends       *backend.BackendsMap
 	backends_mutex sync.RWMutex
 	log            zerolog.Logger
 	upd_chan       chan backend.BackendUpdate
+	upd_chan_stop  chan struct{}
 	source         string
 	condition      hcl.Expression
 	evalCtx        *hcl.EvalContext
@@ -53,14 +54,15 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 	config := w.parseConfig(tc)
 
 	f := &SimpleFilter{
-		id:          config.ID,
-		subscribers: []chan backend.BackendUpdate{},
-		backends:    backend.NewBackendsMap(),
-		log:         log.With().Str("id", config.ID).Logger(),
-		upd_chan:    make(chan backend.BackendUpdate),
-		source:      config.Source,
-		condition:   config.Condition,
-		evalCtx:     tc.ctx,
+		id:            config.ID,
+		subscribers:   []backend.BackendUpdateSubscriber{},
+		backends:      backend.NewBackendsMap(),
+		log:           log.With().Str("id", config.ID).Logger(),
+		upd_chan:      make(chan backend.BackendUpdate),
+		upd_chan_stop: make(chan struct{}),
+		source:        config.Source,
+		condition:     config.Condition,
+		evalCtx:       tc.ctx,
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -72,7 +74,7 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 		defer wg.Done()
 		defer f.log.Info().Msg("Filter stopped")
 		defer cancel()
-		defer close(f.upd_chan)
+		defer close(f.upd_chan_stop)
 
 	mainloop:
 		for {
@@ -126,8 +128,8 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 	return f
 }
 
-func (f *SimpleFilter) ProvideUpdates(ch chan backend.BackendUpdate) {
-	f.subscribers = append(f.subscribers, ch)
+func (f *SimpleFilter) ProvideUpdates(s backend.BackendUpdateSubscriber) {
+	f.subscribers = append(f.subscribers, s)
 
 	go func() {
 		f.backends_mutex.RLock()
@@ -143,9 +145,9 @@ func (f *SimpleFilter) ProvideUpdates(ch chan backend.BackendUpdate) {
 	}()
 }
 
-func (f *SimpleFilter) sendUpdate(m backend.BackendUpdate) {
+func (f *SimpleFilter) sendUpdate(u backend.BackendUpdate) {
 	for _, s := range f.subscribers {
-		s <- m
+		s.ReceiveUpdate(u)
 	}
 }
 
@@ -159,8 +161,15 @@ func (f *SimpleFilter) matchFilter(b *backend.Backend) bool {
 	return known && condition
 }
 
+func (f *SimpleFilter) ReceiveUpdate(upd backend.BackendUpdate) {
+	select {
+	case f.upd_chan <- upd:
+	case <-f.upd_chan_stop:
+	}
+}
+
 func (f *SimpleFilter) SubscribeTo(bup backend.BackendUpdateProvider) {
-	bup.ProvideUpdates(f.upd_chan)
+	bup.ProvideUpdates(f)
 }
 
 func (f *SimpleFilter) GetUpdateSource() string {

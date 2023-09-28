@@ -31,6 +31,7 @@ type WRRBalancer struct {
 	mu            sync.RWMutex
 	log           zerolog.Logger
 	upd_chan      chan backend.BackendUpdate
+	upd_chan_stop chan struct{}
 	source        string
 	evalCtx       *hcl.EvalContext
 	ctx           context.Context
@@ -72,6 +73,7 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 		weightedlist:  make([]string, 0),
 		log:           log.With().Str("id", config.ID).Logger(),
 		upd_chan:      make(chan backend.BackendUpdate),
+		upd_chan_stop: make(chan struct{}),
 		source:        config.Source,
 		evalCtx:       tc.ctx,
 		wait_backends: semaphore.NewWeighted(1),
@@ -91,7 +93,7 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 		defer wg.Done()
 		defer b.log.Info().Msg("WRR Balancer stopped")
 		defer b.ctx_cancel()
-		defer close(b.upd_chan)
+		defer close(b.upd_chan_stop)
 
 		b.log.Debug().Msg("No backends in the list, acquiring the lock")
 		b.wait_backends.Acquire(b.ctx, 1)
@@ -182,8 +184,15 @@ func (b *WRRBalancer) GetBackend(wait bool) *backend.Backend {
 	}
 }
 
+func (b *WRRBalancer) ReceiveUpdate(upd backend.BackendUpdate) {
+	select {
+	case b.upd_chan <- upd:
+	case <-b.upd_chan_stop:
+	}
+}
+
 func (b *WRRBalancer) SubscribeTo(bup backend.BackendUpdateProvider) {
-	bup.ProvideUpdates(b.upd_chan)
+	bup.ProvideUpdates(b)
 }
 
 func (b *WRRBalancer) GetUpdateSource() string {

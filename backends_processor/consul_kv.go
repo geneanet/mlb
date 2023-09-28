@@ -34,11 +34,12 @@ type ConsulKV struct {
 	backends       *backend.BackendsMap
 	backends_mutex sync.RWMutex
 	default_values map[string]cty.Value
-	subscribers    []chan backend.BackendUpdate
+	subscribers    []backend.BackendUpdateSubscriber
 	ctx            context.Context
 	cancel         context.CancelFunc
 	log            zerolog.Logger
 	upd_chan       chan backend.BackendUpdate
+	upd_chan_stop  chan struct{}
 	source         string
 	evalCtx        *hcl.EvalContext
 	watchers       map[string][]*consulKVWatcher
@@ -92,9 +93,11 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 		backoff_factor: config.BackoffFactor,
 		log:            log.With().Str("id", config.ID).Logger(),
 		upd_chan:       make(chan backend.BackendUpdate),
+		upd_chan_stop:  make(chan struct{}),
 		source:         config.Source,
 		backends:       backend.NewBackendsMap(),
 		default_values: make(map[string]cty.Value),
+		subscribers:    []backend.BackendUpdateSubscriber{},
 		evalCtx:        tc.ctx,
 		watchers:       make(map[string][]*consulKVWatcher),
 	}
@@ -120,7 +123,7 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 		defer wg.Done()
 		defer c.log.Info().Msg("Consul KV watcher stopped")
 		defer c.cancel()
-		defer close(c.upd_chan)
+		defer close(c.upd_chan_stop)
 
 		watcher_chan := make(chan *consulKVWatcherMessage)
 
@@ -210,8 +213,8 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 	return c
 }
 
-func (c *ConsulKV) ProvideUpdates(ch chan backend.BackendUpdate) {
-	c.subscribers = append(c.subscribers, ch)
+func (c *ConsulKV) ProvideUpdates(s backend.BackendUpdateSubscriber) {
+	c.subscribers = append(c.subscribers, s)
 
 	go func() {
 		c.backends_mutex.RLock()
@@ -227,14 +230,21 @@ func (c *ConsulKV) ProvideUpdates(ch chan backend.BackendUpdate) {
 	}()
 }
 
-func (c *ConsulKV) sendUpdate(m backend.BackendUpdate) {
+func (c *ConsulKV) sendUpdate(u backend.BackendUpdate) {
 	for _, s := range c.subscribers {
-		s <- m
+		s.ReceiveUpdate(u)
+	}
+}
+
+func (c *ConsulKV) ReceiveUpdate(upd backend.BackendUpdate) {
+	select {
+	case c.upd_chan <- upd:
+	case <-c.upd_chan_stop:
 	}
 }
 
 func (c *ConsulKV) SubscribeTo(bup backend.BackendUpdateProvider) {
-	bup.ProvideUpdates(c.upd_chan)
+	bup.ProvideUpdates(c)
 }
 
 func (c *ConsulKV) GetUpdateSource() string {

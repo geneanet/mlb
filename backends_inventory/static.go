@@ -22,7 +22,7 @@ type BackendsInventoryStatic struct {
 	id          string
 	ctx         context.Context
 	cancel      context.CancelFunc
-	subscribers []chan backend.BackendUpdate
+	subscribers []backend.BackendUpdateSubscriber
 	backends    *backend.BackendsMap
 	log         zerolog.Logger
 }
@@ -51,7 +51,7 @@ func (w staticBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 
 	c := &BackendsInventoryStatic{
 		id:          config.ID,
-		subscribers: make([]chan backend.BackendUpdate, 0),
+		subscribers: []backend.BackendUpdateSubscriber{},
 		backends:    backend.NewBackendsMap(),
 		log:         log.With().Str("id", config.ID).Logger(),
 	}
@@ -68,8 +68,8 @@ func (w staticBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 	return c
 }
 
-func (c *BackendsInventoryStatic) ProvideUpdates(ch chan backend.BackendUpdate) {
-	c.subscribers = append(c.subscribers, ch)
+func (c *BackendsInventoryStatic) ProvideUpdates(s backend.BackendUpdateSubscriber) {
+	c.subscribers = append(c.subscribers, s)
 
 	go func() {
 		for _, b := range c.backends.GetList() {
@@ -82,9 +82,9 @@ func (c *BackendsInventoryStatic) ProvideUpdates(ch chan backend.BackendUpdate) 
 	}()
 }
 
-func (c *BackendsInventoryStatic) sendUpdate(m backend.BackendUpdate) {
+func (c *BackendsInventoryStatic) sendUpdate(u backend.BackendUpdate) {
 	for _, s := range c.subscribers {
-		s <- m
+		s.ReceiveUpdate(u)
 	}
 }
 

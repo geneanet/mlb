@@ -53,7 +53,7 @@ type BackendsInventoryConsul struct {
 	ticker         *misc.ExponentialBackoffTicker
 	ctx            context.Context
 	cancel         context.CancelFunc
-	subscribers    []chan backend.BackendUpdate
+	subscribers    []backend.BackendUpdateSubscriber
 	backends       *backend.BackendsMap
 	backends_mutex sync.RWMutex
 	log            zerolog.Logger
@@ -98,7 +98,7 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 		id:          config.ID,
 		url:         config.URL,
 		service:     config.Service,
-		subscribers: make([]chan backend.BackendUpdate, 0),
+		subscribers: []backend.BackendUpdateSubscriber{},
 		backends:    backend.NewBackendsMap(),
 		log:         log.With().Str("id", config.ID).Logger(),
 	}
@@ -203,8 +203,8 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 	return c
 }
 
-func (c *BackendsInventoryConsul) ProvideUpdates(ch chan backend.BackendUpdate) {
-	c.subscribers = append(c.subscribers, ch)
+func (c *BackendsInventoryConsul) ProvideUpdates(s backend.BackendUpdateSubscriber) {
+	c.subscribers = append(c.subscribers, s)
 
 	go func() {
 		c.backends_mutex.RLock()
@@ -220,9 +220,9 @@ func (c *BackendsInventoryConsul) ProvideUpdates(ch chan backend.BackendUpdate) 
 	}()
 }
 
-func (c *BackendsInventoryConsul) sendUpdate(m backend.BackendUpdate) {
+func (c *BackendsInventoryConsul) sendUpdate(u backend.BackendUpdate) {
 	for _, s := range c.subscribers {
-		s <- m
+		s.ReceiveUpdate(u)
 	}
 }
 

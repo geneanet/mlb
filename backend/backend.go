@@ -165,12 +165,13 @@ const (
 
 // Interfaces
 type BackendUpdateProvider interface {
-	ProvideUpdates(chan BackendUpdate)
+	ProvideUpdates(BackendUpdateSubscriber)
 }
 
 type BackendUpdateSubscriber interface {
 	SubscribeTo(BackendUpdateProvider)
 	GetUpdateSource() string
+	ReceiveUpdate(BackendUpdate)
 }
 
 type BackendProvider interface {
