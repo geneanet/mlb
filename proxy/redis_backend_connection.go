@@ -107,7 +107,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 		reader := bufio.NewReaderSize(rbc.conn, rbc.pool.proxy.buffer_size)
 
 		for {
-			item, err := redisReadItem(reader)
+			item, err := redisReadItem(reader, false)
 			if err == io.EOF || errors.Is(err, net.ErrClosed) || item == nil {
 				rbc.cancel()
 				return

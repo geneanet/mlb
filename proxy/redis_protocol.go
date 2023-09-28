@@ -30,7 +30,7 @@ func redisReadFullLine(reader *bufio.Reader) ([]byte, error) {
 	}
 }
 
-func redisReadItem(reader *bufio.Reader) ([]byte, error) {
+func redisReadItem(reader *bufio.Reader, allow_inline bool) ([]byte, error) {
 	data, err := redisReadFullLine(reader)
 
 	if err != nil || len(data) == 0 {
@@ -45,7 +45,7 @@ func redisReadItem(reader *bufio.Reader) ([]byte, error) {
 		if data[0] == '$' && data[1] == '?' { // Streamed string
 			fullData := bytes.NewBuffer(data)
 			for {
-				item, err := redisReadItem(reader)
+				item, err := redisReadItem(reader, false)
 				if err != nil {
 					return nil, err
 				}
@@ -89,7 +89,7 @@ func redisReadItem(reader *bufio.Reader) ([]byte, error) {
 		if data[0] != '>' && data[1] == '?' { // Streamed
 			fullData := bytes.NewBuffer(data)
 			for {
-				item, err := redisReadItem(reader)
+				item, err := redisReadItem(reader, false)
 				if err != nil {
 					return nil, err
 				}
@@ -116,7 +116,7 @@ func redisReadItem(reader *bufio.Reader) ([]byte, error) {
 
 			fullData := bytes.NewBuffer(data)
 			for i := 0; i < size; i++ {
-				item, err := redisReadItem(reader)
+				item, err := redisReadItem(reader, false)
 				if err != nil {
 					return nil, err
 				}
@@ -125,6 +125,20 @@ func redisReadItem(reader *bufio.Reader) ([]byte, error) {
 			return fullData.Bytes(), nil
 		}
 	default:
-		return nil, fmt.Errorf("RESP3 protocol violation: unsupported item type \"%s\"", string(data[0]))
+		if allow_inline {
+			// Convert inline command to RESP
+			converted := bytes.Buffer{}
+			items := bytes.Split(data[0:len(data)-2], []byte(" "))
+			converted.WriteString(fmt.Sprintf("*%d\r\n", len(items)))
+			for i := range items {
+				converted.WriteString(fmt.Sprintf("$%d\r\n", len(items[i])))
+				converted.Write(items[i])
+				converted.WriteString("\r\n")
+			}
+			return converted.Bytes(), nil
+		} else {
+			// Protocol error
+			return nil, fmt.Errorf("RESP3 protocol violation: unsupported item type \"%s\"", string(data[0]))
+		}
 	}
 }

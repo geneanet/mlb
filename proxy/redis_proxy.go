@@ -313,7 +313,7 @@ func (p *RedisProxy) handle_connection(conn_front net.Conn) {
 	front_reader := bufio.NewReaderSize(conn_front, p.buffer_size)
 
 	for {
-		item, err := redisReadItem(front_reader)
+		item, err := redisReadItem(front_reader, true)
 		if err == io.EOF || errors.Is(err, net.ErrClosed) {
 			return
 		}
