@@ -57,6 +57,7 @@ func (q RedisQuery) IsRestricted() (bool, string) {
 		"watch", "unwatch", "multi", "exec", "discard", // MULTI
 		"brpoplpush", "blpop", "brpop", "bzpopmin", "bzpopmax", "xread", "xreadgroup", "wait", "waitaof", // BLOCKING
 		"subscribe", "unsubscribe", "psubscribe", "punsubscribe", "ssubscribe", "sunsubscribe", "publish", "spublish", "pubsub", // PUBSUB
+		"monitor", // MISC
 	}
 
 	for _, restrictedCommand := range restrictedCommands {
