@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"strconv"
-	"strings"
 	"sync/atomic"
 )
 
@@ -46,46 +45,60 @@ func (q RedisQuery) Abort() (e error) {
 	return q.Reply(nil)
 }
 
-func (q RedisQuery) IsRestricted() (bool, string) {
+func (q RedisQuery) IsAllowed() bool {
 	command, err := q.GetCommand()
 
 	if err != nil {
-		return false, ""
+		return false
 	}
 
-	restrictedCommands := [...]string{
-		"watch", "unwatch", "multi", "exec", "discard", // MULTI
-		"brpoplpush", "blpop", "brpop", "bzpopmin", "bzpopmax", "xread", "xreadgroup", "wait", "waitaof", // BLOCKING
-		"subscribe", "unsubscribe", "psubscribe", "punsubscribe", "ssubscribe", "sunsubscribe", "publish", "spublish", "pubsub", // PUBSUB
-		"monitor", // MISC
+	restrictedCommands := [...][]byte{
+		[]byte("watch"), []byte("unwatch"), []byte("multi"), []byte("exec"), []byte("discard"), // MULTI
+		[]byte("brpoplpush"), []byte("blpop"), []byte("brpop"), []byte("bzpopmin"), []byte("bzpopmax"), []byte("xread"), []byte("xreadgroup"), []byte("wait"), []byte("waitaof"), // BLOCKING
+		[]byte("subscribe"), []byte("unsubscribe"), []byte("psubscribe"), []byte("punsubscribe"), []byte("ssubscribe"), []byte("sunsubscribe"), []byte("publish"), []byte("spublish"), []byte("pubsub"), // PUBSUB
+		[]byte("monitor"), // MISC
 	}
 
 	for _, restrictedCommand := range restrictedCommands {
-		if len(command) == len(restrictedCommand) && strings.EqualFold(command, restrictedCommand) {
-			return false, command
+		if len(command) == len(restrictedCommand) && bytes.EqualFold(command, restrictedCommand) {
+			return false
 		}
 	}
 
-	return true, command
+	return true
 }
 
-func (q RedisQuery) GetCommand() (string, error) {
-	i := bytes.IndexByte(q.item, '$')
-	if i == -1 {
-		return "", fmt.Errorf("bulk string start not found")
-	}
+func (q RedisQuery) GetCommand() ([]byte, error) {
+	if len(q.item) >= 3 { // Minimum 1 character + \r\n
+		if q.item[0] == '@' { // Array
+			i := bytes.IndexByte(q.item, '$')
+			if i == -1 {
+				return []byte{}, fmt.Errorf("bulk string start not found")
+			}
 
-	j := bytes.IndexByte(q.item[i:], '\r')
-	if j == -1 {
-		return "", fmt.Errorf("bulk string end not found")
-	}
+			j := bytes.IndexByte(q.item[i:], '\r')
+			if j == -1 {
+				return []byte{}, fmt.Errorf("bulk string end not found")
+			}
 
-	size, err := strconv.Atoi(string(q.item[i+1 : i+j]))
-	if err != nil {
-		return "", fmt.Errorf("unable to parse bulk string size: %v", err)
-	}
+			size, err := strconv.Atoi(string(q.item[i+1 : i+j]))
+			if err != nil {
+				return []byte{}, fmt.Errorf("unable to parse bulk string size: %v", err)
+			}
 
-	return string(q.item[i+j+2 : i+j+2+size]), nil
+			return q.item[i+j+2 : i+j+2+size], nil
+
+		} else { // Inline query
+			space := bytes.IndexByte(q.item, ' ')
+			if space == -1 {
+				return q.item[:len(q.item)-2], nil
+			} else {
+				return q.item[:space], nil
+			}
+		}
+	} else {
+		return []byte{}, fmt.Errorf("invalid command")
+	}
 }
 
 //---------------

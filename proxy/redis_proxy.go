@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -310,10 +309,10 @@ func (p *RedisProxy) handle_connection(conn_front net.Conn) {
 	}()
 
 	// Read queries
-	front_reader := bufio.NewReaderSize(conn_front, p.buffer_size)
+	front_reader := NewRedisProtocolReader(conn_front, p.buffer_size)
 
 	for {
-		item, err := redisReadItem(front_reader, true)
+		item, err := front_reader.ReadMessage(true)
 		if err == io.EOF || errors.Is(err, net.ErrClosed) {
 			return
 		}
@@ -322,7 +321,7 @@ func (p *RedisProxy) handle_connection(conn_front net.Conn) {
 		query := NewRedisQuery(item, response_chan, response_chan_stop)
 		p.log.Debug().Uint64("query_id", query.id).Msg("Received query")
 
-		if allowed, _ := query.IsRestricted(); allowed {
+		if query.IsAllowed() {
 			// Add the query to the queue
 			err := backendConnection.Query(query)
 

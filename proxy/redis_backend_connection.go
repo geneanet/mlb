@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -104,10 +103,10 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 
 	// Read backend responses and send them to the client
 	go func() {
-		reader := bufio.NewReaderSize(rbc.conn, rbc.pool.proxy.buffer_size)
+		reader := NewRedisProtocolReader(rbc.conn, rbc.pool.proxy.buffer_size)
 
 		for {
-			item, err := redisReadItem(reader, false)
+			item, err := reader.ReadMessage(false)
 			if err == io.EOF || errors.Is(err, net.ErrClosed) || item == nil {
 				rbc.cancel()
 				return
