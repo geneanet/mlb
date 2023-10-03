@@ -91,7 +91,7 @@ func (f RedisProxyFactory) parseConfig(tc *Config) *RedisProxyConfig {
 		config.BufferSize = 16384
 	}
 	if config.ClientQueueSize == 0 {
-		config.ClientQueueSize = 512
+		config.ClientQueueSize = 64
 	}
 	if config.BackendInflightQueueSize == 0 {
 		config.BackendInflightQueueSize = 512
