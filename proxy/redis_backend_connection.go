@@ -89,12 +89,14 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 			case query := <-rbc.input_chan:
 				rbc.in_flight <- query
 				_, err := rbc.conn.Write(query.item)
-				if err == io.EOF || errors.Is(err, net.ErrClosed) {
+				if err != nil {
+					if err != io.EOF && !errors.Is(err, net.ErrClosed) {
+						rbc.pool.proxy.log.Error().Str("peer", rbc.backend.Address).Err(err).Msg("Unexpected error while sending query to the backend")
+					}
 					rbc.cancel()
 					rbc.AbortInflightQueries() // Extra call to AbortInflightQueries in case the query we were processing has not been aborted by the "cleanup" goroutine
 					return
 				}
-				misc.PanicIfErr(err)
 			case <-rbc.ctx.Done():
 				return
 			}
@@ -107,11 +109,13 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 
 		for {
 			item, err := reader.ReadMessage(false)
-			if err == io.EOF || errors.Is(err, net.ErrClosed) || item == nil {
+			if err != nil {
+				if err != io.EOF && !errors.Is(err, net.ErrClosed) {
+					rbc.pool.proxy.log.Error().Str("peer", rbc.backend.Address).Err(err).Msg("Unexpected error while reading from the backend")
+				}
 				rbc.cancel()
 				return
 			}
-			misc.PanicIfErr(err)
 			query := <-rbc.in_flight
 
 			query.Reply(item)
