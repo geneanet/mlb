@@ -120,7 +120,14 @@ func (rbcp *RedisBackendConnectionPool) Update() {
 				break
 			}
 			rbcp.proxy.log.Warn().Msg("Unable to find a new backend")
-			backoff.Sleep()
+			backoff.Sleep(rbcp.ctx)
+
+			// Exit if the context is cancelled
+			select {
+			case <-rbcp.ctx.Done():
+				return
+			default:
+			}
 		}
 		backoff.Reset()
 
@@ -128,9 +135,16 @@ func (rbcp *RedisBackendConnectionPool) Update() {
 		rbc, err := NewRedisBackendConnection(rbcp, backend)
 		if err != nil {
 			rbcp.proxy.log.Warn().Err(err).Str("peer", backend.Address).Msg("Unable to connect to backend")
-			backoff.Sleep()
+			backoff.Sleep(rbcp.ctx)
 		} else {
 			rbcp.pool[rbc] = struct{}{}
+		}
+
+		// Exit if the context is cancelled
+		select {
+		case <-rbcp.ctx.Done():
+			return
+		default:
 		}
 	}
 

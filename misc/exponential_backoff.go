@@ -1,6 +1,9 @@
 package misc
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 type ExponentialBackoff struct {
 	default_duration time.Duration
@@ -38,6 +41,10 @@ func (eb *ExponentialBackoff) Get() time.Duration {
 }
 
 // Sleep for the current duration and increase it for the next use
-func (eb *ExponentialBackoff) Sleep() {
-	time.Sleep(eb.Get())
+func (eb *ExponentialBackoff) Sleep(ctx context.Context) {
+	timer := time.NewTimer(eb.Get())
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+	}
 }
