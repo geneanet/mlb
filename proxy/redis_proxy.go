@@ -261,15 +261,6 @@ func (p *RedisProxy) handle_connection(conn_front net.Conn) {
 		}
 	}()
 
-	// Set TCPNoDelay
-	err := conn_front.(*net.TCPConn).SetNoDelay(true)
-	misc.PanicIfErr(err)
-
-	// Prometheus
-	metrics.FeCnxProcessed.WithLabelValues(frontend_address, p.id).Inc()
-	metrics.FeActCnx.WithLabelValues(frontend_address, p.id).Inc()
-	defer metrics.FeActCnx.WithLabelValues(frontend_address, p.id).Dec()
-
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
@@ -278,6 +269,15 @@ func (p *RedisProxy) handle_connection(conn_front net.Conn) {
 			metrics.FeCnxErrors.WithLabelValues(frontend_address, p.id).Inc()
 		}
 	}()
+
+	// Set TCPNoDelay
+	err := conn_front.(*net.TCPConn).SetNoDelay(true)
+	misc.PanicIfErr(err)
+
+	// Prometheus
+	metrics.FeCnxProcessed.WithLabelValues(frontend_address, p.id).Inc()
+	metrics.FeActCnx.WithLabelValues(frontend_address, p.id).Inc()
+	defer metrics.FeActCnx.WithLabelValues(frontend_address, p.id).Dec()
 
 	// Get Backend Connection
 	backendConnection := p.backendConnectionPool.GetRandom(true)
