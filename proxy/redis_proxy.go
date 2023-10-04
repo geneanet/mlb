@@ -167,7 +167,7 @@ func (f RedisProxyFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Conte
 				case backend.UpdBackendRemoved:
 					p.backends.Remove(upd.Address)
 				}
-				p.backendConnectionPool.Update()
+				go p.backendConnectionPool.Update()
 
 			case <-p.ctx.Done(): // Context cancelled
 				break mainloop
