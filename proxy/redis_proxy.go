@@ -296,7 +296,11 @@ func (p *RedisProxy) handle_connection(conn_front net.Conn) {
 				if ok {
 					if response.item != nil {
 						p.log.Debug().Uint64("query_id", response.query.id).Msg("Received valid response")
-						conn_front.Write(response.item)
+						_, err := conn_front.Write(response.item)
+						if err != nil {
+							p.log.Error().Err(err).Str("peer", peer_address).Msg("Unexpected error while writing to client")
+							cancel()
+						}
 					} else {
 						p.log.Debug().Uint64("query_id", response.query.id).Msg("Received failed response")
 						cancel()
@@ -315,8 +319,10 @@ func (p *RedisProxy) handle_connection(conn_front net.Conn) {
 		item, err := front_reader.ReadMessage(true)
 		if err == io.EOF || errors.Is(err, net.ErrClosed) {
 			return
+		} else if err != nil {
+			p.log.Error().Err(err).Str("peer", peer_address).Msg("Unexpected error while reading from the client")
+			cancel()
 		}
-		misc.PanicIfErr(err)
 
 		query := NewRedisQuery(item, response_chan, response_chan_stop)
 		p.log.Debug().Uint64("query_id", query.id).Msg("Received query")
@@ -326,7 +332,7 @@ func (p *RedisProxy) handle_connection(conn_front net.Conn) {
 			err := backendConnection.Query(query)
 
 			if err != nil {
-				p.log.Debug().Uint64("query_id", query.id).Msg("Backend has failed, picking a new one")
+				p.log.Warn().Uint64("query_id", query.id).Msg("Backend has failed, picking a new one")
 				backendConnection = p.backendConnectionPool.GetRandom(true)
 				if backendConnection == nil {
 					panic("No backend found")
