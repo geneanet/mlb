@@ -320,8 +320,7 @@ func (p *RedisProxy) handle_connection(conn_front net.Conn) {
 		if err == io.EOF || errors.Is(err, net.ErrClosed) {
 			return
 		} else if err != nil {
-			p.log.Error().Err(err).Str("peer", peer_address).Msg("Unexpected error while reading from the client")
-			cancel()
+			panic("Unexpected error while reading from the client")
 		}
 
 		query := NewRedisQuery(item, response_chan, response_chan_stop)
