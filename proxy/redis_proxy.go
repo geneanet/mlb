@@ -292,19 +292,17 @@ func (p *RedisProxy) handle_connection(conn_front net.Conn) {
 	go func() {
 		for {
 			select {
-			case response, ok := <-response_chan:
-				if ok {
-					if response.item != nil {
-						p.log.Debug().Uint64("query_id", response.query.id).Msg("Received valid response")
-						_, err := conn_front.Write(response.item)
-						if err != nil {
-							p.log.Error().Err(err).Str("peer", peer_address).Msg("Unexpected error while writing to client")
-							cancel()
-						}
-					} else {
-						p.log.Debug().Uint64("query_id", response.query.id).Msg("Received failed response")
+			case response := <-response_chan:
+				if response.item != nil {
+					p.log.Debug().Uint64("query_id", response.query.id).Msg("Received valid response")
+					_, err := conn_front.Write(response.item)
+					if err != nil {
+						p.log.Error().Err(err).Str("peer", peer_address).Msg("Unexpected error while writing to client")
 						cancel()
 					}
+				} else {
+					p.log.Debug().Uint64("query_id", response.query.id).Msg("Received failed response")
+					cancel()
 				}
 			case <-ctx.Done():
 				return
