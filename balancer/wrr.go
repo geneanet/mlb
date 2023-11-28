@@ -121,18 +121,29 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 						b.weightedlist = append(b.weightedlist, upd.Address)
 					}
 				case backend.UpdBackendModified:
+					var currentweight int = 0
+					for _, addr := range b.weightedlist {
+						if addr == upd.Address {
+							currentweight++
+						}
+					}
+
 					var weight int
 					_, diags := upd.Backend.ResolveExpression(config.Weight, b.evalCtx, &weight)
 					if diags.HasErrors() {
 						b.log.Error().Msg(diags.Error())
 					}
 
-					b.log.Info().Str("address", upd.Address).Int("weight", weight).Msg("Updating backend in WRR balancer")
+					b.log.Debug().Str("address", upd.Address).Msg("Updating backend in WRR balancer")
 					b.backends.Update(upd.Backend.Clone())
 					b.backends.Get(upd.Address).Meta.Set("wrr", "weight", cty.NumberIntVal(int64(weight)))
-					b.weightedlist = slices.DeleteFunc(b.weightedlist, func(a string) bool { return a == upd.Address })
-					for i := 0; i < weight; i++ {
-						b.weightedlist = append(b.weightedlist, upd.Address)
+
+					if weight != currentweight {
+						b.log.Info().Str("address", upd.Address).Int("old_weight", currentweight).Int("new_weight", weight).Msg("Updating backend weight in WRR balancer")
+						b.weightedlist = slices.DeleteFunc(b.weightedlist, func(a string) bool { return a == upd.Address })
+						for i := 0; i < weight; i++ {
+							b.weightedlist = append(b.weightedlist, upd.Address)
+						}
 					}
 				case backend.UpdBackendRemoved:
 					b.log.Info().Str("address", upd.Address).Msg("Removing backend from WRR balancer")
