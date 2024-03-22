@@ -1,4 +1,4 @@
-FROM docker.io/golang:1.21-alpine3.18 AS build
+FROM docker.io/golang:1.22-alpine3.18 AS build
 WORKDIR /usr/local/src
 COPY . .
 RUN go build .
