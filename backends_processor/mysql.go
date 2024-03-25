@@ -279,7 +279,7 @@ type MySQLCheck struct {
 	backoff_factor float64
 	status_chan    chan *backend.Backend
 	ticker         *misc.ExponentialBackoffTicker
-	stop_chan      chan bool
+	stop_chan      chan struct{}
 	running        bool
 	db             *sql.DB
 	check_replica  bool
@@ -294,7 +294,7 @@ func NewMySQLCheck(backend *backend.Backend, dsn string, default_period time.Dur
 		max_period:     max_period,
 		backoff_factor: backoff_factor,
 		status_chan:    status_chan,
-		stop_chan:      make(chan bool),
+		stop_chan:      make(chan struct{}),
 		running:        false,
 		check_replica:  check_replica,
 	}
@@ -514,5 +514,5 @@ func (c *MySQLCheck) StopPolling() {
 
 	c.db.Close()
 	c.ticker.Stop()
-	c.stop_chan <- true
+	close(c.stop_chan)
 }

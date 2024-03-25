@@ -174,7 +174,7 @@ func (p *ProxyTCP) listen(address string, wg *sync.WaitGroup, ctx context.Contex
 	}()
 }
 
-func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan bool, input_timeout time.Duration, output_timeout time.Duration, counter *atomic.Uint64) {
+func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, input_timeout time.Duration, output_timeout time.Duration, counter *atomic.Uint64) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
@@ -291,8 +291,8 @@ func (p *ProxyTCP) handle_connection(conn_front net.Conn) {
 	}
 
 	// Pipe the connections both ways
-	done_front_back := make(chan bool)
-	done_back_front := make(chan bool)
+	done_front_back := make(chan struct{})
+	done_back_front := make(chan struct{})
 	var bytes_in, bytes_out atomic.Uint64
 
 	go p.pipe(conn_front, conn_back, done_front_back, p.client_timeout, p.server_timeout, &bytes_in)
