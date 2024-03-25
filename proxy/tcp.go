@@ -45,6 +45,7 @@ type ProxyTCP struct {
 	wg                    *sync.WaitGroup
 	buffer_size           int
 	nodelay               bool
+	buffer_pool           sync.Pool
 }
 
 type TCPProxyConfig struct {
@@ -116,6 +117,12 @@ func (w TCPProxyFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 
 	p.ctx, p.cancel = context.WithCancel(ctx)
 
+	p.buffer_pool = sync.Pool{
+		New: func() any {
+			return make([]byte, p.buffer_size)
+		},
+	}
+
 	return p
 }
 
@@ -176,7 +183,8 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan bool, input_t
 		close(done)
 	}()
 
-	buffer := make([]byte, p.buffer_size)
+	buffer := p.buffer_pool.Get().([]byte)
+	defer p.buffer_pool.Put(buffer)
 
 	for {
 		if input_timeout != 0 {
