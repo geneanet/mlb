@@ -13,7 +13,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/zclconf/go-cty/cty"
-	"golang.org/x/sync/semaphore"
 
 	"mlb/backend"
 	"mlb/misc"
@@ -36,7 +35,7 @@ type WRRBalancer struct {
 	evalCtx       *hcl.EvalContext
 	ctx           context.Context
 	ctx_cancel    context.CancelFunc
-	wait_backends *semaphore.Weighted
+	wait_backends chan struct{}
 	timeout       time.Duration
 }
 
@@ -76,7 +75,7 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 		upd_chan_stop: make(chan struct{}),
 		source:        config.Source,
 		evalCtx:       tc.ctx,
-		wait_backends: semaphore.NewWeighted(1),
+		wait_backends: make(chan struct{}),
 	}
 
 	var err error
@@ -94,9 +93,6 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 		defer b.log.Info().Msg("WRR Balancer stopped")
 		defer b.ctx_cancel()
 		defer close(b.upd_chan_stop)
-
-		b.log.Debug().Msg("No backends in the list, acquiring the lock")
-		b.wait_backends.Acquire(b.ctx, 1)
 
 	mainloop:
 		for {
@@ -154,11 +150,11 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 				list_new_size := len(b.weightedlist)
 
 				if list_previous_size == 0 && list_new_size > 0 {
-					b.log.Debug().Msg("At least one backend has been added to the list, releasing the lock")
-					b.wait_backends.Release(1)
+					b.log.Debug().Msg("At least one backend has been added to the list, unblocking GetBackend")
+					close(b.wait_backends)
 				} else if list_previous_size > 0 && list_new_size == 0 {
-					b.log.Debug().Msg("There are no more backends in the list, acquiring the lock")
-					b.wait_backends.Acquire(b.ctx, 1)
+					b.log.Debug().Msg("There are no more backends in the list, blocking GetBackend")
+					b.wait_backends = make(chan struct{})
 				}
 
 				b.mu.Unlock()
@@ -181,8 +177,9 @@ func (b *WRRBalancer) GetBackend(wait bool) *backend.Backend {
 		b.mu.RUnlock()
 		ctx, ctx_cancel := context.WithDeadline(b.ctx, time.Now().Add(b.timeout))
 		defer ctx_cancel()
-		if b.wait_backends.Acquire(ctx, 1) == nil {
-			b.wait_backends.Release(1)
+		select {
+		case <-b.wait_backends: // Channel closed = backends available
+		case <-ctx.Done():
 		}
 		b.mu.RLock()
 	}
