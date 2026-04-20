@@ -111,6 +111,7 @@ func main() {
 				case syscall.SIGINT, syscall.SIGTERM:
 					log.Info().Msg("Termination signal received")
 					cancel()
+					return
 				}
 			}
 		}()
