@@ -317,9 +317,14 @@ func (c *MySQLCheck) fetchReadOnly() (ret_readonly cty.Value, ret_err error) {
 
 	var read_only bool
 
-	result, err := c.db.Query("SELECT @@read_only")
+	// Execute query with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), c.default_period)
+	defer cancel()
+	result, err := c.db.QueryContext(ctx, "SELECT @@read_only")
 	misc.PanicIfErr(err)
 	defer result.Close()
+
+	// Fetch row
 	result.Next()
 	err = result.Scan(&read_only)
 	misc.PanicIfErr(err)
@@ -338,8 +343,10 @@ func (c *MySQLCheck) fetchReplicaLatency() (ret_replica_latency cty.Value, ret_e
 	// Default value -1 if replication is not running
 	var replication_latency int64 = -1
 
-	// Execute query
-	result, err := c.db.Query("SHOW REPLICA STATUS")
+	// Execute query with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), c.default_period)
+	defer cancel()
+	result, err := c.db.QueryContext(ctx, "SHOW REPLICA STATUS")
 	misc.PanicIfErr(err)
 	defer result.Close()
 
@@ -388,6 +395,14 @@ func (c *MySQLCheck) fetchStatus() (ret_status cty.Value, ret_readonly cty.Value
 			ret_readonly = cty.BoolVal(false)
 			ret_replica_latency = cty.NumberIntVal(-1)
 			ret_err = misc.EnsureError(r)
+
+			// Close and reopen MySQL connection to ensure we start on a good base next time
+			log.Info().Str("address", c.backend.Address).Msg("Reopening MySQL connection")
+			db, err := sql.Open("mysql", c.dsn)
+			if err != nil {
+				log.Warn().Str("address", c.backend.Address).Err(err).Msg("Error while reopening MySQL connection")
+			}
+			c.db = db
 
 			// Increase fetch period
 			if period, updated := c.ticker.ApplyBackoff(); updated {
