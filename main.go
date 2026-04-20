@@ -95,7 +95,11 @@ func main() {
 			for id := range backendListProviders {
 				backendsByProvider[id] = backendListProviders.GetBackendListProvider(id).GetBackendList()
 			}
-			out, _ := json.Marshal(backendsByProvider)
+			out, err := json.Marshal(backendsByProvider)
+			if err != nil {
+				http.Error(w, "serialization error", http.StatusInternalServerError)
+				return
+			}
 			w.Write(out)
 		})
 		http.Handle("/metrics", metrics.HttpLogWrapper(promhttp.Handler()))
