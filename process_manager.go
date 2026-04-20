@@ -84,10 +84,12 @@ processManagerLoop:
 					log.Info().Msg("Restart signal received, starting new worker process")
 					proc, err := startProcess(chanProcess)
 					if err != nil {
-						log.Panic().Err(err).Msg("Unable to start the new worker process")
+						log.Error().Err(err).Msg("Unable to start the new worker process, keeping current running to avoid disruption.")
+						starting = nil
+					} else {
+						processes[proc] = proc
+						starting = proc
 					}
-					processes[proc] = proc
-					starting = proc
 				}
 
 			case syscall.SIGUSR1:
