@@ -197,7 +197,7 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inp
 		}
 		misc.PanicIfErr(err)
 		if outputTimeout != 0 {
-			output.SetReadDeadline(time.Now().Add(outputTimeout))
+			output.SetWriteDeadline(time.Now().Add(outputTimeout))
 		}
 		_, err = output.Write(buffer[:nbytes])
 		if errors.Is(err, net.ErrClosed) {
