@@ -178,7 +178,7 @@ func (f RedisProxyFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Conte
 	return p
 }
 
-func (p *RedisProxy) listen(address string, wg *sync.WaitGroup, ctx context.Context) {
+func (p *RedisProxy) listen(address string, wg *sync.WaitGroup) {
 	p.log.Info().Str("address", address).Msg("Opening Frontend")
 
 	// Set SO_REUSEPORT
@@ -370,6 +370,6 @@ func (p *RedisProxy) Bind(modules module.ModulesList) {
 
 	// Listening to incoming connections only makes sense after backend providers are available
 	for _, v := range p.addresses {
-		p.listen(v, p.wg, p.ctx)
+		p.listen(v, p.wg)
 	}
 }
