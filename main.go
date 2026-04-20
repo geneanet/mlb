@@ -37,7 +37,7 @@ func main() {
 	flag.Parse()
 
 	// Setup logger
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Int("pid", os.Getpid()).Logger()
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Int("pid", os.Getpid()).Caller().Logger()
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	if *arg_debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
