@@ -16,14 +16,14 @@ import (
 //--------------------------
 
 type RedisBackendConnection struct {
-	pool            *RedisBackendConnectionPool
-	backend         *backend.Backend
-	conn            net.Conn
-	input_chan_stop chan struct{}
-	input_chan      chan RedisQuery
-	in_flight       chan RedisQuery
-	ctx             context.Context
-	cancel          context.CancelFunc
+	pool          *RedisBackendConnectionPool
+	backend       *backend.Backend
+	conn          net.Conn
+	inputChanStop chan struct{}
+	inputChan     chan RedisQuery
+	inFlight      chan RedisQuery
+	ctx           context.Context
+	cancel        context.CancelFunc
 }
 
 func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backend.Backend) (rbc *RedisBackendConnection, e error) {
@@ -35,11 +35,11 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 	}()
 
 	rbc = &RedisBackendConnection{
-		pool:            pool,
-		backend:         backend,
-		input_chan:      make(chan RedisQuery),
-		input_chan_stop: make(chan struct{}),
-		in_flight:       make(chan RedisQuery, pool.proxy.backendInflightQueueSize),
+		pool:          pool,
+		backend:       backend,
+		inputChan:     make(chan RedisQuery),
+		inputChanStop: make(chan struct{}),
+		inFlight:      make(chan RedisQuery, pool.proxy.backendInflightQueueSize),
 	}
 
 	rbc.ctx, rbc.cancel = context.WithCancel(context.Background())
@@ -50,10 +50,10 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 
 	// Open backend connection
 	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Opening Backend connection")
-	conn_back, err := net.DialTimeout("tcp", rbc.backend.Address, rbc.pool.proxy.connect_timeout)
+	connBack, err := net.DialTimeout("tcp", rbc.backend.Address, rbc.pool.proxy.connectTimeout)
 	misc.PanicIfErr(err)
 
-	rbc.conn = conn_back
+	rbc.conn = connBack
 
 	// Set TCPNoDelay
 	err = rbc.conn.(*net.TCPConn).SetNoDelay(true)
@@ -69,7 +69,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 		rbc.conn.Close()
 
 		// Ensure no new queries can be added to the input queue
-		close(rbc.input_chan_stop)
+		close(rbc.inputChanStop)
 
 		// Abort all in flight requests
 		rbc.AbortInflightQueries()
@@ -86,8 +86,8 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 	go func() {
 		for {
 			select {
-			case query := <-rbc.input_chan:
-				rbc.in_flight <- query
+			case query := <-rbc.inputChan:
+				rbc.inFlight <- query
 				_, err := rbc.conn.Write(query.item)
 				if err != nil {
 					if err != io.EOF && !errors.Is(err, net.ErrClosed) {
@@ -105,7 +105,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 
 	// Read backend responses and send them to the client
 	go func() {
-		reader := NewRedisProtocolReader(rbc.conn, rbc.pool.proxy.buffer_size)
+		reader := NewRedisProtocolReader(rbc.conn, rbc.pool.proxy.bufferSize)
 
 		for {
 			item, err := reader.ReadMessage(false)
@@ -116,7 +116,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 				rbc.cancel()
 				return
 			}
-			query := <-rbc.in_flight
+			query := <-rbc.inFlight
 
 			query.Reply(item)
 		}
@@ -125,11 +125,11 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 	return rbc, nil
 }
 
-func (rbc *RedisBackendConnection) Query(q RedisQuery) (ret_e error) {
+func (rbc *RedisBackendConnection) Query(q RedisQuery) (retError error) {
 	select {
-	case rbc.input_chan <- q:
+	case rbc.inputChan <- q:
 		return nil
-	case <-rbc.input_chan_stop:
+	case <-rbc.inputChanStop:
 		return fmt.Errorf("backend input channel is closed")
 	}
 }
@@ -138,7 +138,7 @@ func (rbc *RedisBackendConnection) AbortInflightQueries() {
 	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Aborting in-flight requests")
 	for {
 		select {
-		case query := <-rbc.in_flight:
+		case query := <-rbc.inFlight:
 			query.Abort()
 		default:
 			return

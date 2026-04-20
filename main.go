@@ -30,25 +30,25 @@ import (
 // Main
 func main() {
 	// Parse CLI args
-	arg_config := flag.String("config", "config.hcl", "config file")
-	arg_debug := flag.Bool("debug", false, "sets log level to debug")
-	arg_process_manager := flag.Bool("process-manager", false, "enable process manager mode")
-	arg_notify_parent := flag.Bool("notify-parent", false, "send SIGUSR1 to parent once everything is running")
+	argConfig := flag.String("config", "config.hcl", "config file")
+	argDebug := flag.Bool("debug", false, "sets log level to debug")
+	argProcessManager := flag.Bool("process-manager", false, "enable process manager mode")
+	argNotifyParent := flag.Bool("notify-parent", false, "send SIGUSR1 to parent once everything is running")
 	flag.Parse()
 
 	// Setup logger
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Int("pid", os.Getpid()).Caller().Logger()
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-	if *arg_debug {
+	if *argDebug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
 
 	// CLI args validation
-	if *arg_process_manager && *arg_notify_parent {
+	if *argProcessManager && *argNotifyParent {
 		log.Fatal().Msg("Parameters process-manager and notify-parent are mutually exclusives")
 	}
 
-	if *arg_process_manager { // Process manager mode
+	if *argProcessManager { // Process manager mode
 		processManager()
 
 	} else { // Normal mode
@@ -56,7 +56,7 @@ func main() {
 		ctx, cancel := context.WithCancel(context.Background())
 
 		// Parse conf
-		conf, diags := config.LoadConfig(*arg_config)
+		conf, diags := config.LoadConfig(*argConfig)
 		if diags.HasErrors() {
 			os.Exit(1)
 		}
@@ -103,11 +103,11 @@ func main() {
 		metrics.NewHTTPServer(conf.Metrics.Address, &wg, ctx)
 
 		// Termination signals
-		chan_signals := make(chan os.Signal, 1)
-		signal.Notify(chan_signals, syscall.SIGINT, syscall.SIGTERM)
+		chanSignals := make(chan os.Signal, 1)
+		signal.Notify(chanSignals, syscall.SIGINT, syscall.SIGTERM)
 		go func() {
 			for {
-				switch <-chan_signals {
+				switch <-chanSignals {
 				case syscall.SIGINT, syscall.SIGTERM:
 					log.Info().Msg("Termination signal received")
 					cancel()
@@ -116,7 +116,7 @@ func main() {
 		}()
 
 		// If requested, once everything is loaded, notify parent
-		if *arg_notify_parent {
+		if *argNotifyParent {
 			go func() {
 				// Add a small delay to ensure modules are all started
 				time.Sleep(5 * time.Second)

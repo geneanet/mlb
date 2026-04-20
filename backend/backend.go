@@ -29,22 +29,22 @@ func (b *Backend) Equal(other *Backend) bool {
 }
 
 func (b *Backend) ResolveExpression(expression hcl.Expression, ctx *hcl.EvalContext, target interface{}) (bool, hcl.Diagnostics) {
-	var meta_ctx *hcl.EvalContext
+	var metaCtx *hcl.EvalContext
 
 	if ctx != nil {
-		meta_ctx = ctx.NewChild()
+		metaCtx = ctx.NewChild()
 	} else {
-		meta_ctx = &hcl.EvalContext{}
+		metaCtx = &hcl.EvalContext{}
 	}
 
-	meta_ctx.Variables = map[string]cty.Value{
+	metaCtx.Variables = map[string]cty.Value{
 		"backend": cty.ObjectVal(map[string]cty.Value{
 			"meta":    b.Meta.ToCtyObject(),
 			"address": cty.StringVal(b.Address),
 		}),
 	}
 
-	w, diags := expression.Value(meta_ctx)
+	w, diags := expression.Value(metaCtx)
 
 	if !w.IsKnown() {
 		return false, diags
@@ -112,12 +112,12 @@ func (bm *BackendsMap) Add(backend *Backend) {
 	bm.backends[backend.Address] = backend
 }
 
-func (bm *BackendsMap) Update(backend *Backend, except_meta ...string) {
+func (bm *BackendsMap) Update(backend *Backend, exceptMeta ...string) {
 	bm.lock.Lock()
 	defer bm.lock.Unlock()
 
 	if b, ok := bm.backends[backend.Address]; ok {
-		b.Meta.Update(backend.Meta, except_meta...)
+		b.Meta.Update(backend.Meta, exceptMeta...)
 	} else {
 		bm.backends[backend.Address] = backend
 	}

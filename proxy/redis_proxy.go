@@ -30,10 +30,10 @@ type RedisProxy struct {
 	id                        string
 	addresses                 []string
 	source                    string
-	close_timeout             time.Duration
-	connect_timeout           time.Duration
-	backend_wait_timeout      time.Duration
-	connections_wg            sync.WaitGroup
+	closeTimeout              time.Duration
+	connectTimeout            time.Duration
+	backendWaitTimeout        time.Duration
+	connectionsWG             sync.WaitGroup
 	ctx                       context.Context
 	cancel                    context.CancelFunc
 	log                       zerolog.Logger
@@ -41,7 +41,7 @@ type RedisProxy struct {
 	backendUpdatesChan        chan backend.BackendUpdate
 	backendUpdatesChanClosed  chan struct{}
 	backends                  *backend.BackendsMap
-	buffer_size               int
+	bufferSize                int
 	backendConnectionPool     *RedisBackendConnectionPool
 	clientQueueSize           int
 	backendInflightQueueSize  int
@@ -118,7 +118,7 @@ func (f RedisProxyFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Conte
 		id:                        config.ID,
 		addresses:                 config.Addresses,
 		log:                       log.With().Str("id", config.ID).Logger(),
-		buffer_size:               config.BufferSize,
+		bufferSize:                config.BufferSize,
 		source:                    config.Source,
 		clientQueueSize:           config.ClientQueueSize,
 		backendInflightQueueSize:  config.BackendInflightQueueSize,
@@ -131,11 +131,11 @@ func (f RedisProxyFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Conte
 
 	var err error
 
-	p.connect_timeout, err = time.ParseDuration(config.ConnectTimeout)
+	p.connectTimeout, err = time.ParseDuration(config.ConnectTimeout)
 	misc.PanicIfErr(err)
-	p.close_timeout, err = time.ParseDuration(config.CloseTimeout)
+	p.closeTimeout, err = time.ParseDuration(config.CloseTimeout)
 	misc.PanicIfErr(err)
-	p.backend_wait_timeout, err = time.ParseDuration(config.BackendWaitTimeout)
+	p.backendWaitTimeout, err = time.ParseDuration(config.BackendWaitTimeout)
 	misc.PanicIfErr(err)
 	p.retryPeriod, err = time.ParseDuration(config.RetryPeriod)
 	misc.PanicIfErr(err)
@@ -217,20 +217,20 @@ func (p *RedisProxy) listen(address string, wg *sync.WaitGroup, ctx context.Cont
 				break
 			}
 			misc.PanicIfErr(err)
-			p.connections_wg.Add(1)
+			p.connectionsWG.Add(1)
 			p.log.Debug().Str("peer", conn.RemoteAddr().String()).Msg("Accepting Frontend connection")
-			go p.handle_connection(conn)
+			go p.handleConnection(conn)
 		}
 
-		p.connections_wg.Wait()
+		p.connectionsWG.Wait()
 	}()
 }
 
-func (p *RedisProxy) handle_connection(conn_front net.Conn) {
-	frontend_address := conn_front.LocalAddr().String()
-	peer_address := conn_front.RemoteAddr().String()
+func (p *RedisProxy) handleConnection(connFront net.Conn) {
+	frontendAddress := connFront.LocalAddr().String()
+	peerAddress := connFront.RemoteAddr().String()
 
-	defer p.connections_wg.Done()
+	defer p.connectionsWG.Done()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -238,8 +238,8 @@ func (p *RedisProxy) handle_connection(conn_front net.Conn) {
 	// If the connection context is closed, close the connection
 	go func() {
 		<-ctx.Done()
-		p.log.Debug().Str("peer", peer_address).Msg("Closing Frontend connection")
-		err := conn_front.Close()
+		p.log.Debug().Str("peer", peerAddress).Msg("Closing Frontend connection")
+		err := connFront.Close()
 		misc.PanicIfErr(err)
 	}()
 
@@ -249,14 +249,14 @@ func (p *RedisProxy) handle_connection(conn_front net.Conn) {
 		case <-ctx.Done():
 			return
 		case <-p.ctx.Done():
-			p.log.Debug().Str("peer", peer_address).Msg("Frontend closed, waiting for connection to end.")
+			p.log.Debug().Str("peer", peerAddress).Msg("Frontend closed, waiting for connection to end.")
 		}
 
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(p.close_timeout):
-			p.log.Warn().Str("peer", peer_address).Msg("Timeout reached, force closing connection.")
+		case <-time.After(p.closeTimeout):
+			p.log.Warn().Str("peer", peerAddress).Msg("Timeout reached, force closing connection.")
 			cancel()
 		}
 	}()
@@ -264,20 +264,20 @@ func (p *RedisProxy) handle_connection(conn_front net.Conn) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
-			p.log.Error().Str("peer", peer_address).Err(misc.EnsureError(r)).Msg("Error while processing connection")
+			p.log.Error().Str("peer", peerAddress).Err(misc.EnsureError(r)).Msg("Error while processing connection")
 			// Prometheus
-			metrics.FeCnxErrors.WithLabelValues(frontend_address, p.id).Inc()
+			metrics.FeCnxErrors.WithLabelValues(frontendAddress, p.id).Inc()
 		}
 	}()
 
 	// Set TCPNoDelay
-	err := conn_front.(*net.TCPConn).SetNoDelay(true)
+	err := connFront.(*net.TCPConn).SetNoDelay(true)
 	misc.PanicIfErr(err)
 
 	// Prometheus
-	metrics.FeCnxProcessed.WithLabelValues(frontend_address, p.id).Inc()
-	metrics.FeActCnx.WithLabelValues(frontend_address, p.id).Inc()
-	defer metrics.FeActCnx.WithLabelValues(frontend_address, p.id).Dec()
+	metrics.FeCnxProcessed.WithLabelValues(frontendAddress, p.id).Inc()
+	metrics.FeActCnx.WithLabelValues(frontendAddress, p.id).Inc()
+	defer metrics.FeActCnx.WithLabelValues(frontendAddress, p.id).Dec()
 
 	// Get Backend Connection
 	backendConnection := p.backendConnectionPool.GetRandom(true)
@@ -286,22 +286,22 @@ func (p *RedisProxy) handle_connection(conn_front net.Conn) {
 	}
 
 	// Read response queue and write responses
-	response_chan := make(chan RedisReponse, p.clientQueueSize)
-	response_chan_stop := make(chan struct{})
-	defer close(response_chan_stop) // Ensure no backend will block trying to send replies if the client connection is closed
+	responseChan := make(chan RedisReponse, p.clientQueueSize)
+	responseChanStop := make(chan struct{})
+	defer close(responseChanStop) // Ensure no backend will block trying to send replies if the client connection is closed
 	go func() {
 		for {
 			select {
-			case response := <-response_chan:
+			case response := <-responseChan:
 				if response.item != nil {
-					p.log.Debug().Uint64("query_id", response.query.id).Msg("Received valid response")
-					_, err := conn_front.Write(response.item)
+					p.log.Debug().Uint64("queryId", response.query.id).Msg("Received valid response")
+					_, err := connFront.Write(response.item)
 					if err != nil {
-						p.log.Error().Err(err).Str("peer", peer_address).Msg("Unexpected error while writing to client")
+						p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
 						cancel()
 					}
 				} else {
-					p.log.Debug().Uint64("query_id", response.query.id).Msg("Received failed response")
+					p.log.Debug().Uint64("queryId", response.query.id).Msg("Received failed response")
 					cancel()
 				}
 			case <-ctx.Done():
@@ -311,25 +311,25 @@ func (p *RedisProxy) handle_connection(conn_front net.Conn) {
 	}()
 
 	// Read queries
-	front_reader := NewRedisProtocolReader(conn_front, p.buffer_size)
+	frontReader := NewRedisProtocolReader(connFront, p.bufferSize)
 
 	for {
-		item, err := front_reader.ReadMessage(true)
+		item, err := frontReader.ReadMessage(true)
 		if err == io.EOF || errors.Is(err, net.ErrClosed) {
 			return
 		} else if err != nil {
 			panic("Unexpected error while reading from the client")
 		}
 
-		query := NewRedisQuery(item, response_chan, response_chan_stop)
-		p.log.Debug().Uint64("query_id", query.id).Msg("Received query")
+		query := NewRedisQuery(item, responseChan, responseChanStop)
+		p.log.Debug().Uint64("queryId", query.id).Msg("Received query")
 
 		if query.IsAllowed() {
 			// Add the query to the queue
 			err := backendConnection.Query(query)
 
 			if err != nil {
-				p.log.Warn().Uint64("query_id", query.id).Msg("Backend has failed, picking a new one")
+				p.log.Warn().Uint64("queryId", query.id).Msg("Backend has failed, picking a new one")
 				backendConnection = p.backendConnectionPool.GetRandom(true)
 				if backendConnection == nil {
 					panic("No backend found")

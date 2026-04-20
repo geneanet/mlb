@@ -13,7 +13,7 @@ type Process struct {
 	FinalState *os.ProcessState
 }
 
-func startProcess(chan_process chan *Process) (*Process, error) {
+func startProcess(chanProcess chan *Process) (*Process, error) {
 	log.Info().Msg("Starting new process")
 
 	procAttr := os.ProcAttr{
@@ -42,7 +42,7 @@ func startProcess(chan_process chan *Process) (*Process, error) {
 	go func() {
 		s, _ := proc.Wait()
 		p.FinalState = s
-		chan_process <- p
+		chanProcess <- p
 	}()
 
 	return p, err
@@ -50,11 +50,11 @@ func startProcess(chan_process chan *Process) (*Process, error) {
 
 func processManager() {
 	processes := map[*Process]*Process{}
-	chan_process := make(chan *Process)
+	chanProcess := make(chan *Process)
 	var starting *Process
 
 	// Start first worker process
-	proc, err := startProcess(chan_process)
+	proc, err := startProcess(chanProcess)
 	if err != nil {
 		log.Panic().Err(err).Msg("Unable to start the worker process")
 	}
@@ -62,13 +62,13 @@ func processManager() {
 	starting = proc
 
 	// Signals
-	chan_signals := make(chan os.Signal, 1)
-	signal.Notify(chan_signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR1)
+	chanSignals := make(chan os.Signal, 1)
+	signal.Notify(chanSignals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR1)
 
-process_manager_loop:
+processManagerLoop:
 	for {
 		select {
-		case s := <-chan_signals:
+		case s := <-chanSignals:
 			switch s {
 			case syscall.SIGINT, syscall.SIGTERM:
 				log.Info().Msg("Termination signal received, forwarding to worker processes")
@@ -82,7 +82,7 @@ process_manager_loop:
 
 				} else {
 					log.Info().Msg("Restart signal received, starting new worker process")
-					proc, err := startProcess(chan_process)
+					proc, err := startProcess(chanProcess)
 					if err != nil {
 						log.Panic().Err(err).Msg("Unable to start the new worker process")
 					}
@@ -99,19 +99,19 @@ process_manager_loop:
 				}
 				starting = nil
 			}
-		case p := <-chan_process:
+		case p := <-chanProcess:
 			if p == starting {
-				log.Error().Int("worker_pid", p.Process.Pid).Int("exit_code", p.FinalState.ExitCode()).Msg("New worker process exited unexpectedly")
+				log.Error().Int("workerPid", p.Process.Pid).Int("exitCode", p.FinalState.ExitCode()).Msg("New worker process exited unexpectedly")
 				starting = nil
 			} else {
-				log.Info().Int("worker_pid", p.Process.Pid).Int("exit_code", p.FinalState.ExitCode()).Msg("Worker process exited")
+				log.Info().Int("workerPid", p.Process.Pid).Int("exitCode", p.FinalState.ExitCode()).Msg("Worker process exited")
 			}
 
 			delete(processes, p)
 
 			if len(processes) == 0 {
 				log.Info().Msg("All worker processes have ended")
-				break process_manager_loop
+				break processManagerLoop
 			}
 		}
 	}

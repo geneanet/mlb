@@ -95,8 +95,8 @@ func (m *MetaMap) Equal(other *MetaMap) bool {
 	}
 
 	for k, v := range m.data {
-		other_v, ok := other.data[k]
-		if !ok || !v.Equal(other_v) {
+		otherValue, ok := other.data[k]
+		if !ok || !v.Equal(otherValue) {
 			return false
 		}
 	}
@@ -129,8 +129,8 @@ func (m MetaBucket) Equal(other MetaBucket) bool {
 	}
 
 	for k, v := range m {
-		other_v, ok := other[k]
-		if !ok || v.Equals(other_v).False() {
+		otherValue, ok := other[k]
+		if !ok || v.Equals(otherValue).False() {
 			return false
 		}
 	}

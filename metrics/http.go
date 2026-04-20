@@ -26,14 +26,14 @@ func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*MetricsConfig, 
 	return c, diag
 }
 
-func HttpLogWrapper(original_handler http.Handler) http.Handler {
+func HttpLogWrapper(originalHandler http.Handler) http.Handler {
 	logFn := func(rw http.ResponseWriter, r *http.Request) {
 		uri := r.RequestURI
 		method := r.Method
 		peer := r.RemoteAddr
 
 		// Serve the request
-		original_handler.ServeHTTP(rw, r)
+		originalHandler.ServeHTTP(rw, r)
 
 		// Log the details
 		log.Info().Str("uri", uri).Str("method", method).Str("peer", peer).Msg("HTTP Request")

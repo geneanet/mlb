@@ -6,34 +6,34 @@ import (
 )
 
 type ExponentialBackoff struct {
-	default_duration time.Duration
-	max_duration     time.Duration
-	current_duration time.Duration
-	backoff_factor   float64
+	defaultDuration time.Duration
+	maxDuration     time.Duration
+	currentDuration time.Duration
+	backoffFactor   float64
 }
 
-func NewExponentialBackoff(default_duration time.Duration, max_duration time.Duration, backoff_factor float64) *ExponentialBackoff {
+func NewExponentialBackoff(defaultDuration time.Duration, maxDuration time.Duration, backoffFactor float64) *ExponentialBackoff {
 	return &ExponentialBackoff{
-		default_duration: default_duration,
-		max_duration:     max_duration,
-		current_duration: default_duration,
-		backoff_factor:   backoff_factor,
+		defaultDuration: defaultDuration,
+		maxDuration:     maxDuration,
+		currentDuration: defaultDuration,
+		backoffFactor:   backoffFactor,
 	}
 }
 
 // Reset the duration to the default value
 func (eb *ExponentialBackoff) Reset() {
-	eb.current_duration = eb.default_duration
+	eb.currentDuration = eb.defaultDuration
 }
 
 // Return the current duration and increase it for the next use
 func (eb *ExponentialBackoff) Get() time.Duration {
-	duration := eb.current_duration
+	duration := eb.currentDuration
 
-	if eb.current_duration < eb.max_duration {
-		eb.current_duration = time.Duration(float64(eb.current_duration) * eb.backoff_factor)
-		if eb.current_duration > eb.max_duration {
-			eb.current_duration = eb.max_duration
+	if eb.currentDuration < eb.maxDuration {
+		eb.currentDuration = time.Duration(float64(eb.currentDuration) * eb.backoffFactor)
+		if eb.currentDuration > eb.maxDuration {
+			eb.currentDuration = eb.maxDuration
 		}
 	}
 

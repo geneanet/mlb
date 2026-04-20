@@ -46,17 +46,17 @@ type consulServicesMap map[string]consulService
 type consulServicesSlice []consulService
 
 type BackendsInventoryConsul struct {
-	id             string
-	url            string
-	service        string
-	index          string
-	ticker         *misc.ExponentialBackoffTicker
-	ctx            context.Context
-	cancel         context.CancelFunc
-	subscribers    []backend.BackendUpdateSubscriber
-	backends       *backend.BackendsMap
-	backends_mutex sync.RWMutex
-	log            zerolog.Logger
+	id            string
+	url           string
+	service       string
+	index         string
+	ticker        *misc.ExponentialBackoffTicker
+	ctx           context.Context
+	cancel        context.CancelFunc
+	subscribers   []backend.BackendUpdateSubscriber
+	backends      *backend.BackendsMap
+	backendsMutex sync.RWMutex
+	log           zerolog.Logger
 }
 
 type ConsulBackendsInventoryConfig struct {
@@ -105,10 +105,10 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 
 	var err error
 
-	default_period, err := time.ParseDuration(config.Period)
+	defaultPeriod, err := time.ParseDuration(config.Period)
 	misc.PanicIfErr(err)
 
-	max_period, err := time.ParseDuration(config.MaxPeriod)
+	maxPeriod, err := time.ParseDuration(config.MaxPeriod)
 	misc.PanicIfErr(err)
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
@@ -116,7 +116,7 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 	wg.Add(1)
 	c.log.Info().Str("url", c.url).Msg("Polling Consul")
 
-	c.ticker = misc.NewExponentialBackoffTicker(default_period, max_period, config.BackoffFactor)
+	c.ticker = misc.NewExponentialBackoffTicker(defaultPeriod, maxPeriod, config.BackoffFactor)
 
 	go func() {
 		defer wg.Done()
@@ -143,7 +143,7 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 
 				added, modified, removed := consulServicesDiff(old, services)
 
-				c.backends_mutex.Lock()
+				c.backendsMutex.Lock()
 
 				for address, service := range added {
 					log.Debug().Str("address", address).Msg("Service added")
@@ -186,7 +186,7 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 					})
 				}
 
-				c.backends_mutex.Unlock()
+				c.backendsMutex.Unlock()
 
 				old = services
 			}
@@ -206,8 +206,8 @@ func (c *BackendsInventoryConsul) ProvideUpdates(s backend.BackendUpdateSubscrib
 	c.subscribers = append(c.subscribers, s)
 
 	go func() {
-		c.backends_mutex.RLock()
-		defer c.backends_mutex.RUnlock()
+		c.backendsMutex.RLock()
+		defer c.backendsMutex.RUnlock()
 
 		for _, b := range c.backends.GetList() {
 			c.sendUpdate(backend.BackendUpdate{
@@ -225,11 +225,11 @@ func (c *BackendsInventoryConsul) sendUpdate(u backend.BackendUpdate) {
 	}
 }
 
-func (c *BackendsInventoryConsul) fetch() (ret_s consulServicesSlice, ret_e error) {
+func (c *BackendsInventoryConsul) fetch() (retServices consulServicesSlice, retError error) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
-			ret_e = misc.EnsureError(r)
+			retError = misc.EnsureError(r)
 		}
 	}()
 
@@ -299,27 +299,27 @@ func consulServicesDiff(old consulServicesSlice, new consulServicesSlice) (added
 		old = consulServicesSlice{}
 	}
 
-	old_map := consulServicesSliceToMap(old)
-	new_map := consulServicesSliceToMap(new)
+	oldMap := consulServicesSliceToMap(old)
+	newMap := consulServicesSliceToMap(new)
 
-	for address, new_svc := range new_map {
-		old_svc, not_new := old_map[address]
+	for address, newSvc := range newMap {
+		oldSvc, notNew := oldMap[address]
 
 		// Updated
-		if not_new && old_svc.Service.ModifyIndex != new_svc.Service.ModifyIndex {
-			modified[address] = new_svc
+		if notNew && oldSvc.Service.ModifyIndex != newSvc.Service.ModifyIndex {
+			modified[address] = newSvc
 			// New
-		} else if !not_new {
-			added[address] = new_svc
+		} else if !notNew {
+			added[address] = newSvc
 		}
 	}
 
-	for address, old_svc := range old_map {
-		_, not_removed := new_map[address]
+	for address, oldSvc := range oldMap {
+		_, notRemoved := newMap[address]
 
 		// Removed
-		if !not_removed {
-			removed[address] = old_svc
+		if !notRemoved {
+			removed[address] = oldSvc
 		}
 	}
 

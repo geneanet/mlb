@@ -14,38 +14,38 @@ import (
 // TODO: improve perfs by using buffer pools
 
 type RedisProtocolReader struct {
-	reader              io.Reader
-	buffer              []byte
-	read_position       int
-	line_start          int
-	message_start       int
-	initial_buffer_size int
-	minimum_read_size   int
+	reader            io.Reader
+	buffer            []byte
+	readPosition      int
+	lineStart         int
+	messageStart      int
+	initialBufferSize int
+	minimumReadSize   int
 }
 
-func NewRedisProtocolReader(reader io.Reader, initial_buffer_size int) RedisProtocolReader {
+func NewRedisProtocolReader(reader io.Reader, initialBufferSize int) RedisProtocolReader {
 	return RedisProtocolReader{
-		reader:              reader,
-		initial_buffer_size: initial_buffer_size,
-		minimum_read_size:   64,
+		reader:            reader,
+		initialBufferSize: initialBufferSize,
+		minimumReadSize:   64,
 	}
 }
 
-func (r *RedisProtocolReader) ReadMessage(allow_inline bool) ([]byte, error) {
-	lines_to_read := 1
-	bytes_to_read := 0
+func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
+	linesToRead := 1
+	bytesToRead := 0
 
-	r.message_start = r.read_position
+	r.messageStart = r.readPosition
 	eof := false
 	raw := false
 	streaming := 0
-	str_streaming := false
+	strStreaming := false
 
-	for lines_to_read > 0 && !eof {
+	for linesToRead > 0 && !eof {
 		// Read a new line of data
-		line, err := r.readLine(bytes_to_read)
-		lines_to_read--
-		bytes_to_read = 0
+		line, err := r.readLine(bytesToRead)
+		linesToRead--
+		bytesToRead = 0
 		if len(line) == 0 || err != nil && err != io.EOF {
 			return nil, err
 		} else if err == io.EOF {
@@ -55,18 +55,18 @@ func (r *RedisProtocolReader) ReadMessage(allow_inline bool) ([]byte, error) {
 		// Line type
 		switch line[0] {
 		case '+', '-', ':', '_', ',', '#', '(':
-			if str_streaming {
+			if strStreaming {
 				return nil, fmt.Errorf("RESP3 protocol violation: unexpected item type \"%s\" during streamed string", string(line[0]))
 			}
 
 		case '$', '!', '=':
-			if str_streaming {
+			if strStreaming {
 				return nil, fmt.Errorf("RESP3 protocol violation: unexpected item type \"%s\" during streamed string", string(line[0]))
 			}
 
 			if line[0] == '$' && line[1] == '?' { // Streamed string
-				str_streaming = true
-				lines_to_read++
+				strStreaming = true
+				linesToRead++
 			} else { // Defined size
 				size, errAtoi := strconv.Atoi(string(line[1 : len(line)-2]))
 				if errAtoi != nil {
@@ -74,24 +74,24 @@ func (r *RedisProtocolReader) ReadMessage(allow_inline bool) ([]byte, error) {
 				}
 
 				if size >= 0 {
-					lines_to_read++
-					bytes_to_read = size
+					linesToRead++
+					bytesToRead = size
 					raw = true
 				}
 			}
 
 		case ';':
-			if str_streaming {
+			if strStreaming {
 				size, errAtoi := strconv.Atoi(string(line[1 : len(line)-2]))
 				if errAtoi != nil {
 					return nil, errAtoi
 				}
 				if size > 0 {
-					lines_to_read += 2
-					bytes_to_read = size
+					linesToRead += 2
+					bytesToRead = size
 					raw = true
 				} else {
-					str_streaming = false
+					strStreaming = false
 				}
 
 			} else {
@@ -99,13 +99,13 @@ func (r *RedisProtocolReader) ReadMessage(allow_inline bool) ([]byte, error) {
 			}
 
 		case '*', '~', '%', '|', '>':
-			if str_streaming {
+			if strStreaming {
 				return nil, fmt.Errorf("RESP3 protocol violation: unexpected item type \"%s\" during streamed string", string(line[0]))
 			}
 
 			if line[0] != '>' && line[1] == '?' { // Streamed
 				streaming++
-				lines_to_read++
+				linesToRead++
 			} else { // Defined size
 				size, errAtoi := strconv.Atoi(string(line[1 : len(line)-2]))
 				if errAtoi != nil {
@@ -117,11 +117,11 @@ func (r *RedisProtocolReader) ReadMessage(allow_inline bool) ([]byte, error) {
 					size *= 2
 				}
 
-				lines_to_read += size
+				linesToRead += size
 			}
 
 		case '.':
-			if str_streaming {
+			if strStreaming {
 				return nil, fmt.Errorf("RESP3 protocol violation: unexpected item type \"%s\" during streamed string", string(line[0]))
 			}
 			if streaming == 0 {
@@ -137,38 +137,38 @@ func (r *RedisProtocolReader) ReadMessage(allow_inline bool) ([]byte, error) {
 			if raw {
 				// Raw mode only valid for one line
 				raw = false
-			} else if !allow_inline {
+			} else if !allowInline {
 				// Protocol error
 				return nil, fmt.Errorf("RESP3 protocol violation: unsupported item type \"%s\"", string(line[0]))
 			}
 
 		}
 
-		if streaming > 0 && lines_to_read == streaming-1 {
-			lines_to_read++
+		if streaming > 0 && linesToRead == streaming-1 {
+			linesToRead++
 		}
 
 		// Inline commands only allowed if first line
-		allow_inline = false
+		allowInline = false
 	}
 
-	return r.buffer[r.message_start:r.read_position], nil
+	return r.buffer[r.messageStart:r.readPosition], nil
 }
 
 func (r *RedisProtocolReader) readFromSource() (int, error) {
-	// If there is less than r.minimum_read_size room in the buffer
-	if cap(r.buffer)-len(r.buffer) < r.minimum_read_size {
+	// If there is less than r.minimumReadSize room in the buffer
+	if cap(r.buffer)-len(r.buffer) < r.minimumReadSize {
 		// If the buffer contains only the message we are currently parsing, grow it.
 		// Otherwise create a new buffer and copy the start of the message.
-		if r.message_start == 0 {
-			r.buffer = slices.Grow(r.buffer, r.initial_buffer_size)
+		if r.messageStart == 0 {
+			r.buffer = slices.Grow(r.buffer, r.initialBufferSize)
 		} else {
-			new_buffer := make([]byte, len(r.buffer)-r.message_start, r.initial_buffer_size)
-			copy(new_buffer, r.buffer[r.message_start:])
-			r.buffer = new_buffer
-			r.read_position -= r.message_start
-			r.line_start -= r.message_start
-			r.message_start = 0
+			newBuffer := make([]byte, len(r.buffer)-r.messageStart, r.initialBufferSize)
+			copy(newBuffer, r.buffer[r.messageStart:])
+			r.buffer = newBuffer
+			r.readPosition -= r.messageStart
+			r.lineStart -= r.messageStart
+			r.messageStart = 0
 		}
 	}
 
@@ -182,25 +182,25 @@ func (r *RedisProtocolReader) readFromSource() (int, error) {
 	return n, err
 }
 
-func (r *RedisProtocolReader) readLine(minimum_bytes int) ([]byte, error) {
-	r.line_start = r.read_position
+func (r *RedisProtocolReader) readLine(minimumBytes int) ([]byte, error) {
+	r.lineStart = r.readPosition
 
-	for ; r.read_position <= len(r.buffer); r.read_position++ {
+	for ; r.readPosition <= len(r.buffer); r.readPosition++ {
 		// We have reached the end of the buffer without finding the end of the line
-		if r.read_position == len(r.buffer) {
+		if r.readPosition == len(r.buffer) {
 			// Fetch some more data
 			n, err := r.readFromSource()
 			if n == 0 {
-				return r.buffer[r.line_start:], err
+				return r.buffer[r.lineStart:], err
 			} else if err != nil && err != io.EOF {
 				return nil, err
 			}
 		}
 
 		// \r\n found
-		if r.read_position > 0 && r.buffer[r.read_position] == '\n' && r.buffer[r.read_position-1] == '\r' && r.read_position-r.line_start > minimum_bytes {
-			r.read_position++
-			return r.buffer[r.line_start:r.read_position], nil
+		if r.readPosition > 0 && r.buffer[r.readPosition] == '\n' && r.buffer[r.readPosition-1] == '\r' && r.readPosition-r.lineStart > minimumBytes {
+			r.readPosition++
+			return r.buffer[r.lineStart:r.readPosition], nil
 		}
 	}
 

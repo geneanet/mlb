@@ -14,29 +14,29 @@ import (
 var RedisQueryCounter atomic.Uint64
 
 type RedisQuery struct {
-	id                 uint64
-	item               []byte
-	response_chan      chan RedisReponse
-	response_chan_stop chan struct{}
+	id               uint64
+	item             []byte
+	responseChan     chan RedisReponse
+	responseChanStop chan struct{}
 }
 
-func NewRedisQuery(item []byte, response_chan chan RedisReponse, response_chan_stop chan struct{}) RedisQuery {
+func NewRedisQuery(item []byte, responseChan chan RedisReponse, responseChanStop chan struct{}) RedisQuery {
 	return RedisQuery{
-		id:                 RedisQueryCounter.Add(1),
-		item:               item,
-		response_chan:      response_chan,
-		response_chan_stop: response_chan_stop,
+		id:               RedisQueryCounter.Add(1),
+		item:             item,
+		responseChan:     responseChan,
+		responseChanStop: responseChanStop,
 	}
 }
 
 func (q RedisQuery) Reply(item []byte) (e error) {
 	select {
-	case q.response_chan <- RedisReponse{
+	case q.responseChan <- RedisReponse{
 		query: q,
 		item:  item,
 	}:
 		return nil
-	case <-q.response_chan_stop:
+	case <-q.responseChanStop:
 		return fmt.Errorf("response channel is closed")
 	}
 }

@@ -26,23 +26,23 @@ func init() {
 }
 
 type ConsulKV struct {
-	id             string
-	url            string
-	default_period time.Duration
-	max_period     time.Duration
-	backoff_factor float64
-	backends       *backend.BackendsMap
-	backends_mutex sync.RWMutex
-	default_values map[string]cty.Value
-	subscribers    []backend.BackendUpdateSubscriber
-	ctx            context.Context
-	cancel         context.CancelFunc
-	log            zerolog.Logger
-	upd_chan       chan backend.BackendUpdate
-	upd_chan_stop  chan struct{}
-	source         string
-	evalCtx        *hcl.EvalContext
-	watchers       map[string][]*consulKVWatcher
+	id            string
+	url           string
+	defaultPeriod time.Duration
+	maxPeriod     time.Duration
+	backoffFactor float64
+	backends      *backend.BackendsMap
+	backendsMutex sync.RWMutex
+	defaultValues map[string]cty.Value
+	subscribers   []backend.BackendUpdateSubscriber
+	ctx           context.Context
+	cancel        context.CancelFunc
+	log           zerolog.Logger
+	updChan       chan backend.BackendUpdate
+	updChanStop   chan struct{}
+	source        string
+	evalCtx       *hcl.EvalContext
+	watchers      map[string][]*consulKVWatcher
 }
 
 type ConsulKVConfig struct {
@@ -88,30 +88,30 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 	config := w.parseConfig(tc)
 
 	c := &ConsulKV{
-		id:             config.ID,
-		url:            config.URL,
-		backoff_factor: config.BackoffFactor,
-		log:            log.With().Str("id", config.ID).Logger(),
-		upd_chan:       make(chan backend.BackendUpdate),
-		upd_chan_stop:  make(chan struct{}),
-		source:         config.Source,
-		backends:       backend.NewBackendsMap(),
-		default_values: make(map[string]cty.Value),
-		subscribers:    []backend.BackendUpdateSubscriber{},
-		evalCtx:        tc.ctx,
-		watchers:       make(map[string][]*consulKVWatcher),
+		id:            config.ID,
+		url:           config.URL,
+		backoffFactor: config.BackoffFactor,
+		log:           log.With().Str("id", config.ID).Logger(),
+		updChan:       make(chan backend.BackendUpdate),
+		updChanStop:   make(chan struct{}),
+		source:        config.Source,
+		backends:      backend.NewBackendsMap(),
+		defaultValues: make(map[string]cty.Value),
+		subscribers:   []backend.BackendUpdateSubscriber{},
+		evalCtx:       tc.ctx,
+		watchers:      make(map[string][]*consulKVWatcher),
 	}
 
 	var err error
 
-	c.default_period, err = time.ParseDuration(config.Period)
+	c.defaultPeriod, err = time.ParseDuration(config.Period)
 	misc.PanicIfErr(err)
-	c.max_period, err = time.ParseDuration(config.MaxPeriod)
+	c.maxPeriod, err = time.ParseDuration(config.MaxPeriod)
 	misc.PanicIfErr(err)
 
 	// Default values
 	for _, v := range config.Values {
-		c.default_values[v.ID] = cty.StringVal(v.Default)
+		c.defaultValues[v.ID] = cty.StringVal(v.Default)
 	}
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
@@ -123,14 +123,14 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 		defer wg.Done()
 		defer c.log.Info().Msg("Consul KV watcher stopped")
 		defer c.cancel()
-		defer close(c.upd_chan_stop)
+		defer close(c.updChanStop)
 
-		watcher_chan := make(chan *consulKVWatcherMessage)
+		watcherChan := make(chan *consulKVWatcherMessage)
 
 	mainloop:
 		for {
 			select {
-			case msg := <-watcher_chan:
+			case msg := <-watcherChan:
 				// Update metadata
 				msg.backend.Meta.Set("consul_kv", msg.id, cty.StringVal(msg.value))
 
@@ -140,8 +140,8 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 					Address: msg.backend.Address,
 					Backend: msg.backend,
 				})
-			case upd := <-c.upd_chan: // Backends changed
-				c.backends_mutex.Lock()
+			case upd := <-c.updChan: // Backends changed
+				c.backendsMutex.Lock()
 				switch upd.Kind {
 				case backend.UpdBackendAdded, backend.UpdBackendModified:
 					// Add/Update the backend
@@ -162,8 +162,8 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 
 					// Start a watcher for every requested value
 					for _, v := range config.Values {
-						var consul_key string
-						known, diags := upd.Backend.ResolveExpression(v.ConsulKey, c.evalCtx, &consul_key)
+						var consulKey string
+						known, diags := upd.Backend.ResolveExpression(v.ConsulKey, c.evalCtx, &consulKey)
 						if diags.HasErrors() {
 							c.log.Error().Msg(diags.Error())
 						}
@@ -171,7 +171,7 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 							if _, ok := c.watchers[upd.Address]; !ok {
 								c.watchers[upd.Address] = []*consulKVWatcher{}
 							}
-							w := newConsulKVWatcher(c.backends.Get(upd.Address), v.ID, c.url, consul_key, c.default_period, c.max_period, c.backoff_factor, watcher_chan, c.ctx, c.log)
+							w := newConsulKVWatcher(c.backends.Get(upd.Address), v.ID, c.url, consulKey, c.defaultPeriod, c.maxPeriod, c.backoffFactor, watcherChan, c.ctx, c.log)
 							c.watchers[upd.Address] = append(c.watchers[upd.Address], w)
 						}
 					}
@@ -203,7 +203,7 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 						})
 					}
 				}
-				c.backends_mutex.Unlock()
+				c.backendsMutex.Unlock()
 			case <-c.ctx.Done(): // Context cancelled
 				break mainloop
 			}
@@ -217,8 +217,8 @@ func (c *ConsulKV) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 	c.subscribers = append(c.subscribers, s)
 
 	go func() {
-		c.backends_mutex.RLock()
-		defer c.backends_mutex.RUnlock()
+		c.backendsMutex.RLock()
+		defer c.backendsMutex.RUnlock()
 
 		for _, b := range c.backends.GetList() {
 			c.sendUpdate(backend.BackendUpdate{
@@ -238,8 +238,8 @@ func (c *ConsulKV) sendUpdate(u backend.BackendUpdate) {
 
 func (c *ConsulKV) ReceiveUpdate(upd backend.BackendUpdate) {
 	select {
-	case c.upd_chan <- upd:
-	case <-c.upd_chan_stop:
+	case c.updChan <- upd:
+	case <-c.updChanStop:
 	}
 }
 
@@ -289,7 +289,7 @@ type consulKVValue struct {
 	Value string
 }
 
-func newConsulKVWatcher(backend *backend.Backend, id string, url string, key string, default_period time.Duration, max_period time.Duration, backoff_factor float64, channel chan *consulKVWatcherMessage, ctx context.Context, log zerolog.Logger) *consulKVWatcher {
+func newConsulKVWatcher(backend *backend.Backend, id string, url string, key string, defaultPeriod time.Duration, maxPeriod time.Duration, backoffFactor float64, channel chan *consulKVWatcherMessage, ctx context.Context, log zerolog.Logger) *consulKVWatcher {
 	w := &consulKVWatcher{
 		backend: backend,
 		id:      id,
@@ -303,14 +303,14 @@ func newConsulKVWatcher(backend *backend.Backend, id string, url string, key str
 
 	w.log.Info().Msg("Polling Consul")
 
-	w.ticker = misc.NewExponentialBackoffTicker(default_period, max_period, backoff_factor)
+	w.ticker = misc.NewExponentialBackoffTicker(defaultPeriod, maxPeriod, backoffFactor)
 
 	go func() {
 		defer w.log.Info().Msg("Consul polling stopped")
 		defer w.cancel()
 		defer w.ticker.Stop()
 
-		old_value := cty.UnknownVal(cty.String)
+		oldValue := cty.UnknownVal(cty.String)
 
 		for {
 			value, err := w.fetch()
@@ -328,7 +328,7 @@ func newConsulKVWatcher(backend *backend.Backend, id string, url string, key str
 				}
 
 				// Value has changed
-				if cty.UnknownAsNull(old_value).Equals(cty.UnknownAsNull(value)).False() {
+				if cty.UnknownAsNull(oldValue).Equals(cty.UnknownAsNull(value)).False() {
 					w.log.Info().Str("value", value.AsString()).Msg("Value changed")
 
 					w.channel <- &consulKVWatcherMessage{
@@ -338,7 +338,7 @@ func newConsulKVWatcher(backend *backend.Backend, id string, url string, key str
 					}
 				}
 
-				old_value = value
+				oldValue = value
 			}
 
 			select {
@@ -353,11 +353,11 @@ func newConsulKVWatcher(backend *backend.Backend, id string, url string, key str
 	return w
 }
 
-func (w *consulKVWatcher) fetch() (ret_v cty.Value, ret_e error) {
+func (w *consulKVWatcher) fetch() (retValue cty.Value, retError error) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
-			ret_e = misc.EnsureError(r)
+			retError = misc.EnsureError(r)
 		}
 	}()
 
@@ -388,14 +388,14 @@ func (w *consulKVWatcher) fetch() (ret_v cty.Value, ret_e error) {
 	err = json.Unmarshal(body, &data)
 	misc.PanicIfErr(err)
 
-	data_decoded, err := base64.StdEncoding.DecodeString(data[0].Value)
+	dataDecoded, err := base64.StdEncoding.DecodeString(data[0].Value)
 	misc.PanicIfErr(err)
 
-	data_str := string(data_decoded)
+	dataStr := string(dataDecoded)
 
-	w.log.Debug().Str("value", data_str).Msg("Key fetched")
+	w.log.Debug().Str("value", dataStr).Msg("Key fetched")
 
 	w.index = resp.Header.Get("X-Consul-Index")
 
-	return cty.StringVal(data_str), nil
+	return cty.StringVal(dataStr), nil
 }

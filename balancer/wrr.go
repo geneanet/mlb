@@ -24,19 +24,19 @@ func init() {
 }
 
 type WRRBalancer struct {
-	id            string
-	backends      *backend.BackendsMap
-	weightedlist  []string
-	mu            sync.RWMutex
-	log           zerolog.Logger
-	upd_chan      chan backend.BackendUpdate
-	upd_chan_stop chan struct{}
-	source        string
-	evalCtx       *hcl.EvalContext
-	ctx           context.Context
-	ctx_cancel    context.CancelFunc
-	wait_backends chan struct{}
-	timeout       time.Duration
+	id           string
+	backends     *backend.BackendsMap
+	weightedList []string
+	mu           sync.RWMutex
+	log          zerolog.Logger
+	updChan      chan backend.BackendUpdate
+	updChanStop  chan struct{}
+	source       string
+	evalCtx      *hcl.EvalContext
+	ctx          context.Context
+	ctxCancel    context.CancelFunc
+	waitBackends chan struct{}
+	timeout      time.Duration
 }
 
 type WRRBalancerConfig struct {
@@ -67,15 +67,15 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 	config := w.parseConfig(tc)
 
 	b := &WRRBalancer{
-		id:            config.ID,
-		backends:      backend.NewBackendsMap(),
-		weightedlist:  make([]string, 0),
-		log:           log.With().Str("id", config.ID).Logger(),
-		upd_chan:      make(chan backend.BackendUpdate),
-		upd_chan_stop: make(chan struct{}),
-		source:        config.Source,
-		evalCtx:       tc.ctx,
-		wait_backends: make(chan struct{}),
+		id:           config.ID,
+		backends:     backend.NewBackendsMap(),
+		weightedList: make([]string, 0),
+		log:          log.With().Str("id", config.ID).Logger(),
+		updChan:      make(chan backend.BackendUpdate),
+		updChanStop:  make(chan struct{}),
+		source:       config.Source,
+		evalCtx:      tc.ctx,
+		waitBackends: make(chan struct{}),
 	}
 
 	var err error
@@ -83,7 +83,7 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 	b.timeout, err = time.ParseDuration(config.Timeout)
 	misc.PanicIfErr(err)
 
-	b.ctx, b.ctx_cancel = context.WithCancel(ctx)
+	b.ctx, b.ctxCancel = context.WithCancel(ctx)
 
 	wg.Add(1)
 	b.log.Info().Msg("WRR Balancer starting")
@@ -91,16 +91,16 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 	go func() {
 		defer wg.Done()
 		defer b.log.Info().Msg("WRR Balancer stopped")
-		defer b.ctx_cancel()
-		defer close(b.upd_chan_stop)
+		defer b.ctxCancel()
+		defer close(b.updChanStop)
 
 	mainloop:
 		for {
 			select {
-			case upd := <-b.upd_chan: // Backend changed
+			case upd := <-b.updChan: // Backend changed
 				b.mu.Lock()
 
-				list_previous_size := len(b.weightedlist)
+				listPreviousSize := len(b.weightedList)
 
 				switch upd.Kind {
 				case backend.UpdBackendAdded:
@@ -114,11 +114,11 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 					b.backends.Add(upd.Backend.Clone())
 					b.backends.Get(upd.Address).Meta.Set("wrr", "weight", cty.NumberIntVal(int64(weight)))
 					for i := 0; i < weight; i++ {
-						b.weightedlist = append(b.weightedlist, upd.Address)
+						b.weightedList = append(b.weightedList, upd.Address)
 					}
 				case backend.UpdBackendModified:
 					var currentweight int = 0
-					for _, addr := range b.weightedlist {
+					for _, addr := range b.weightedList {
 						if addr == upd.Address {
 							currentweight++
 						}
@@ -135,26 +135,26 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 					b.backends.Get(upd.Address).Meta.Set("wrr", "weight", cty.NumberIntVal(int64(weight)))
 
 					if weight != currentweight {
-						b.log.Info().Str("address", upd.Address).Int("old_weight", currentweight).Int("new_weight", weight).Msg("Updating backend weight in WRR balancer")
-						b.weightedlist = slices.DeleteFunc(b.weightedlist, func(a string) bool { return a == upd.Address })
+						b.log.Info().Str("address", upd.Address).Int("oldWeight", currentweight).Int("newWeight", weight).Msg("Updating backend weight in WRR balancer")
+						b.weightedList = slices.DeleteFunc(b.weightedList, func(a string) bool { return a == upd.Address })
 						for i := 0; i < weight; i++ {
-							b.weightedlist = append(b.weightedlist, upd.Address)
+							b.weightedList = append(b.weightedList, upd.Address)
 						}
 					}
 				case backend.UpdBackendRemoved:
 					b.log.Info().Str("address", upd.Address).Msg("Removing backend from WRR balancer")
-					b.weightedlist = slices.DeleteFunc(b.weightedlist, func(a string) bool { return a == upd.Address })
+					b.weightedList = slices.DeleteFunc(b.weightedList, func(a string) bool { return a == upd.Address })
 					b.backends.Remove(upd.Address)
 				}
 
-				list_new_size := len(b.weightedlist)
+				listNewSize := len(b.weightedList)
 
-				if list_previous_size == 0 && list_new_size > 0 {
+				if listPreviousSize == 0 && listNewSize > 0 {
 					b.log.Debug().Msg("At least one backend has been added to the list, unblocking GetBackend")
-					close(b.wait_backends)
-				} else if list_previous_size > 0 && list_new_size == 0 {
+					close(b.waitBackends)
+				} else if listPreviousSize > 0 && listNewSize == 0 {
 					b.log.Debug().Msg("There are no more backends in the list, blocking GetBackend")
-					b.wait_backends = make(chan struct{})
+					b.waitBackends = make(chan struct{})
 				}
 
 				b.mu.Unlock()
@@ -173,19 +173,19 @@ func (b *WRRBalancer) GetBackend(wait bool) *backend.Backend {
 	defer b.mu.RUnlock()
 
 	// Wait for the backend list to be populated or a timeout to occur
-	if len(b.weightedlist) == 0 && b.timeout > 0 && wait {
+	if len(b.weightedList) == 0 && b.timeout > 0 && wait {
 		b.mu.RUnlock()
-		ctx, ctx_cancel := context.WithDeadline(b.ctx, time.Now().Add(b.timeout))
-		defer ctx_cancel()
+		ctx, ctxCancel := context.WithDeadline(b.ctx, time.Now().Add(b.timeout))
+		defer ctxCancel()
 		select {
-		case <-b.wait_backends: // Channel closed = backends available
+		case <-b.waitBackends: // Channel closed = backends available
 		case <-ctx.Done():
 		}
 		b.mu.RLock()
 	}
 
-	if len(b.weightedlist) > 0 {
-		address := b.weightedlist[rand.Intn(len(b.weightedlist))]
+	if len(b.weightedList) > 0 {
+		address := b.weightedList[rand.Intn(len(b.weightedList))]
 		return b.backends.Get(address)
 	} else {
 		return nil
@@ -194,8 +194,8 @@ func (b *WRRBalancer) GetBackend(wait bool) *backend.Backend {
 
 func (b *WRRBalancer) ReceiveUpdate(upd backend.BackendUpdate) {
 	select {
-	case b.upd_chan <- upd:
-	case <-b.upd_chan_stop:
+	case b.updChan <- upd:
+	case <-b.updChanStop:
 	}
 }
 

@@ -15,34 +15,34 @@ import (
 //----------------
 
 type RedisBackendConnectionPool struct {
-	pool                    map[*RedisBackendConnection]struct{}
-	mutex                   sync.RWMutex
-	ctx                     context.Context
-	cancel                  context.CancelFunc
-	chan_failure            chan *RedisBackendConnection
-	proxy                   *RedisProxy
-	wait_backends_timeout   time.Duration
-	wait_backends_semaphore *semaphore.Weighted
+	pool                  map[*RedisBackendConnection]struct{}
+	mutex                 sync.RWMutex
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	chanFailure           chan *RedisBackendConnection
+	proxy                 *RedisProxy
+	waitBackendsTimeout   time.Duration
+	waitBackendsSemaphore *semaphore.Weighted
 }
 
 func NewRedisBackendConnectionPool(proxy *RedisProxy) *RedisBackendConnectionPool {
 	rbcp := &RedisBackendConnectionPool{
-		pool:                    make(map[*RedisBackendConnection]struct{}),
-		proxy:                   proxy,
-		chan_failure:            make(chan *RedisBackendConnection),
-		wait_backends_timeout:   proxy.backend_wait_timeout,
-		wait_backends_semaphore: semaphore.NewWeighted(1),
+		pool:                  make(map[*RedisBackendConnection]struct{}),
+		proxy:                 proxy,
+		chanFailure:           make(chan *RedisBackendConnection),
+		waitBackendsTimeout:   proxy.backendWaitTimeout,
+		waitBackendsSemaphore: semaphore.NewWeighted(1),
 	}
 	rbcp.ctx, rbcp.cancel = context.WithCancel(proxy.ctx)
 
 	proxy.log.Debug().Msg("No connection in the pool, acquiring the lock")
-	rbcp.wait_backends_semaphore.Acquire(rbcp.ctx, 1)
+	rbcp.waitBackendsSemaphore.Acquire(rbcp.ctx, 1)
 
 	// Remove failed connections
 	go func() {
 		for {
 			select {
-			case rbc := <-rbcp.chan_failure:
+			case rbc := <-rbcp.chanFailure:
 				proxy.log.Error().Str("peer", rbc.backend.Address).Msg("Backend connection failed")
 				proxy.backendConnectionPool.Del(rbc)
 				proxy.backendConnectionPool.Update()
@@ -60,12 +60,12 @@ func (rbcp *RedisBackendConnectionPool) GetRandom(wait bool) *RedisBackendConnec
 	defer rbcp.mutex.RUnlock()
 
 	// Wait for a connection to be added to the pool or a timeout to occur
-	if len(rbcp.pool) == 0 && rbcp.wait_backends_timeout > 0 && wait {
+	if len(rbcp.pool) == 0 && rbcp.waitBackendsTimeout > 0 && wait {
 		rbcp.mutex.RUnlock()
-		ctx, ctx_cancel := context.WithDeadline(rbcp.ctx, time.Now().Add(rbcp.wait_backends_timeout))
-		defer ctx_cancel()
-		if rbcp.wait_backends_semaphore.Acquire(ctx, 1) == nil {
-			rbcp.wait_backends_semaphore.Release(1)
+		ctx, ctxCancel := context.WithDeadline(rbcp.ctx, time.Now().Add(rbcp.waitBackendsTimeout))
+		defer ctxCancel()
+		if rbcp.waitBackendsSemaphore.Acquire(ctx, 1) == nil {
+			rbcp.waitBackendsSemaphore.Release(1)
 		}
 		rbcp.mutex.RLock()
 	}
@@ -80,25 +80,25 @@ func (rbcp *RedisBackendConnectionPool) Del(rbc *RedisBackendConnection) {
 	rbcp.mutex.Lock()
 	defer rbcp.mutex.Unlock()
 
-	previous_len := len(rbcp.pool)
+	previousLen := len(rbcp.pool)
 	delete(rbcp.pool, rbc)
-	new_len := len(rbcp.pool)
+	newLen := len(rbcp.pool)
 
-	if previous_len > 0 && new_len == 0 {
+	if previousLen > 0 && newLen == 0 {
 		rbcp.proxy.log.Debug().Msg("There are no more connections in the pool, acquiring the lock")
-		rbcp.wait_backends_semaphore.Acquire(rbcp.ctx, 1)
+		rbcp.waitBackendsSemaphore.Acquire(rbcp.ctx, 1)
 	}
 }
 
 func (rbcp *RedisBackendConnectionPool) NotifyFailure(rbc *RedisBackendConnection) {
-	rbcp.chan_failure <- rbc
+	rbcp.chanFailure <- rbc
 }
 
 func (rbcp *RedisBackendConnectionPool) Update() {
 	rbcp.mutex.Lock()
 	defer rbcp.mutex.Unlock()
 
-	previous_len := len(rbcp.pool)
+	previousLen := len(rbcp.pool)
 
 	// Remove connections whose backend is not in the proxy backends list anymore
 	for conn := range rbcp.pool {
@@ -148,13 +148,13 @@ func (rbcp *RedisBackendConnectionPool) Update() {
 		}
 	}
 
-	new_len := len(rbcp.pool)
+	newLen := len(rbcp.pool)
 
-	if previous_len == 0 && new_len > 0 {
+	if previousLen == 0 && newLen > 0 {
 		rbcp.proxy.log.Debug().Msg("At least one connection has been added to the pool, releasing the lock")
-		rbcp.wait_backends_semaphore.Release(1)
-	} else if previous_len > 0 && new_len == 0 {
+		rbcp.waitBackendsSemaphore.Release(1)
+	} else if previousLen > 0 && newLen == 0 {
 		rbcp.proxy.log.Debug().Msg("There are no more connections in the pool, acquiring the lock")
-		rbcp.wait_backends_semaphore.Acquire(rbcp.ctx, 1)
+		rbcp.waitBackendsSemaphore.Acquire(rbcp.ctx, 1)
 	}
 }

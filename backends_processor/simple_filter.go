@@ -18,16 +18,16 @@ func init() {
 }
 
 type SimpleFilter struct {
-	id             string
-	subscribers    []backend.BackendUpdateSubscriber
-	backends       *backend.BackendsMap
-	backends_mutex sync.RWMutex
-	log            zerolog.Logger
-	upd_chan       chan backend.BackendUpdate
-	upd_chan_stop  chan struct{}
-	source         string
-	condition      hcl.Expression
-	evalCtx        *hcl.EvalContext
+	id            string
+	subscribers   []backend.BackendUpdateSubscriber
+	backends      *backend.BackendsMap
+	backendsMutex sync.RWMutex
+	log           zerolog.Logger
+	updChan       chan backend.BackendUpdate
+	updChanStop   chan struct{}
+	source        string
+	condition     hcl.Expression
+	evalCtx       *hcl.EvalContext
 }
 
 type SimpleFilterConfig struct {
@@ -54,15 +54,15 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 	config := w.parseConfig(tc)
 
 	f := &SimpleFilter{
-		id:            config.ID,
-		subscribers:   []backend.BackendUpdateSubscriber{},
-		backends:      backend.NewBackendsMap(),
-		log:           log.With().Str("id", config.ID).Logger(),
-		upd_chan:      make(chan backend.BackendUpdate),
-		upd_chan_stop: make(chan struct{}),
-		source:        config.Source,
-		condition:     config.Condition,
-		evalCtx:       tc.ctx,
+		id:          config.ID,
+		subscribers: []backend.BackendUpdateSubscriber{},
+		backends:    backend.NewBackendsMap(),
+		log:         log.With().Str("id", config.ID).Logger(),
+		updChan:     make(chan backend.BackendUpdate),
+		updChanStop: make(chan struct{}),
+		source:      config.Source,
+		condition:   config.Condition,
+		evalCtx:     tc.ctx,
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -74,13 +74,13 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 		defer wg.Done()
 		defer f.log.Info().Msg("Filter stopped")
 		defer cancel()
-		defer close(f.upd_chan_stop)
+		defer close(f.updChanStop)
 
 	mainloop:
 		for {
 			select {
-			case upd := <-f.upd_chan: // Backend changed
-				f.backends_mutex.Lock()
+			case upd := <-f.updChan: // Backend changed
+				f.backendsMutex.Lock()
 				switch upd.Kind {
 				case backend.UpdBackendAdded, backend.UpdBackendModified:
 					if f.backends.Has(upd.Address) { // Modified
@@ -118,7 +118,7 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 						})
 					}
 				}
-				f.backends_mutex.Unlock()
+				f.backendsMutex.Unlock()
 			case <-ctx.Done(): // Context cancelled
 				break mainloop
 			}
@@ -132,8 +132,8 @@ func (f *SimpleFilter) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 	f.subscribers = append(f.subscribers, s)
 
 	go func() {
-		f.backends_mutex.RLock()
-		defer f.backends_mutex.RUnlock()
+		f.backendsMutex.RLock()
+		defer f.backendsMutex.RUnlock()
 
 		for _, b := range f.backends.GetList() {
 			f.sendUpdate(backend.BackendUpdate{
@@ -163,8 +163,8 @@ func (f *SimpleFilter) matchFilter(b *backend.Backend) bool {
 
 func (f *SimpleFilter) ReceiveUpdate(upd backend.BackendUpdate) {
 	select {
-	case f.upd_chan <- upd:
-	case <-f.upd_chan_stop:
+	case f.updChan <- upd:
+	case <-f.updChanStop:
 	}
 }
 
