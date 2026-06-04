@@ -505,6 +505,7 @@ func (c *MySQLCheck) StartPolling() error {
 
 	db, err := sql.Open("mysql", c.dsn)
 	if err != nil {
+		c.running = false
 		return err
 	}
 	db.SetMaxOpenConns(1)
@@ -537,7 +538,17 @@ func (c *MySQLCheck) StopPolling() {
 		return
 	}
 
+	c.running = false
+
+	if c.db != nil {
 	c.db.Close()
+	}
+	if c.ticker != nil {
 	c.ticker.Stop()
+	}
+	select {
+	case <-c.stopChan:
+	default:
 	close(c.stopChan)
+	}
 }
