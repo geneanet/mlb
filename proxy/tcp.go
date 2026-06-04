@@ -38,6 +38,7 @@ type ProxyTCP struct {
 	connectTimeout        time.Duration
 	clientTimeout         time.Duration
 	serverTimeout         time.Duration
+	timeoutMargin         time.Duration
 	connectionsWG         sync.WaitGroup
 	ctx                   context.Context
 	cancel                context.CancelFunc
@@ -57,6 +58,7 @@ type TCPProxyConfig struct {
 	ClientTimeout  string   `hcl:"client_timeout,optional"`
 	ServerTimeout  string   `hcl:"server_timeout,optional"`
 	CloseTimeout   string   `hcl:"close_timeout,optional"`
+	TimeoutMargin  string   `hcl:"timeout_margin,optional"`
 	BufferSize     int      `hcl:"buffer_size,optional"`
 	NoDelay        bool     `hcl:"nodelay,optional"`
 }
@@ -83,6 +85,9 @@ func (w TCPProxyFactory) parseConfig(tc *Config) *TCPProxyConfig {
 	}
 	if config.CloseTimeout == "" {
 		config.CloseTimeout = "0s"
+	}
+	if config.TimeoutMargin == "" {
+		config.TimeoutMargin = "1s"
 	}
 	if config.BufferSize == 0 {
 		config.BufferSize = 16384
@@ -113,6 +118,8 @@ func (w TCPProxyFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 	p.serverTimeout, err = time.ParseDuration(config.ServerTimeout)
 	misc.PanicIfErr(err)
 	p.closeTimeout, err = time.ParseDuration(config.CloseTimeout)
+	misc.PanicIfErr(err)
+	p.timeoutMargin, err = time.ParseDuration(config.TimeoutMargin)
 	misc.PanicIfErr(err)
 
 	p.ctx, p.cancel = context.WithCancel(ctx)
@@ -186,9 +193,15 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inp
 	buffer := p.bufferPool.Get().([]byte)
 	defer p.bufferPool.Put(buffer)
 
+	var nextReadDeadline, nextWriteDeadline time.Time
+
 	for {
 		if inputTimeout != 0 {
-			input.SetReadDeadline(time.Now().Add(inputTimeout))
+			now := time.Now()
+			if nextReadDeadline.IsZero() || now.Add(inputTimeout).After(nextReadDeadline) {
+				nextReadDeadline = now.Add(inputTimeout + p.timeoutMargin)
+				input.SetReadDeadline(nextReadDeadline)
+			}
 		}
 		nbytes, err := input.Read(buffer)
 		counter.Add(uint64(nbytes))
@@ -197,7 +210,11 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inp
 		}
 		misc.PanicIfErr(err)
 		if outputTimeout != 0 {
-			output.SetWriteDeadline(time.Now().Add(outputTimeout))
+			now := time.Now()
+			if nextWriteDeadline.IsZero() || now.Add(outputTimeout).After(nextWriteDeadline) {
+				nextWriteDeadline = now.Add(outputTimeout + p.timeoutMargin)
+				output.SetWriteDeadline(nextWriteDeadline)
+			}
 		}
 		_, err = output.Write(buffer[:nbytes])
 		if errors.Is(err, net.ErrClosed) {
