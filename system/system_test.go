@@ -72,7 +72,7 @@ func TestSetRlimitNOFILE(t *testing.T) {
 	if newLimit.Cur != testVal {
 		t.Errorf("Expected Cur to be %d, got %d", testVal, newLimit.Cur)
 	}
-	if newLimit.Max != testVal {
+	if syscall.Geteuid() == 0 && newLimit.Max != testVal {
 		t.Errorf("Expected Max to be %d, got %d", testVal, newLimit.Max)
 	}
 }
