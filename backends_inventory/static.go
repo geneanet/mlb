@@ -97,5 +97,5 @@ func (c *BackendsInventoryStatic) GetBackendList() []*backend.Backend {
 }
 
 func (c *BackendsInventoryStatic) Bind(modules module.ModulesList) {
-
+	_ = modules
 }

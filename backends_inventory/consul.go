@@ -272,7 +272,7 @@ func (c *BackendsInventoryConsul) GetBackendList() backend.BackendsList {
 }
 
 func (c *BackendsInventoryConsul) Bind(modules module.ModulesList) {
-
+	_ = modules
 }
 
 func consulServicesSliceToMap(services consulServicesSlice) consulServicesMap {
