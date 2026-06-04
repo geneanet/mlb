@@ -17,6 +17,7 @@ import (
 type RedisBackendConnectionPool struct {
 	pool                  map[*RedisBackendConnection]struct{}
 	mutex                 sync.RWMutex
+	updateMutex           sync.Mutex
 	ctx                   context.Context
 	cancel                context.CancelFunc
 	chanFailure           chan *RedisBackendConnection
@@ -95,9 +96,10 @@ func (rbcp *RedisBackendConnectionPool) NotifyFailure(rbc *RedisBackendConnectio
 }
 
 func (rbcp *RedisBackendConnectionPool) Update() {
-	rbcp.mutex.Lock()
-	defer rbcp.mutex.Unlock()
+	rbcp.updateMutex.Lock()
+	defer rbcp.updateMutex.Unlock()
 
+	rbcp.mutex.Lock()
 	previousLen := len(rbcp.pool)
 
 	// Remove connections whose backend is not in the proxy backends list anymore
@@ -107,10 +109,20 @@ func (rbcp *RedisBackendConnectionPool) Update() {
 			delete(rbcp.pool, conn)
 		}
 	}
+	rbcp.mutex.Unlock()
 
 	// Add new connections if needed
 	backoff := misc.NewExponentialBackoff(rbcp.proxy.retryPeriod, rbcp.proxy.retryMaxPeriod, rbcp.proxy.retryBackoffFactor)
-	for len(rbcp.pool) < rbcp.proxy.backendConnectionPoolSize {
+
+	for {
+		rbcp.mutex.Lock()
+		poolLen := len(rbcp.pool)
+		rbcp.mutex.Unlock()
+
+		if poolLen >= rbcp.proxy.backendConnectionPoolSize {
+			break
+		}
+
 		// Pick a backend
 		var backend *backend.Backend
 		for {
@@ -131,13 +143,15 @@ func (rbcp *RedisBackendConnectionPool) Update() {
 		}
 		backoff.Reset()
 
-		// Add the backend
+		// Add the backend (network call is done outside of rbcp.mutex lock)
 		rbc, err := NewRedisBackendConnection(rbcp, backend)
 		if err != nil {
 			rbcp.proxy.log.Warn().Err(err).Str("peer", backend.Address).Msg("Unable to connect to backend")
 			backoff.Sleep(rbcp.ctx)
 		} else {
+			rbcp.mutex.Lock()
 			rbcp.pool[rbc] = struct{}{}
+			rbcp.mutex.Unlock()
 		}
 
 		// Exit if the context is cancelled
@@ -148,7 +162,9 @@ func (rbcp *RedisBackendConnectionPool) Update() {
 		}
 	}
 
+	rbcp.mutex.Lock()
 	newLen := len(rbcp.pool)
+	rbcp.mutex.Unlock()
 
 	if previousLen == 0 && newLen > 0 {
 		rbcp.proxy.log.Debug().Msg("At least one connection has been added to the pool, releasing the lock")
