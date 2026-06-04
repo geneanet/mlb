@@ -20,6 +20,8 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+var mysqlDriverName = "mysql"
+
 func init() {
 	factories["mysql"] = &MySQLCheckerFactory{}
 }
@@ -401,7 +403,7 @@ func (c *MySQLCheck) fetchStatus() (retStatus cty.Value, retReadonly cty.Value, 
 			if c.db != nil {
 				c.db.Close()
 			}
-			db, err := sql.Open("mysql", c.dsn)
+			db, err := sql.Open(mysqlDriverName, c.dsn)
 			if err != nil {
 				log.Warn().Str("address", c.backend.Address).Err(err).Msg("Error while reopening MySQL connection")
 			} else {
@@ -503,7 +505,7 @@ func (c *MySQLCheck) StartPolling() error {
 	}
 	c.running = true
 
-	db, err := sql.Open("mysql", c.dsn)
+	db, err := sql.Open(mysqlDriverName, c.dsn)
 	if err != nil {
 		c.running = false
 		return err
@@ -541,14 +543,14 @@ func (c *MySQLCheck) StopPolling() {
 	c.running = false
 
 	if c.db != nil {
-	c.db.Close()
+		c.db.Close()
 	}
 	if c.ticker != nil {
-	c.ticker.Stop()
+		c.ticker.Stop()
 	}
 	select {
 	case <-c.stopChan:
 	default:
-	close(c.stopChan)
+		close(c.stopChan)
 	}
 }
