@@ -82,6 +82,10 @@ func LoadConfig(path string) (*Config, hcl.Diagnostics) {
 	hclfile, parseDiags := p.ParseHCLFile(path)
 	diags = append(diags, parseDiags...)
 
+	if hclfile == nil {
+		return c, diags
+	}
+
 	content, contentDiags := hclfile.Body.Content(configFileSchema)
 	diags = append(diags, contentDiags...)
 
