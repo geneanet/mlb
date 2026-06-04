@@ -398,9 +398,16 @@ func (c *MySQLCheck) fetchStatus() (retStatus cty.Value, retReadonly cty.Value, 
 
 			// Close and reopen MySQL connection to ensure we start on a good base next time
 			log.Info().Str("address", c.backend.Address).Msg("Reopening MySQL connection")
+			if c.db != nil {
+				c.db.Close()
+			}
 			db, err := sql.Open("mysql", c.dsn)
 			if err != nil {
 				log.Warn().Str("address", c.backend.Address).Err(err).Msg("Error while reopening MySQL connection")
+			} else {
+				db.SetMaxOpenConns(1)
+				db.SetMaxIdleConns(1)
+				db.SetConnMaxLifetime(time.Minute * 5)
 			}
 			c.db = db
 
@@ -500,6 +507,9 @@ func (c *MySQLCheck) StartPolling() error {
 	if err != nil {
 		return err
 	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(time.Minute * 5)
 	c.db = db
 
 	c.ticker = misc.NewExponentialBackoffTicker(c.defaultPeriod, c.maxPeriod, c.backoffFactor)
