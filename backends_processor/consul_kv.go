@@ -329,12 +329,16 @@ func newConsulKVWatcher(backend *backend.Backend, id string, url string, key str
 
 				// Value has changed
 				if cty.UnknownAsNull(oldValue).Equals(cty.UnknownAsNull(value)).False() {
-					w.log.Info().Str("value", value.AsString()).Msg("Value changed")
+					var valStr string
+					if value.IsKnown() && !value.IsNull() {
+						valStr = value.AsString()
+					}
+					w.log.Info().Str("value", valStr).Msg("Value changed")
 
 					w.channel <- &consulKVWatcherMessage{
 						backend: w.backend,
 						id:      w.id,
-						value:   value.AsString(),
+						value:   valStr,
 					}
 				}
 
