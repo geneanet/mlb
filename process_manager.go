@@ -49,6 +49,13 @@ func startProcess(chanProcess chan *Process) (*Process, error) {
 }
 
 func processManager() {
+	chanSignals := make(chan os.Signal, 1)
+	signal.Notify(chanSignals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR1)
+
+	processManagerLoop(chanSignals)
+}
+
+func processManagerLoop(chanSignals <-chan os.Signal) {
 	processes := map[*Process]*Process{}
 	chanProcess := make(chan *Process)
 	var starting *Process
@@ -61,11 +68,7 @@ func processManager() {
 	processes[proc] = proc
 	starting = proc
 
-	// Signals
-	chanSignals := make(chan os.Signal, 1)
-	signal.Notify(chanSignals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR1)
-
-processManagerLoop:
+loop:
 	for {
 		select {
 		case s := <-chanSignals:
@@ -113,7 +116,7 @@ processManagerLoop:
 
 			if len(processes) == 0 {
 				log.Info().Msg("All worker processes have ended")
-				break processManagerLoop
+				break loop
 			}
 		}
 	}
