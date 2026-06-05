@@ -324,7 +324,7 @@ func (p *RedisProxy) handleConnection(connFront net.Conn) {
 		query := NewRedisQuery(item, responseChan, responseChanStop)
 		p.log.Debug().Uint64("queryId", query.id).Msg("Received query")
 
-		if query.IsAllowed() {
+		if !query.IsRestricted() {
 			// Add the query to the queue
 			err := backendConnection.Query(query)
 

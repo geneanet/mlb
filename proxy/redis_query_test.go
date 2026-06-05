@@ -204,15 +204,15 @@ func TestRedisQuery_GetCommand(t *testing.T) {
 	})
 }
 
-// TestRedisQuery_IsAllowed verifies that restricted and dangerous Redis commands
-// are correctly identified and denied, while normal commands are permitted.
-func TestRedisQuery_IsAllowed(t *testing.T) {
+// TestRedisQuery_IsRestricted verifies that restricted and dangerous Redis commands
+// are correctly identified, while normal commands are permitted.
+func TestRedisQuery_IsRestricted(t *testing.T) {
 	// Case 1: Permitted commands
 	allowedCommands := []string{"GET", "SET", "PING", "DEL", "EXISTS"}
 	for _, cmdStr := range allowedCommands {
 		t.Run("Allowed_"+cmdStr, func(t *testing.T) {
 			query := NewRedisQuery([]byte(cmdStr+"\r\n"), nil, nil)
-			if !query.IsAllowed() {
+			if query.IsRestricted() {
 				t.Errorf("Command %s should be allowed", cmdStr)
 			}
 		})
@@ -228,13 +228,13 @@ func TestRedisQuery_IsAllowed(t *testing.T) {
 	for _, cmdStr := range restricted {
 		t.Run("Restricted_Lower_"+cmdStr, func(t *testing.T) {
 			query := NewRedisQuery([]byte(cmdStr+"\r\n"), nil, nil)
-			if query.IsAllowed() {
+			if !query.IsRestricted() {
 				t.Errorf("Command %s should be denied", cmdStr)
 			}
 		})
 		t.Run("Restricted_Upper_"+cmdStr, func(t *testing.T) {
 			query := NewRedisQuery([]byte(strings.ToUpper(cmdStr)+"\r\n"), nil, nil)
-			if query.IsAllowed() {
+			if !query.IsRestricted() {
 				t.Errorf("Command %s should be denied case-insensitively", cmdStr)
 			}
 		})
@@ -243,7 +243,7 @@ func TestRedisQuery_IsAllowed(t *testing.T) {
 	// Case 3: Invalid commands that fail parsing should also not be allowed
 	t.Run("InvalidCommandDenied", func(t *testing.T) {
 		query := NewRedisQuery([]byte("PI"), nil, nil)
-		if query.IsAllowed() {
+		if !query.IsRestricted() {
 			t.Errorf("Invalid command should be disallowed")
 		}
 	})

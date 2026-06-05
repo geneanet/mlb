@@ -3,7 +3,6 @@ package proxy
 import (
 	"bytes"
 	"fmt"
-	"strconv"
 	"sync/atomic"
 )
 
@@ -12,6 +11,13 @@ import (
 //------------
 
 var RedisQueryCounter atomic.Uint64
+
+var restrictedCommandsMap = map[string]struct{}{
+	"watch": {}, "unwatch": {}, "multi": {}, "exec": {}, "discard": {}, // MULTI
+	"brpoplpush": {}, "blpop": {}, "brpop": {}, "bzpopmin": {}, "bzpopmax": {}, "xread": {}, "xreadgroup": {}, "wait": {}, "waitaof": {}, // BLOCKING
+	"subscribe": {}, "unsubscribe": {}, "psubscribe": {}, "punsubscribe": {}, "ssubscribe": {}, "sunsubscribe": {}, "publish": {}, "spublish": {}, "pubsub": {}, // PUBSUB
+	"monitor": {}, // MISC
+}
 
 type RedisQuery struct {
 	id               uint64
@@ -45,27 +51,31 @@ func (q RedisQuery) Abort() (e error) {
 	return q.Reply(nil)
 }
 
-func (q RedisQuery) IsAllowed() bool {
+func (q RedisQuery) IsRestricted() bool {
 	command, err := q.GetCommand()
 
+	// Invalid commands are denied
 	if err != nil {
+		return true
+	}
+
+	// If the command is longer than 32 bytes, it's definitely not in our restricted list
+	if len(command) > 32 {
 		return false
 	}
 
-	restrictedCommands := [...][]byte{
-		[]byte("watch"), []byte("unwatch"), []byte("multi"), []byte("exec"), []byte("discard"), // MULTI
-		[]byte("brpoplpush"), []byte("blpop"), []byte("brpop"), []byte("bzpopmin"), []byte("bzpopmax"), []byte("xread"), []byte("xreadgroup"), []byte("wait"), []byte("waitaof"), // BLOCKING
-		[]byte("subscribe"), []byte("unsubscribe"), []byte("psubscribe"), []byte("punsubscribe"), []byte("ssubscribe"), []byte("sunsubscribe"), []byte("publish"), []byte("spublish"), []byte("pubsub"), // PUBSUB
-		[]byte("monitor"), // MISC
-	}
-
-	for _, restrictedCommand := range restrictedCommands {
-		if len(command) == len(restrictedCommand) && bytes.EqualFold(command, restrictedCommand) {
-			return false
+	// Efficiently convert to lowercase into a stack buffer
+	var buf [32]byte
+	for i, b := range command {
+		if b >= 'A' && b <= 'Z' {
+			buf[i] = b + 32
+		} else {
+			buf[i] = b
 		}
 	}
 
-	return true
+	_, found := restrictedCommandsMap[string(buf[:len(command)])]
+	return found
 }
 
 func (q RedisQuery) GetCommand() ([]byte, error) {
@@ -81,7 +91,7 @@ func (q RedisQuery) GetCommand() ([]byte, error) {
 				return []byte{}, fmt.Errorf("bulk string end not found")
 			}
 
-			size, err := strconv.Atoi(string(q.item[i+1 : i+j]))
+			size, err := parseSize(q.item[i+1 : i+j])
 			if err != nil {
 				return []byte{}, fmt.Errorf("unable to parse bulk string size: %v", err)
 			}
