@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"slices"
-	"strconv"
 )
 
 //-----------------
@@ -12,6 +11,38 @@ import (
 //-----------------
 
 // TODO: improve perfs by using buffer pools
+
+// parseSize parses a decimal integer from a byte slice without performing heap allocations.
+// It supports an optional leading '-' for negative numbers and validates that all characters
+// are valid decimal digits. It returns the parsed integer or an error if the input is empty
+// or contains invalid characters.
+func parseSize(b []byte) (int, error) {
+	if len(b) == 0 {
+		return 0, fmt.Errorf("empty integer")
+	}
+
+	neg := false
+	if b[0] == '-' {
+		neg = true
+		b = b[1:]
+		if len(b) == 0 {
+			return 0, fmt.Errorf("invalid integer: \"-\"")
+		}
+	}
+
+	res := 0
+	for _, c := range b {
+		if c < '0' || c > '9' {
+			return 0, fmt.Errorf("invalid integer")
+		}
+		res = res*10 + int(c-'0')
+	}
+
+	if neg {
+		return -res, nil
+	}
+	return res, nil
+}
 
 // RedisProtocolReader provides a high-level reader for Redis RESP2 and RESP3 protocols.
 // It handles buffered reading and automatic buffer management to support messages of any size.
@@ -48,11 +79,11 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 
 	r.messageStart = r.readPosition
 	eof := false
-	raw := false               // True if we are expecting a raw data line (e.g., after $5\r\n)
-	streaming := 0             // Depth of nested streamed collections (e.g., *?\r\n)
-	streamingAttributes := 0   // Number of active streamed attributes requiring an extra following message
+	raw := false                         // True if we are expecting a raw data line (e.g., after $5\r\n)
+	streaming := 0                       // Depth of nested streamed collections (e.g., *?\r\n)
+	streamingAttributes := 0             // Number of active streamed attributes requiring an extra following message
 	streamingStack := make([]bool, 0, 8) // Stack to track if a streamed collection is an attribute
-	strStreaming := false      // True if we are currently reading a streamed bulk string ($?\r\n)
+	strStreaming := false                // True if we are currently reading a streamed bulk string ($?\r\n)
 
 	// Continue reading as long as we have pending items or active streamed collections
 	for (linesToRead > 0 || streaming > 0) && !eof {
@@ -84,7 +115,7 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 				strStreaming = true
 				linesToRead++
 			} else { // Defined size (e.g., $12\r\n)
-				size, errAtoi := strconv.Atoi(string(line[1 : len(line)-2]))
+				size, errAtoi := parseSize(line[1 : len(line)-2])
 				if errAtoi != nil {
 					return nil, errAtoi
 				}
@@ -100,7 +131,7 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 		case ';':
 			// Streamed string chunk (;size\r\ndata\r\n)
 			if strStreaming {
-				size, errAtoi := strconv.Atoi(string(line[1 : len(line)-2]))
+				size, errAtoi := parseSize(line[1 : len(line)-2])
 				if errAtoi != nil {
 					return nil, errAtoi
 				}
@@ -132,7 +163,7 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 					streamingAttributes++
 				}
 			} else { // Defined size collection (e.g., *3\r\n)
-				size, errAtoi := strconv.Atoi(string(line[1 : len(line)-2]))
+				size, errAtoi := parseSize(line[1 : len(line)-2])
 				if errAtoi != nil {
 					return nil, errAtoi
 				}
