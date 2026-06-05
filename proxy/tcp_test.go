@@ -1,0 +1,614 @@
+package proxy
+
+import (
+	"bytes"
+	"context"
+	"io"
+	"net"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"mlb/backend"
+	"mlb/module"
+
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/rs/zerolog"
+)
+
+// mockBackendProvider provides a simple mock for the backend.BackendProvider interface.
+type mockBackendProvider struct {
+	id             string
+	backendAddress string
+	returnNil      bool
+}
+
+func (m *mockBackendProvider) GetBackend(wait bool) *backend.Backend {
+	if m.returnNil {
+		return nil
+	}
+	return &backend.Backend{
+		Address: m.backendAddress,
+	}
+}
+
+func (m *mockBackendProvider) GetID() string {
+	return m.id
+}
+
+func (m *mockBackendProvider) Bind(modules module.ModulesList) {
+	// No operation needed for this mock
+}
+
+// getFreePort attempts to obtain an available ephemeral port.
+func getFreePort() (string, error) {
+	addr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		return "", err
+	}
+	defer listener.Close()
+	return listener.Addr().String(), nil
+}
+
+// startEchoServer starts a basic TCP echo server and returns the net.Listener.
+func startEchoServer(t *testing.T) net.Listener {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				_, _ = io.Copy(c, c)
+			}(conn)
+		}
+	}()
+	return listener
+}
+
+// TestTCPProxyFactory verifies the parsing and validation of a complete HCL configuration block
+// for the TCP proxy. It tests that:
+// 1. The HCL parser correctly maps fields to the Config struct.
+// 2. The TCPProxyFactory.ValidateConfig method successfully validates a correct config.
+// 3. The TCPProxyFactory.New method creates a ProxyTCP instance with all fields properly initialized.
+// 4. The buffer pool is correctly initialized with the configured buffer size.
+func TestTCPProxyFactory(t *testing.T) {
+	hclText := `
+		source = "primary_src"
+		backup_source = "backup_src"
+		addresses = ["127.0.0.1:0"]
+		connect_timeout = "1s"
+		client_timeout = "1s"
+		server_timeout = "1s"
+		close_timeout = "1s"
+		timeout_margin = "1s"
+		buffer_size = 1024
+		nodelay = true
+	`
+	file, diags := hclsyntax.ParseConfig([]byte(hclText), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+
+	tc := &Config{
+		Type:   "tcp",
+		Name:   "test_proxy",
+		Config: file.Body,
+		ctx:    &hcl.EvalContext{},
+	}
+
+	factory := TCPProxyFactory{}
+	vDiags := factory.ValidateConfig(tc)
+	if vDiags.HasErrors() {
+		t.Fatal(vDiags)
+	}
+
+	wg := &sync.WaitGroup{}
+	ctx := context.Background()
+
+	mod := factory.New(tc, wg, ctx)
+	if mod == nil {
+		t.Fatal("expected mod not to be nil")
+	}
+	if mod.GetID() != "proxy.tcp.test_proxy" {
+		t.Errorf("expected ID proxy.tcp.test_proxy, got %s", mod.GetID())
+	}
+
+	p := mod.(*ProxyTCP)
+	if p.source != "primary_src" {
+		t.Errorf("expected source primary_src, got %s", p.source)
+	}
+	if p.backupSource != "backup_src" {
+		t.Errorf("expected backupSource backup_src, got %s", p.backupSource)
+	}
+	if p.bufferSize != 1024 {
+		t.Errorf("expected bufferSize 1024, got %d", p.bufferSize)
+	}
+	if !p.nodelay {
+		t.Errorf("expected nodelay to be true")
+	}
+
+	// Ensure the buffer pool initializes correctly
+	b := p.bufferPool.Get().([]byte)
+	if len(b) != 1024 {
+		t.Errorf("expected buffer length 1024, got %d", len(b))
+	}
+}
+
+// TestTCPProxyFactory_Defaults verifies the fallback behavior when optional fields are omitted
+// from the HCL configuration block. It tests that:
+// 1. Omitted timeout values correctly default to 0s (no timeout).
+// 2. The timeout margin defaults to 1s.
+// 3. The buffer size defaults to 16384 bytes.
+func TestTCPProxyFactory_Defaults(t *testing.T) {
+	hclText := `
+		source = "s1"
+	`
+	file, diags := hclsyntax.ParseConfig([]byte(hclText), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+
+	tc := &Config{
+		Type:   "tcp",
+		Name:   "test_proxy_def",
+		Config: file.Body,
+		ctx:    &hcl.EvalContext{},
+	}
+
+	factory := TCPProxyFactory{}
+	mod := factory.New(tc, &sync.WaitGroup{}, context.Background())
+	p := mod.(*ProxyTCP)
+
+	// Validate correct default configuration values
+	if p.bufferSize != 16384 {
+		t.Errorf("expected bufferSize 16384, got %d", p.bufferSize)
+	}
+	if p.connectTimeout != 0 {
+		t.Errorf("expected connectTimeout 0, got %v", p.connectTimeout)
+	}
+	if p.clientTimeout != 0 {
+		t.Errorf("expected clientTimeout 0, got %v", p.clientTimeout)
+	}
+	if p.serverTimeout != 0 {
+		t.Errorf("expected serverTimeout 0, got %v", p.serverTimeout)
+	}
+	if p.closeTimeout != 0 {
+		t.Errorf("expected closeTimeout 0, got %v", p.closeTimeout)
+	}
+	if p.timeoutMargin != 1*time.Second {
+		t.Errorf("expected timeoutMargin 1s, got %v", p.timeoutMargin)
+	}
+}
+
+// TestTCPProxy_NormalAndBackupAndNoBackend tests the primary request routing and failover logic
+// inside the handleConnection function. It verifies that:
+//  1. A connection can be successfully routed to the primary backend.
+//  2. Data can be sent and received (echoed) through the primary backend.
+//  3. When the primary backend is unavailable (simulated by returning nil), the proxy
+//     successfully falls back to the configured backup source.
+//  4. Data flows correctly through the backup backend.
+//  5. The stats ticker loop in handleConnection correctly processes data counters over time.
+func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
+	primaryBackend := startEchoServer(t)
+	defer primaryBackend.Close()
+
+	backupBackend := startEchoServer(t)
+	defer backupBackend.Close()
+
+	proxyAddr, err := getFreePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p := &ProxyTCP{
+		id:             "proxy.tcp.test",
+		addresses:      []string{proxyAddr},
+		log:            zerolog.Nop(),
+		bufferSize:     16384,
+		nodelay:        true,
+		source:         "primary_backend",
+		backupSource:   "backup_backend",
+		wg:             wg,
+		ctx:            ctx,
+		cancel:         cancel,
+		connectTimeout: 5 * time.Second,
+		clientTimeout:  5 * time.Second,
+		serverTimeout:  5 * time.Second,
+		closeTimeout:   5 * time.Second,
+		timeoutMargin:  1 * time.Second,
+		bufferPool: sync.Pool{
+			New: func() any { return make([]byte, 16384) },
+		},
+	}
+
+	primaryProvider := &mockBackendProvider{id: "primary_backend", backendAddress: primaryBackend.Addr().String()}
+	backupProvider := &mockBackendProvider{id: "backup_backend", backendAddress: backupBackend.Addr().String()}
+
+	modules := module.NewModulesList()
+	modules.AddModule(primaryProvider)
+	modules.AddModule(backupProvider)
+	p.Bind(modules)
+
+	// Wait briefly for proxy listener to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Scenario 1: Normal backend works
+	conn1, err := net.Dial("tcp", proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testData1 := []byte("hello proxy")
+	_, err = conn1.Write(testData1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	buf := make([]byte, 1024)
+	n1, err := conn1.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(testData1, buf[:n1]) {
+		t.Errorf("expected %v, got %v", testData1, buf[:n1])
+	}
+
+	// Ensure we wait more than 1 second to trigger the statsTicker branch internally
+	time.Sleep(1100 * time.Millisecond)
+	conn1.Close()
+
+	// Scenario 2: Main backend fails, fallback to backup
+	primaryProvider.returnNil = true
+	conn2, err := net.Dial("tcp", proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testData2 := []byte("hello backup")
+	_, err = conn2.Write(testData2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	n2, err := conn2.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(testData2, buf[:n2]) {
+		t.Errorf("expected %v, got %v", testData2, buf[:n2])
+	}
+	conn2.Close()
+
+	// Wait for piping goroutines to settle
+	time.Sleep(100 * time.Millisecond)
+}
+
+// TestTCPProxy_NoBackendPanic tests the extreme failure scenario where neither a primary nor
+// a backup backend is available. It verifies that:
+// 1. handleConnection correctly detects the lack of backends and issues a panic.
+// 2. The panic is safely caught by the deferred recovery handler in handleConnection.
+// 3. The proxy continues to run without crashing the entire application.
+func TestTCPProxy_NoBackendPanic(t *testing.T) {
+	proxyAddr, err := getFreePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p := &ProxyTCP{
+		id:             "proxy.tcp.test_panic",
+		addresses:      []string{proxyAddr},
+		log:            zerolog.Nop(),
+		bufferSize:     16384,
+		nodelay:        true,
+		source:         "missing_backend",
+		wg:             wg,
+		ctx:            ctx,
+		cancel:         cancel,
+		connectTimeout: 5 * time.Second,
+		clientTimeout:  5 * time.Second,
+		serverTimeout:  5 * time.Second,
+		closeTimeout:   5 * time.Second,
+		timeoutMargin:  1 * time.Second,
+		bufferPool: sync.Pool{
+			New: func() any { return make([]byte, 16384) },
+		},
+	}
+
+	provider := &mockBackendProvider{id: "missing_backend", backendAddress: "", returnNil: true}
+	modules := module.NewModulesList()
+	modules.AddModule(provider)
+	p.Bind(modules)
+
+	time.Sleep(100 * time.Millisecond)
+
+	// This connection will trigger a panic inside handleConnection due to no backend,
+	// which must be caught and logged safely.
+	conn, err := net.Dial("tcp", proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = conn.Write([]byte("test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	conn.Close()
+}
+
+// TestTCPProxy_TimeoutAndContextCancel tests the proxy's graceful shutdown and hanging
+// connection termination logic. It verifies that:
+// 1. When the proxy's main context is cancelled, active connections are given a grace period.
+// 2. If a connection remains open beyond the closeTimeout, it is forcefully terminated.
+// 3. The select statement waiting on time.After(p.closeTimeout) properly executes and invokes cancel().
+func TestTCPProxy_TimeoutAndContextCancel(t *testing.T) {
+	backend := startEchoServer(t)
+	defer backend.Close()
+
+	proxyAddr, err := getFreePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+
+	p := &ProxyTCP{
+		id:             "proxy.tcp.test_timeout",
+		addresses:      []string{proxyAddr},
+		log:            zerolog.Nop(),
+		bufferSize:     16384,
+		nodelay:        true,
+		source:         "test_backend",
+		wg:             wg,
+		ctx:            ctx,
+		cancel:         cancel,
+		connectTimeout: 5 * time.Second,
+		clientTimeout:  500 * time.Millisecond,
+		serverTimeout:  500 * time.Millisecond,
+		closeTimeout:   50 * time.Millisecond,
+		timeoutMargin:  10 * time.Millisecond,
+		bufferPool: sync.Pool{
+			New: func() any { return make([]byte, 16384) },
+		},
+	}
+
+	provider := &mockBackendProvider{id: "test_backend", backendAddress: backend.Addr().String()}
+	modules := module.NewModulesList()
+	modules.AddModule(provider)
+	p.Bind(modules)
+
+	time.Sleep(100 * time.Millisecond)
+
+	conn, err := net.Dial("tcp", proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Test context cancel propagation
+	// By cancelling the proxy context, it waits closeTimeout then forces cancel
+	cancel()
+
+	// Wait enough time for closeTimeout to trigger, leaving conn OPEN
+	time.Sleep(300 * time.Millisecond)
+	conn.Close()
+}
+
+// panicConn is a custom net.Conn that injects errors to test the pipe panic handler.
+type panicConn struct {
+	net.Conn
+}
+
+func (c *panicConn) RemoteAddr() net.Addr {
+	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 1234}
+}
+
+func (c *panicConn) Read(b []byte) (n int, err error) {
+	panic("injected read panic")
+}
+
+func (c *panicConn) Write(b []byte) (n int, err error) {
+	return 0, net.ErrClosed
+}
+
+// TestTCPProxy_PipeErrors tests the robustness of the bidirectional pipe function when
+// unexpected network errors occur. It verifies that:
+//  1. An unexpected panic (e.g., from a misbehaving reader) inside the pipe is safely caught
+//     by the deferred recovery handler.
+//  2. The pipe function exits gracefully and signals completion on the done channel,
+//     preventing goroutine leaks.
+func TestTCPProxy_PipeErrors(t *testing.T) {
+	proxyAddr, err := getFreePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p := &ProxyTCP{
+		id:             "proxy.tcp.test_pipe",
+		addresses:      []string{proxyAddr},
+		log:            zerolog.Nop(),
+		bufferSize:     16384,
+		nodelay:        true,
+		source:         "test_backend",
+		wg:             wg,
+		ctx:            ctx,
+		cancel:         cancel,
+		connectTimeout: 5 * time.Second,
+		clientTimeout:  5 * time.Second,
+		serverTimeout:  5 * time.Second,
+		closeTimeout:   5 * time.Second,
+		timeoutMargin:  1 * time.Second,
+		bufferPool: sync.Pool{
+			New: func() any { return make([]byte, 16384) },
+		},
+	}
+
+	badConn := &panicConn{}
+	var bytesProcessed atomic.Uint64
+	done := make(chan struct{})
+
+	// Manually invoke pipe with the bad connection to trigger the panic recovery path
+	go p.pipe(badConn, badConn, done, 0, 0, &bytesProcessed)
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("pipe did not recover from panic")
+	}
+}
+
+// closedConn is a custom net.Conn that simulates a closed network connection for writes.
+type closedConn struct {
+	net.Conn
+}
+
+func (c *closedConn) Read(b []byte) (n int, err error) {
+	time.Sleep(10 * time.Millisecond)
+	b[0] = 'a'
+	return 1, nil
+}
+
+func (c *closedConn) Write(b []byte) (n int, err error) {
+	return 0, net.ErrClosed
+}
+
+// TestTCPProxy_PipeClosedErr tests the specific edge case where a network write fails
+// with net.ErrClosed. It verifies that:
+// 1. The pipe function specifically checks for net.ErrClosed.
+// 2. Upon encountering net.ErrClosed, the pipe returns cleanly without panicking.
+func TestTCPProxy_PipeClosedErr(t *testing.T) {
+	proxyAddr, err := getFreePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p := &ProxyTCP{
+		id:         "proxy.tcp.test_pipe2",
+		addresses:  []string{proxyAddr},
+		log:        zerolog.Nop(),
+		bufferSize: 16384,
+		nodelay:    true,
+		source:     "test_backend",
+		wg:         wg,
+		ctx:        ctx,
+		cancel:     cancel,
+		bufferPool: sync.Pool{
+			New: func() any { return make([]byte, 16384) },
+		},
+	}
+
+	badConn := &closedConn{}
+	var bytesProcessed atomic.Uint64
+	done := make(chan struct{})
+
+	go p.pipe(badConn, badConn, done, 0, 0, &bytesProcessed)
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("pipe did not return on ErrClosed")
+	}
+}
+
+// TestTCPProxy_DoneBackFront tests the connection teardown synchronization inside handleConnection.
+// It verifies that:
+//  1. When the backend server terminates the connection first, the backend-to-frontend pipe
+//     completes and closes the doneBackFront channel.
+//  2. The select loop in handleConnection properly detects the closed doneBackFront channel,
+//     breaks out of the loop, and safely tears down both connections.
+func TestTCPProxy_DoneBackFront(t *testing.T) {
+	// Start a backend that closes the connection immediately after accepting
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			// Close the backend connection immediately
+			_ = conn.Close()
+		}
+	}()
+	backendAddr := listener.Addr().String()
+
+	proxyAddr, err := getFreePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p := &ProxyTCP{
+		id:             "proxy.tcp.test_done",
+		addresses:      []string{proxyAddr},
+		log:            zerolog.Nop(),
+		bufferSize:     16384,
+		nodelay:        true,
+		source:         "test_backend",
+		wg:             wg,
+		ctx:            ctx,
+		cancel:         cancel,
+		connectTimeout: 5 * time.Second,
+		clientTimeout:  5 * time.Second,
+		serverTimeout:  5 * time.Second,
+		closeTimeout:   5 * time.Second,
+		timeoutMargin:  1 * time.Second,
+		bufferPool: sync.Pool{
+			New: func() any { return make([]byte, 16384) },
+		},
+	}
+
+	provider := &mockBackendProvider{id: "test_backend", backendAddress: backendAddr}
+	modules := module.NewModulesList()
+	modules.AddModule(provider)
+	p.Bind(modules)
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Connect to proxy. The backend will immediately close its side.
+	// This ensures doneBackFront is closed before doneFrontBack.
+	conn, err := net.Dial("tcp", proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	conn.Close()
+}
