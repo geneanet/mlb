@@ -31,6 +31,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 	defer func() {
 		if r := recover(); r != nil {
 			e = misc.EnsureError(r)
+			rbc = nil
 		}
 	}()
 
