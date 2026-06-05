@@ -183,7 +183,7 @@ func TestRedisBackendConnection_UnexpectedWriteError(t *testing.T) {
 	defer close(responseChanStop)
 
 	query := NewRedisQuery([]byte("PING\r\n"), responseChan, responseChanStop)
-	
+
 	// We might need to retry Query if the context was cancelled very quickly
 	err = rbc.Query(query)
 	if err != nil {
@@ -247,7 +247,7 @@ func TestRedisBackendConnection_ResetError(t *testing.T) {
 	}
 	if rbc != nil {
 		defer rbc.cancel()
-		
+
 		// Wait for the RST to be detected by the read goroutine
 		select {
 		case <-rbc.ctx.Done():

@@ -11,6 +11,9 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// TestNewRedisBackendConnectionPool verifies the correct initialization of a RedisBackendConnectionPool.
+// It checks that all internal fields (proxy reference, pool map, failure channel, and semaphore)
+// are properly instantiated.
 func TestNewRedisBackendConnectionPool(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -40,6 +43,10 @@ func TestNewRedisBackendConnectionPool(t *testing.T) {
 	}
 }
 
+// TestRedisBackendConnectionPool_GetRandom verifies the selection logic for obtaining a connection from the pool.
+// It tests two scenarios:
+// 1. When the pool is empty, GetRandom should wait up to the configured backendWaitTimeout and then return nil.
+// 2. When a connection is available, GetRandom should return it immediately.
 func TestRedisBackendConnectionPool_GetRandom(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -52,12 +59,12 @@ func TestRedisBackendConnectionPool_GetRandom(t *testing.T) {
 	}
 
 	pool := NewRedisBackendConnectionPool(p)
-	
-	// Test wait timeout
+
+	// Test wait timeout when pool is empty
 	start := time.Now()
 	rbc := pool.GetRandom(true)
 	duration := time.Since(start)
-	
+
 	if rbc != nil {
 		t.Errorf("expected rbc to be nil, got %v", rbc)
 	}
@@ -65,11 +72,11 @@ func TestRedisBackendConnectionPool_GetRandom(t *testing.T) {
 		t.Errorf("expected duration >= 50ms, got %v", duration)
 	}
 
-	// Add dummy connection
+	// Add a dummy connection to the pool and signal availability
 	dummyConn := &RedisBackendConnection{}
 	pool.mutex.Lock()
 	pool.pool[dummyConn] = struct{}{}
-	pool.waitBackendsSemaphore.Release(1) // Release since it was blocked
+	pool.waitBackendsSemaphore.Release(1) // Release since it was blocked by New
 	pool.mutex.Unlock()
 
 	rbc = pool.GetRandom(false)
@@ -78,6 +85,10 @@ func TestRedisBackendConnectionPool_GetRandom(t *testing.T) {
 	}
 }
 
+// TestRedisBackendConnectionPool_Del verifies that removing a connection from the pool works correctly.
+// It checks that:
+// 1. The connection is removed from the internal map.
+// 2. If the pool becomes empty, the semaphore is correctly re-acquired to block further GetRandom calls.
 func TestRedisBackendConnectionPool_Del(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -90,11 +101,11 @@ func TestRedisBackendConnectionPool_Del(t *testing.T) {
 	}
 
 	pool := NewRedisBackendConnectionPool(p)
-	
+
 	dummyConn := &RedisBackendConnection{}
 	pool.mutex.Lock()
 	pool.pool[dummyConn] = struct{}{}
-	// release the initially acquired lock in New
+	// Release the initially acquired lock in New
 	pool.waitBackendsSemaphore.Release(1)
 	pool.mutex.Unlock()
 
@@ -107,8 +118,8 @@ func TestRedisBackendConnectionPool_Del(t *testing.T) {
 	if len(pool.pool) != 0 {
 		t.Errorf("expected pool size 0, got %d", len(pool.pool))
 	}
-	
-	// Ensure the semaphore was acquired again
+
+	// Ensure the semaphore was acquired again because the pool is now empty
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel2()
 	err := pool.waitBackendsSemaphore.Acquire(ctx2, 1)
@@ -117,6 +128,10 @@ func TestRedisBackendConnectionPool_Del(t *testing.T) {
 	}
 }
 
+// TestRedisBackendConnectionPool_Update verifies the pool's ability to sync with the backend inventory.
+// It tests:
+// 1. Adding new connections when backends are discovered.
+// 2. Removing existing connections when backends are removed from the inventory.
 func TestRedisBackendConnectionPool_Update(t *testing.T) {
 	// Start local TCP server to act as a backend
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -166,9 +181,9 @@ func TestRedisBackendConnectionPool_Update(t *testing.T) {
 		t.Errorf("expected pool size 2, got %d", len(pool.pool))
 	}
 
-	// Now remove the backend and run update again
+	// Now remove the backend and run update again to ensure connections are closed and removed
 	backendsMap.Remove(listener.Addr().String())
-	
+
 	go pool.Update()
 
 	time.Sleep(100 * time.Millisecond)
@@ -181,6 +196,8 @@ func TestRedisBackendConnectionPool_Update(t *testing.T) {
 	}
 }
 
+// TestRedisBackendConnectionPool_NotifyFailure verifies the asynchronous failure notification mechanism.
+// It ensures that when NotifyFailure is called for a connection, it is eventually removed from the pool.
 func TestRedisBackendConnectionPool_NotifyFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -199,20 +216,20 @@ func TestRedisBackendConnectionPool_NotifyFailure(t *testing.T) {
 		backend: &backend.Backend{Address: "127.0.0.1:1234"},
 	}
 
-	// Add the connection to the pool map manually
+	// Add the connection to the pool map manually and signal availability
 	pool.mutex.Lock()
 	pool.pool[dummyConn] = struct{}{}
-	pool.waitBackendsSemaphore.Release(1) // Release initial
+	pool.waitBackendsSemaphore.Release(1) // Release initial lock from New
 	pool.mutex.Unlock()
 
 	if len(pool.pool) != 1 {
 		t.Errorf("expected pool size 1, got %d", len(pool.pool))
 	}
 
-	// Notify failure
+	// Notify failure - this sends to pool.chanFailure which is processed by a background goroutine
 	pool.NotifyFailure(dummyConn)
 
-	// Wait for the goroutine to process
+	// Wait for the background goroutine to process the failure and remove the connection
 	time.Sleep(50 * time.Millisecond)
 
 	pool.mutex.RLock()

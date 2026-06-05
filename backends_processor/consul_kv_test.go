@@ -17,16 +17,15 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// TestConsulKV_Basic tests the main functionality of the ConsulKV processor,
+// including initial data fetching, reacting to Consul value changes, and handling backend updates.
 func TestConsulKV_Basic(t *testing.T) {
 	// Create mock consul server
 	var consulIndex string = "1"
 	var consulValue string = "default"
-	var requestCount int = 0
 	var statusToReturn int = 200
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
-
 		if statusToReturn == 404 {
 			w.WriteHeader(404)
 			return
@@ -104,7 +103,6 @@ backends_processor "consul_kv" "test" {
 	b1 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
 
 	// We expect 1 add/modify from the add, and 1 from watcher updating
-	// But actually the add triggers sendUpdate directly. Then watcher triggers it.
 	sub.wg.Add(2)
 
 	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: b1.Address, Backend: b1})
@@ -139,7 +137,7 @@ backends_processor "consul_kv" "test" {
 	}
 
 	// Test Update backend (should recreate watchers)
-	sub.wg.Add(1) // add one for the UpdBackendModified we will send
+	sub.wg.Add(1)
 	b1Updated := b1Mod.Clone()
 	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: b1Updated.Address, Backend: b1Updated})
 	waitSub(t, sub, "Wait for backend update to propagate")
@@ -179,6 +177,8 @@ backends_processor "consul_kv" "test" {
 	time.Sleep(10 * time.Millisecond)
 }
 
+// TestConsulKV_ProvideUpdatesExisting verifies that new subscribers receive
+// updates for backends already present in the ConsulKV processor.
 func TestConsulKV_ProvideUpdatesExisting(t *testing.T) {
 	src := `
 backends_processor "consul_kv" "test" {
@@ -217,6 +217,8 @@ backends_processor "consul_kv" "test" {
 	waitSub(t, sub1, "Wait for sub1 existing update")
 }
 
+// TestConsulKV_Defaults verifies that default values are correctly applied
+// when not specified in the configuration.
 func TestConsulKV_Defaults(t *testing.T) {
 	src := `
 backends_processor "consul_kv" "test_defaults" {
@@ -246,6 +248,7 @@ backends_processor "consul_kv" "test_defaults" {
 	}
 }
 
+// TestConsulKV_InvalidPeriod verifies that an invalid period configuration causes a panic.
 func TestConsulKV_InvalidPeriod(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
@@ -266,6 +269,7 @@ backends_processor "consul_kv" "test" {
 	New(cfg, wg, context.Background())
 }
 
+// TestConsulKV_InvalidMaxPeriod verifies that an invalid max_period configuration causes a panic.
 func TestConsulKV_InvalidMaxPeriod(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
@@ -287,6 +291,8 @@ backends_processor "consul_kv" "test" {
 	New(cfg, wg, context.Background())
 }
 
+// TestConsulKV_ReceiveUpdateClosed verifies that the processor handles updates
+// gracefully after it has been shut down.
 func TestConsulKV_ReceiveUpdateClosed(t *testing.T) {
 	src := `
 backends_processor "consul_kv" "test" {
@@ -311,6 +317,8 @@ backends_processor "consul_kv" "test" {
 	consulMod.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: "foo"})
 }
 
+// TestConsulKV_FetchErrors tests various HTTP and JSON parsing error scenarios
+// in the Consul KV watcher.
 func TestConsulKV_FetchErrors(t *testing.T) {
 	var responseBody string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -322,7 +330,7 @@ func TestConsulKV_FetchErrors(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Invalid JSON
+	// Case 1: Invalid JSON response
 	responseBody = `invalid json`
 	w := newConsulKVWatcher(&backend.Backend{Address: "foo"}, "id", ts.URL, "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, make(chan *consulKVWatcherMessage), ctx, log.Logger)
 	_, err := w.fetch()
@@ -330,14 +338,14 @@ func TestConsulKV_FetchErrors(t *testing.T) {
 		t.Errorf("Expected error for invalid json")
 	}
 
-	// Invalid base64
+	// Case 2: Invalid base64 in JSON response
 	responseBody = `[{"Key":"foo","Value":"@@@"}]`
 	_, err = w.fetch()
 	if err == nil {
 		t.Errorf("Expected error for invalid base64")
 	}
 
-	// Invalid scheme for http.Do
+	// Case 3: Invalid URL scheme
 	w = newConsulKVWatcher(&backend.Backend{Address: "foo"}, "id", "httpxx://invalid", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, make(chan *consulKVWatcherMessage), ctx, log.Logger)
 	_, err = w.fetch()
 	if err == nil {
@@ -345,8 +353,10 @@ func TestConsulKV_FetchErrors(t *testing.T) {
 	}
 }
 
+// TestConsulKV_WatcherCoverage tests edge cases in the Consul KV watcher's execution loop,
+// such as context cancellation during fetch or sleep.
 func TestConsulKV_WatcherCoverage(t *testing.T) {
-	// 1. Cancel during HTTP fetch (hits errors.Is(err, context.Canceled))
+	// Case 1: Cancel context during an active HTTP fetch.
 	ts1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond)
 		w.WriteHeader(200)
@@ -361,7 +371,7 @@ func TestConsulKV_WatcherCoverage(t *testing.T) {
 	cancel1()                         // Force context cancellation natively mid-flight
 	time.Sleep(100 * time.Millisecond)
 
-	// 2. Cancel during ticker sleep (hits <-w.ctx.Done())
+	// Case 2: Cancel context while the watcher is sleeping between requests.
 	ts2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Consul-Index", "1")
 		w.Write([]byte(`[{"Key":"foo","Value":"YmFy"}]`))

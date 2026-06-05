@@ -109,7 +109,7 @@ func TestReadMessage_Collections(t *testing.T) {
 	}{
 		{"Array", "*2\r\n:1\r\n:2\r\n"},
 		{"Set", "~2\r\n+foo\r\n+bar\r\n"},
-		{"Map", "%1\r\n+key\r\n+value\r\n"}, // Map is 1 key-value pair (2 elements total)
+		{"Map", "%1\r\n+key\r\n+value\r\n"},      // Map is 1 key-value pair (2 elements total)
 		{"Attribute", "|1\r\n+ttl\r\n:3600\r\n"}, // Attributes block has 1 key-value pair (2 elements total)
 	}
 
@@ -374,12 +374,12 @@ func TestReadMessage_Errors(t *testing.T) {
 			n = copy(p, []byte("+OK"))
 			return n, cr.err
 		}
-		
+
 		type fnReader struct {
 			read func([]byte) (int, error)
 		}
 		fr := &fnReader{read: readerFn}
-		
+
 		structReader := NewRedisProtocolReader(interfaceReader{fr.read}, 128)
 		_, err := structReader.ReadMessage(false)
 		if !errors.Is(err, expectedErr) {

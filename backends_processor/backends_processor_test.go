@@ -11,21 +11,25 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
 
+// dummySubscriber implements backend.BackendUpdateSubscriber for testing.
 type dummySubscriber struct {
 	updates []backend.BackendUpdate
 	wg      sync.WaitGroup
 	source  string
 }
 
+// ReceiveUpdate records an update and decrements the WaitGroup.
 func (d *dummySubscriber) ReceiveUpdate(u backend.BackendUpdate) {
 	d.updates = append(d.updates, u)
 	d.wg.Done()
 }
 
+// SubscribeTo registers this subscriber with a provider.
 func (d *dummySubscriber) SubscribeTo(p backend.BackendUpdateProvider) {
 	p.ProvideUpdates(d)
 }
 
+// GetUpdateSource returns the configured source or a default value.
 func (d *dummySubscriber) GetUpdateSource() string {
 	if d.source != "" {
 		return d.source
@@ -33,12 +37,14 @@ func (d *dummySubscriber) GetUpdateSource() string {
 	return "dummy"
 }
 
+// dummyProvider implements backend.BackendUpdateProvider for testing.
 type dummyProvider struct {
 	id          string
 	subscribers []backend.BackendUpdateSubscriber
 	mu          sync.Mutex
 }
 
+// GetID returns the provider's identifier.
 func (d *dummyProvider) GetID() string {
 	if d.id != "" {
 		return d.id
@@ -46,14 +52,17 @@ func (d *dummyProvider) GetID() string {
 	return "dummy"
 }
 
+// Bind is a no-op implementation of the module.Module interface.
 func (d *dummyProvider) Bind(modules module.ModulesList) {}
 
+// ProvideUpdates registers a subscriber.
 func (d *dummyProvider) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.subscribers = append(d.subscribers, s)
 }
 
+// sendUpdate broadcasts an update to all registered subscribers.
 func (d *dummyProvider) sendUpdate(u backend.BackendUpdate) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -62,6 +71,7 @@ func (d *dummyProvider) sendUpdate(u backend.BackendUpdate) {
 	}
 }
 
+// parseHCL is a helper that parses a HCL string into an hcl.Block.
 func parseHCL(t *testing.T, src string) *hcl.Block {
 	t.Helper()
 	file, diags := hclsyntax.ParseConfig([]byte(src), "test.hcl", hcl.Pos{Line: 1, Column: 1})
@@ -80,6 +90,8 @@ func parseHCL(t *testing.T, src string) *hcl.Block {
 	return b.AsHCLBlock()
 }
 
+// TestBackendsProcessor_DecodeConfigBlock_Success verifies that a valid backends_processor
+// block is correctly decoded.
 func TestBackendsProcessor_DecodeConfigBlock_Success(t *testing.T) {
 	src := `
 backends_processor "simple_filter" "test" {
@@ -102,6 +114,8 @@ backends_processor "simple_filter" "test" {
 	}
 }
 
+// TestBackendsProcessor_DecodeConfigBlock_Unsupported verifies that an error is returned
+// when decoding an unsupported backends_processor type.
 func TestBackendsProcessor_DecodeConfigBlock_Unsupported(t *testing.T) {
 	src := `
 backends_processor "unsupported" "test" {
@@ -119,6 +133,8 @@ backends_processor "unsupported" "test" {
 	}
 }
 
+// TestBackendsProcessor_NewAndValidate verifies the validation and instantiation
+// of a backends_processor module.
 func TestBackendsProcessor_NewAndValidate(t *testing.T) {
 	src := `
 backends_processor "simple_filter" "test" {

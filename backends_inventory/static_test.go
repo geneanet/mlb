@@ -11,6 +11,8 @@ import (
 	"github.com/hashicorp/hcl/v2"
 )
 
+// TestStaticBackendsInventory_Methods tests the static inventory implementation,
+// ensuring it correctly parses the host list and provides appropriate backend updates.
 func TestStaticBackendsInventory_Methods(t *testing.T) {
 	src := `
 backends_inventory "static" "test" {
@@ -28,7 +30,7 @@ backends_inventory "static" "test" {
 	wg := &sync.WaitGroup{}
 	ctxBG := context.Background()
 	mod := New(cfg, wg, ctxBG)
-	
+
 	staticMod, ok := mod.(*BackendsInventoryStatic)
 	if !ok {
 		t.Fatalf("Expected *BackendsInventoryStatic")
@@ -45,15 +47,15 @@ backends_inventory "static" "test" {
 
 	staticMod.Bind(module.ModulesList{}) // Should do nothing
 
-	// Test ProvideUpdates
+	// Test ProvideUpdates functionality: new subscribers should receive current backends.
 	sub := &dummySubscriber{
 		wg: sync.WaitGroup{},
 	}
-	sub.wg.Add(2) // Expecting 2 updates
+	sub.wg.Add(2) // Expecting 2 updates (one for each static host)
 
 	staticMod.ProvideUpdates(sub)
 
-	// Wait for updates
+	// Wait for updates to be delivered
 	done := make(chan struct{})
 	go func() {
 		sub.wg.Wait()
@@ -69,7 +71,7 @@ backends_inventory "static" "test" {
 	if len(sub.updates) != 2 {
 		t.Errorf("Expected 2 updates, got %d", len(sub.updates))
 	}
-	
+
 	has8080 := false
 	has8081 := false
 	for _, u := range sub.updates {
@@ -82,7 +84,7 @@ backends_inventory "static" "test" {
 			has8081 = true
 		}
 	}
-	
+
 	if !has8080 || !has8081 {
 		t.Errorf("Missing expected addresses in updates")
 	}

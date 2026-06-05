@@ -1,3 +1,5 @@
+// Package proxy provides functionality for proxying different protocols (TCP, Redis).
+// This file contains unit tests for the generic proxy configuration decoding and factory management.
 package proxy
 
 import (
@@ -11,18 +13,20 @@ import (
 	"github.com/hashicorp/hcl/v2"
 )
 
-// mockModule is a simple mock implementation of the module.Module interface.
+// mockModule is a simple mock implementation of the module.Module interface for testing.
 type mockModule struct {
 	id string
 }
 
+// GetID returns the identifier for the mock module.
 func (m *mockModule) GetID() string {
 	return m.id
 }
 
+// Bind is a no-op for the mock module.
 func (m *mockModule) Bind(modules module.ModulesList) {}
 
-// mockProxyFactory implements FactoryInterface for testing purposes.
+// mockProxyFactory implements FactoryInterface to test the generic New and ValidateConfig functions.
 type mockProxyFactory struct {
 	newCalled      bool
 	validateCalled bool
@@ -33,6 +37,7 @@ type mockProxyFactory struct {
 	mockDiags      hcl.Diagnostics
 }
 
+// New simulates the creation of a new proxy module.
 func (f *mockProxyFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
 	f.newCalled = true
 	f.tcPassed = tc
@@ -41,14 +46,18 @@ func (f *mockProxyFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Conte
 	return f.mockModule
 }
 
+// ValidateConfig simulates the validation of a proxy configuration.
 func (f *mockProxyFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 	f.validateCalled = true
 	f.tcPassed = tc
 	return f.mockDiags
 }
 
-// TestDecodeConfigBlock_UnsupportedType verifies that DecodeConfigBlock returns an error
-// diagnostic when referenced with an unsupported/unregistered proxy type.
+// TestDecodeConfigBlock_UnsupportedType verifies that DecodeConfigBlock handles unregistered proxy types correctly.
+// It specifically checks that:
+// 1. An error diagnostic is returned when the proxy type is not found in the global factories map.
+// 2. The returned configuration object is nil.
+// 3. The error message contains the expected summary and details.
 func TestDecodeConfigBlock_UnsupportedType(t *testing.T) {
 	block := &hcl.Block{
 		Type:   "proxy",
@@ -81,8 +90,11 @@ func TestDecodeConfigBlock_UnsupportedType(t *testing.T) {
 	}
 }
 
-// TestDecodeConfigBlock_SupportedType verifies that DecodeConfigBlock correctly parses
-// a block and validates the configuration when using a registered proxy type.
+// TestDecodeConfigBlock_SupportedType verifies that DecodeConfigBlock correctly handles registered proxy types.
+// It tests that:
+// 1. A registered factory is correctly retrieved and used to validate the config block.
+// 2. The Config struct is properly populated with the type, name, and HCL context.
+// 3. Diagnostics from the factory's ValidateConfig method are propagated.
 func TestDecodeConfigBlock_SupportedType(t *testing.T) {
 	mockFactory := &mockProxyFactory{
 		mockDiags: hcl.Diagnostics{
@@ -123,7 +135,9 @@ func TestDecodeConfigBlock_SupportedType(t *testing.T) {
 	}
 }
 
-// TestNew verifies that New delegates instantiation correctly to the appropriate factory.
+// TestNew verifies that the global New function correctly delegates the instantiation
+// of a proxy module to the registered factory.
+// It ensures that all parameters (config, waitgroup, context) are passed correctly to the factory's New method.
 func TestNew(t *testing.T) {
 	expectedModule := &mockModule{id: "mock_module_id"}
 	mockFactory := &mockProxyFactory{
@@ -158,7 +172,11 @@ func TestNew(t *testing.T) {
 	}
 }
 
-// TestValidateConfig verifies that ValidateConfig delegates the validation correctly to the factory.
+// TestValidateConfig verifies that the global ValidateConfig function correctly delegates
+// the configuration validation to the appropriate factory.
+// It checks that:
+// 1. The factory's ValidateConfig method is called with the provided configuration.
+// 2. The diagnostics returned by the factory are correctly returned by the global function.
 func TestValidateConfig(t *testing.T) {
 	expectedDiags := hcl.Diagnostics{
 		{

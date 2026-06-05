@@ -10,23 +10,28 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
 
+// dummySubscriber implements backend.BackendUpdateSubscriber for testing.
 type dummySubscriber struct {
 	updates []backend.BackendUpdate
 	wg      sync.WaitGroup
 }
 
+// ReceiveUpdate records an update and decrements the internal WaitGroup.
 func (d *dummySubscriber) ReceiveUpdate(u backend.BackendUpdate) {
 	d.updates = append(d.updates, u)
 	d.wg.Done()
 }
 
+// SubscribeTo is a no-op for this mock.
 func (d *dummySubscriber) SubscribeTo(p backend.BackendUpdateProvider) {
 }
 
+// GetUpdateSource returns a default identifier for the subscriber.
 func (d *dummySubscriber) GetUpdateSource() string {
 	return "dummy"
 }
 
+// parseHCL is a helper that parses a HCL string into an hcl.Block.
 func parseHCL(t *testing.T, src string) *hcl.Block {
 	t.Helper()
 	file, diags := hclsyntax.ParseConfig([]byte(src), "test.hcl", hcl.Pos{Line: 1, Column: 1})
@@ -45,6 +50,8 @@ func parseHCL(t *testing.T, src string) *hcl.Block {
 	return b.AsHCLBlock()
 }
 
+// TestBackendsInventory_DecodeConfigBlock_Success verifies that a valid backends_inventory
+// block is correctly decoded into a Config object.
 func TestBackendsInventory_DecodeConfigBlock_Success(t *testing.T) {
 	src := `
 backends_inventory "static" "test" {
@@ -66,6 +73,8 @@ backends_inventory "static" "test" {
 	}
 }
 
+// TestBackendsInventory_DecodeConfigBlock_Unsupported verifies that an error is returned
+// when attempting to decode an unsupported backends_inventory type.
 func TestBackendsInventory_DecodeConfigBlock_Unsupported(t *testing.T) {
 	src := `
 backends_inventory "unsupported" "test" {
@@ -83,6 +92,8 @@ backends_inventory "unsupported" "test" {
 	}
 }
 
+// TestBackendsInventory_NewAndValidate verifies the validation and instantiation
+// process for backends_inventory modules.
 func TestBackendsInventory_NewAndValidate(t *testing.T) {
 	src := `
 backends_inventory "static" "test" {

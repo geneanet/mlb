@@ -1,3 +1,4 @@
+// Package system provides functionality for managing system-level configurations and resources.
 package system
 
 import (
@@ -8,6 +9,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
 
+// parseHCL is a test helper that parses an HCL string into an hcl.Block.
+// It fails the test immediately if parsing errors occur or if no blocks are found.
 func parseHCL(t *testing.T, src string) *hcl.Block {
 	t.Helper()
 	file, diags := hclsyntax.ParseConfig([]byte(src), "test.hcl", hcl.Pos{Line: 1, Column: 1})
@@ -24,6 +27,9 @@ func parseHCL(t *testing.T, src string) *hcl.Block {
 	return body.Blocks[0].AsHCLBlock()
 }
 
+// TestDecodeConfigBlock verifies the decoding of the 'system' configuration block from HCL.
+// It ensures that the rlimit settings (specifically nofile) are correctly parsed and
+// mapped to the Config struct.
 func TestDecodeConfigBlock(t *testing.T) {
 	src := `
 system {
@@ -44,6 +50,13 @@ system {
 	}
 }
 
+// TestSetRlimitNOFILE verifies the SetRlimitNOFILE function's ability to modify
+// the RLIMIT_NOFILE process resource limit.
+// It tests:
+// 1. Getting the current process limit.
+// 2. Setting a new limit (re-using the current value for safety during tests).
+// 3. Verifying that the limit was correctly applied.
+// 4. Properly restoring the original limit after the test completion.
 func TestSetRlimitNOFILE(t *testing.T) {
 	var initialLimit syscall.Rlimit
 	err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &initialLimit)
@@ -54,7 +67,7 @@ func TestSetRlimitNOFILE(t *testing.T) {
 	testVal := initialLimit.Cur
 
 	defer func() {
-		// Restore after test
+		// Restore after test to avoid affecting the environment or subsequent tests
 		err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &initialLimit)
 		if err != nil {
 			t.Logf("Failed to restore rlimit: %v", err)
@@ -72,6 +85,7 @@ func TestSetRlimitNOFILE(t *testing.T) {
 	if newLimit.Cur != testVal {
 		t.Errorf("Expected Cur to be %d, got %d", testVal, newLimit.Cur)
 	}
+	// If running as root, the maximum limit (hard limit) should also be updated.
 	if syscall.Geteuid() == 0 && newLimit.Max != testVal {
 		t.Errorf("Expected Max to be %d, got %d", testVal, newLimit.Max)
 	}

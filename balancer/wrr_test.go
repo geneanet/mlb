@@ -13,27 +13,34 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
+// mockProvider implements backend.BackendUpdateProvider for testing purposes.
 type mockProvider struct {
 	id          string
 	subscribers []backend.BackendUpdateSubscriber
 }
 
+// GetID returns the provider's identifier.
 func (mp *mockProvider) GetID() string {
 	return mp.id
 }
 
+// Bind is a no-op implementation of the module.Module interface.
 func (mp *mockProvider) Bind(modules module.ModulesList) {}
 
+// ProvideUpdates registers a subscriber to receive backend updates.
 func (mp *mockProvider) ProvideUpdates(sub backend.BackendUpdateSubscriber) {
 	mp.subscribers = append(mp.subscribers, sub)
 }
 
+// sendUpdate broadcasts a backend update to all registered subscribers.
 func (mp *mockProvider) sendUpdate(upd backend.BackendUpdate) {
 	for _, sub := range mp.subscribers {
 		sub.ReceiveUpdate(upd)
 	}
 }
 
+// TestWRRBalancer_ValidateConfig verifies that a valid WRR balancer configuration
+// passes the validation check.
 func TestWRRBalancer_ValidateConfig(t *testing.T) {
 	factory := factories["wrr"]
 	body := &hclsyntax.Body{
@@ -49,6 +56,8 @@ func TestWRRBalancer_ValidateConfig(t *testing.T) {
 	}
 }
 
+// TestWRRBalancer_DefaultTimeout ensures that the WRR balancer defaults to a 0s timeout
+// if none is specified in the configuration.
 func TestWRRBalancer_DefaultTimeout(t *testing.T) {
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
@@ -70,6 +79,8 @@ func TestWRRBalancer_DefaultTimeout(t *testing.T) {
 	}
 }
 
+// TestWRRBalancer_InvalidTimeout verifies that the WRR balancer panics when
+// initialized with an invalid timeout string.
 func TestWRRBalancer_InvalidTimeout(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
@@ -91,6 +102,8 @@ func TestWRRBalancer_InvalidTimeout(t *testing.T) {
 	factory.New(cfg, wg, ctx)
 }
 
+// TestWRRBalancer_WaitBackend tests the blocking behavior of GetBackend(true)
+// when no backends are initially available.
 func TestWRRBalancer_WaitBackend(t *testing.T) {
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
@@ -132,6 +145,8 @@ func TestWRRBalancer_WaitBackend(t *testing.T) {
 	}
 }
 
+// TestWRRBalancer_Workflow tests the full lifecycle and operational flow of the WRR balancer,
+// including backend additions, modifications, removals, and handling evaluation errors.
 func TestWRRBalancer_Workflow(t *testing.T) {
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
@@ -171,6 +186,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	modules.AddModule(provider)
 	balancer.Bind(modules)
 
+	// Test timeout when no backends are available
 	start := time.Now()
 	timeoutBackend := balancer.GetBackend(true)
 	if timeoutBackend != nil {
@@ -180,6 +196,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 		t.Errorf("GetBackend(true) did not wait for timeout")
 	}
 
+	// Add a backend and verify it can be retrieved
 	backend1 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
 	provider.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend1.Address, Backend: backend1})
 
@@ -208,7 +225,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	}
 	balancer.mu.RUnlock()
 
-	// Modify backend1 - keeping the same weight (3)
+	// Modify backend1 - keeping the same weight (3) to test idempotency
 	provider.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: backend1Mod.Address, Backend: backend1Mod})
 	time.Sleep(50 * time.Millisecond)
 
@@ -218,7 +235,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	}
 	balancer.mu.RUnlock()
 
-	// Modify backend1 - introduce error in evaluating expression
+	// Modify backend1 - introduce error in evaluating weight expression
 	delete(evalCtx.Variables, "var_weight") // HCL resolving will fail without this
 	provider.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: backend1Mod.Address, Backend: backend1Mod})
 	time.Sleep(50 * time.Millisecond)
@@ -229,7 +246,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	}
 	balancer.mu.RUnlock()
 
-	// Add backend2 - with active evaluation error
+	// Add backend2 - despite active evaluation error, it should still be tracked
 	backend2 := &backend.Backend{Address: "127.0.0.1:8081", Meta: backend.NewEmptyMetaMap(0)}
 	provider.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend2.Address, Backend: backend2})
 	time.Sleep(50 * time.Millisecond)
@@ -240,6 +257,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	}
 	balancer.mu.RUnlock()
 
+	// Remove backend1
 	provider.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: backend1.Address})
 	time.Sleep(50 * time.Millisecond)
 
@@ -249,7 +267,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	}
 	balancer.mu.RUnlock()
 
-	// Restore var_weight to successfully add a final backend
+	// Restore var_weight and add a final backend to verify recovery
 	evalCtx.Variables["var_weight"] = cty.NumberIntVal(2)
 	backend3 := &backend.Backend{Address: "127.0.0.1:8082", Meta: backend.NewEmptyMetaMap(0)}
 	provider.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend3.Address, Backend: backend3})
@@ -262,5 +280,6 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	cancel()
 	wg.Wait()
 
+	// Test ReceiveUpdate after shutdown
 	balancer.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: "foo"})
 }

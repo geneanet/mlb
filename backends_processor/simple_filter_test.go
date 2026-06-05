@@ -13,6 +13,8 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
+// TestSimpleFilter_Methods tests the core functionality of the SimpleFilter,
+// including backend filtering based on address and handling of various update types.
 func TestSimpleFilter_Methods(t *testing.T) {
 	src := `
 backends_processor "simple_filter" "test" {
@@ -77,15 +79,12 @@ backends_processor "simple_filter" "test" {
 		t.Errorf("Expected 1 backend in filter")
 	}
 
-	// Test 3: Modify non-passing to passing (not easily possible with just address condition, let's test modify passing to passing)
+	// Test 3: Modify passing to passing
 	sub.wg.Add(1)
 	b1Mod := b1.Clone()
 	b1Mod.Meta.Set("test", "test", cty.StringVal("foo"))
 	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: b1Mod.Address, Backend: b1Mod})
 	waitSub(t, sub, "Modify passing to passing")
-
-	// Test 4: Modify passing to non-passing (let's say we change a condition based on meta, but here our condition is on address which shouldn't change, but we simulate it anyway or use another logic).
-	// To test "Do not pass the filter anymore" we need a condition based on meta. Let's do a new SimpleFilter for that.
 
 	// Test 5: Remove passing
 	sub.wg.Add(1)
@@ -97,6 +96,8 @@ backends_processor "simple_filter" "test" {
 	time.Sleep(10 * time.Millisecond)
 }
 
+// TestSimpleFilter_ProvideUpdates_WithExisting verifies that a new subscriber
+// receives updates for all backends already present in the filter.
 func TestSimpleFilter_ProvideUpdates_WithExisting(t *testing.T) {
 	src := `
 backends_processor "simple_filter" "test" {
@@ -143,6 +144,8 @@ backends_processor "simple_filter" "test" {
 	waitSub(t, sub1, "ProvideUpdates with existing backend for sub1")
 }
 
+// TestSimpleFilter_ConditionChange tests that backend membership in the filtered list
+// is dynamically updated when backend metadata changes and affects the condition.
 func TestSimpleFilter_ConditionChange(t *testing.T) {
 	src := `
 backends_processor "simple_filter" "test_meta" {
@@ -173,7 +176,7 @@ backends_processor "simple_filter" "test_meta" {
 	modules.AddModule(dp)
 	filterMod.Bind(modules)
 
-	// Add backend (doesn't match initially or matches)
+	// Add backend (matches initially)
 	b := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
 	b.Meta.Set("test", "active", cty.BoolVal(true))
 
@@ -196,7 +199,7 @@ backends_processor "simple_filter" "test_meta" {
 		t.Errorf("Expected 0 backend")
 	}
 
-	// Error in condition evaluation (wrong type logic that does not fail in HCL vs Go)
+	// Error in condition evaluation: wrong type (string instead of bool)
 	bErr := b.Clone()
 	bErr.Meta.Set("test", "active", cty.StringVal("not_a_bool"))
 	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: bErr.Address, Backend: bErr})
@@ -214,6 +217,7 @@ backends_processor "simple_filter" "test_meta" {
 	}
 }
 
+// waitSub is a helper function that waits for a dummySubscriber's WaitGroup with a timeout.
 func waitSub(t *testing.T, sub *dummySubscriber, name string) {
 	t.Helper()
 	done := make(chan struct{})
@@ -228,6 +232,8 @@ func waitSub(t *testing.T, sub *dummySubscriber, name string) {
 	}
 }
 
+// TestSimpleFilter_ReceiveUpdateClosed verifies that the filter handles updates
+// gracefully after it has been shut down.
 func TestSimpleFilter_ReceiveUpdateClosed(t *testing.T) {
 	factory := factories["simple_filter"]
 	body := &hclsyntax.Body{

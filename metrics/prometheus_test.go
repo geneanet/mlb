@@ -1,3 +1,4 @@
+// Package metrics provides functionality for tracking and exporting application metrics.
 package metrics
 
 import (
@@ -6,57 +7,60 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
+// TestMetricsInitializationAndUsage verifies that all defined Prometheus metrics
+// (Counters and Gauges) are correctly initialized and can be manipulated (incremented/decremented).
+// It tests both backend-side and frontend-side metrics with various labels (address, proxy ID).
 func TestMetricsInitializationAndUsage(t *testing.T) {
-	// Verify BeCnxProcessed metric (Counter)
+	// 1. Verify BeCnxProcessed (Backend Connections Processed - Counter)
 	BeCnxProcessed.WithLabelValues("127.0.0.1:8080", "proxy-1").Inc()
 	if val := testutil.ToFloat64(BeCnxProcessed.WithLabelValues("127.0.0.1:8080", "proxy-1")); val != 1 {
 		t.Errorf("Expected BeCnxProcessed to be 1, got %v", val)
 	}
 
-	// Verify BeActCnx metric (Gauge)
+	// 2. Verify BeActCnx (Active Backend Connections - Gauge)
 	BeActCnx.WithLabelValues("127.0.0.1:8080", "proxy-1").Inc()
 	BeActCnx.WithLabelValues("127.0.0.1:8080", "proxy-1").Dec()
 	if val := testutil.ToFloat64(BeActCnx.WithLabelValues("127.0.0.1:8080", "proxy-1")); val != 0 {
 		t.Errorf("Expected BeActCnx to be 0 after Inc and Dec, got %v", val)
 	}
 
-	// Verify FeCnxErrors metric (Counter)
+	// 3. Verify FeCnxErrors (Frontend Connection Errors - Counter)
 	FeCnxErrors.WithLabelValues("0.0.0.0:6379", "proxy-1").Inc()
 	if val := testutil.ToFloat64(FeCnxErrors.WithLabelValues("0.0.0.0:6379", "proxy-1")); val != 1 {
 		t.Errorf("Expected FeCnxErrors to be 1, got %v", val)
 	}
 
-	// Verify FeCnxProcessed metric (Counter)
+	// 4. Verify FeCnxProcessed (Frontend Connections Processed - Counter)
 	FeCnxProcessed.WithLabelValues("0.0.0.0:6379", "proxy-1").Inc()
 	if val := testutil.ToFloat64(FeCnxProcessed.WithLabelValues("0.0.0.0:6379", "proxy-1")); val != 1 {
 		t.Errorf("Expected FeCnxProcessed to be 1, got %v", val)
 	}
 
-	// Verify FeActCnx metric (Gauge)
+	// 5. Verify FeActCnx (Active Frontend Connections - Gauge)
 	FeActCnx.WithLabelValues("0.0.0.0:6379", "proxy-1").Inc()
 	if val := testutil.ToFloat64(FeActCnx.WithLabelValues("0.0.0.0:6379", "proxy-1")); val != 1 {
 		t.Errorf("Expected FeActCnx to be 1, got %v", val)
 	}
 
-	// Verify FeBytesIn metric (Counter)
+	// 6. Verify FeBytesIn (Frontend Bytes Received - Counter)
 	FeBytesIn.WithLabelValues("0.0.0.0:6379", "proxy-1").Inc()
 	if val := testutil.ToFloat64(FeBytesIn.WithLabelValues("0.0.0.0:6379", "proxy-1")); val != 1 {
 		t.Errorf("Expected FeBytesIn to be 1, got %v", val)
 	}
 
-	// Verify FeBytesOut metric (Counter)
+	// 7. Verify FeBytesOut (Frontend Bytes Sent - Counter)
 	FeBytesOut.WithLabelValues("0.0.0.0:6379", "proxy-1").Inc()
 	if val := testutil.ToFloat64(FeBytesOut.WithLabelValues("0.0.0.0:6379", "proxy-1")); val != 1 {
 		t.Errorf("Expected FeBytesOut to be 1, got %v", val)
 	}
 
-	// Verify BeBytesIn metric (Counter)
+	// 8. Verify BeBytesIn (Backend Bytes Received - Counter)
 	BeBytesIn.WithLabelValues("127.0.0.1:8080", "proxy-1").Inc()
 	if val := testutil.ToFloat64(BeBytesIn.WithLabelValues("127.0.0.1:8080", "proxy-1")); val != 1 {
 		t.Errorf("Expected BeBytesIn to be 1, got %v", val)
 	}
 
-	// Verify BeBytesOut metric (Counter)
+	// 9. Verify BeBytesOut (Backend Bytes Sent - Counter)
 	BeBytesOut.WithLabelValues("127.0.0.1:8080", "proxy-1").Inc()
 	if val := testutil.ToFloat64(BeBytesOut.WithLabelValues("127.0.0.1:8080", "proxy-1")); val != 1 {
 		t.Errorf("Expected BeBytesOut to be 1, got %v", val)

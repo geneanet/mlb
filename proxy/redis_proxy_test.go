@@ -14,6 +14,9 @@ import (
 	"mlb/module"
 )
 
+// TestRedisProxyFactory_ValidateConfig verifies that the RedisProxyFactory correctly validates
+// a valid HCL configuration block. It checks that mandatory fields (like source) and
+// optional fields (like addresses and connect_timeout) are accepted.
 func TestRedisProxyFactory_ValidateConfig(t *testing.T) {
 	f := &RedisProxyFactory{}
 	configHCL := []byte(`
@@ -40,6 +43,9 @@ func TestRedisProxyFactory_ValidateConfig(t *testing.T) {
 	}
 }
 
+// TestRedisProxyFactory_parseConfig verifies the default value assignment and correct parsing
+// of configuration values from HCL into the internal ConfigRedis struct.
+// It checks defaults for: timeouts, buffer sizes, queue sizes, and retry parameters.
 func TestRedisProxyFactory_parseConfig(t *testing.T) {
 	f := &RedisProxyFactory{}
 	configHCL := []byte(`
@@ -97,6 +103,8 @@ func TestRedisProxyFactory_parseConfig(t *testing.T) {
 	}
 }
 
+// TestRedisProxyFactory_New verifies the creation of a RedisProxy instance and its
+// ability to handle backend updates (add, modify, remove) through ReceiveUpdate.
 func TestRedisProxyFactory_New(t *testing.T) {
 	f := &RedisProxyFactory{}
 	configHCL := []byte(`
@@ -132,13 +140,13 @@ func TestRedisProxyFactory_New(t *testing.T) {
 		t.Errorf("expected update source test-source, got %s", p.GetUpdateSource())
 	}
 
-	// Test ReceiveUpdate processing
+	// Test ReceiveUpdate processing for backend lifecycle events
 	p.ReceiveUpdate(backend.BackendUpdate{
 		Kind:    backend.UpdBackendAdded,
 		Address: "127.0.0.1:1234",
 		Backend: &backend.Backend{Address: "127.0.0.1:1234", Meta: backend.NewEmptyMetaMap(0)},
 	})
-	time.Sleep(50 * time.Millisecond) // Allow processing
+	time.Sleep(50 * time.Millisecond) // Allow background processing
 
 	if !p.backends.Has("127.0.0.1:1234") {
 		t.Errorf("expected backends to have 127.0.0.1:1234")
@@ -149,31 +157,36 @@ func TestRedisProxyFactory_New(t *testing.T) {
 		Address: "127.0.0.1:1234",
 		Backend: &backend.Backend{Address: "127.0.0.1:1234", Meta: backend.NewEmptyMetaMap(0)},
 	})
-	time.Sleep(50 * time.Millisecond) // Allow processing
+	time.Sleep(50 * time.Millisecond)
 
 	p.ReceiveUpdate(backend.BackendUpdate{
 		Kind:    backend.UpdBackendRemoved,
 		Address: "127.0.0.1:1234",
 	})
-	time.Sleep(50 * time.Millisecond) // Allow processing
+	time.Sleep(50 * time.Millisecond)
 
 	if p.backends.Has("127.0.0.1:1234") {
 		t.Errorf("expected backends not to have 127.0.0.1:1234")
 	}
 
 	cancel()
-	wg.Wait() // Ensure mainloop stops
+	wg.Wait() // Ensure the mainloop stops cleanly
 }
 
+// TestRedisProxy_ListenAndConnection is an integration-like test that verifies:
+// 1. The proxy starts a TCP listener.
+// 2. It accepts client connections and routes PING commands to a mock backend.
+// 3. It correctly enforces command restrictions (denying MONITOR).
+// 4. It properly handles backend discovery and binding to update providers.
 func TestRedisProxy_ListenAndConnection(t *testing.T) {
-	// Start local TCP server to act as a backend
+	// Start local TCP server to act as a mock Redis backend
 	backendListener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer backendListener.Close()
 
-	// Simple backend that responds to PING
+	// Mock backend logic that responds to PING with +PONG
 	go func() {
 		for {
 			conn, err := backendListener.Accept()
@@ -188,7 +201,6 @@ func TestRedisProxy_ListenAndConnection(t *testing.T) {
 					if err != nil {
 						return
 					}
-					// Only respond if it's not a closed conn
 					if n > 0 {
 						c.Write([]byte("+PONG\r\n"))
 					}
@@ -227,27 +239,26 @@ func TestRedisProxy_ListenAndConnection(t *testing.T) {
 	// Set dynamic address so listen picks a random available port
 	p.addresses = []string{"127.0.0.1:0"}
 
-	// Provide the backend
+	// Manually provide the backend to the proxy's internal state
 	p.backends.Add(&backend.Backend{Address: backendListener.Addr().String(), Meta: backend.NewEmptyMetaMap(0)})
 	p.backendConnectionPool.Update()
 
-	time.Sleep(50 * time.Millisecond) // wait for pool
+	time.Sleep(50 * time.Millisecond) // wait for pool to initialize
 
-	// We can't easily get the listening address if we bind inside, so we'll start a custom listener or modify it.
-	// We'll call listen directly to avoid Bind
+	// Determine a free port for the proxy to listen on
 	listenAddr := "127.0.0.1:0"
 	lc := net.ListenConfig{}
 	ln, err := lc.Listen(ctx, "tcp", listenAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	
+
 	proxyAddr := ln.Addr().String()
-	ln.Close() // Release it so listen can use it, might be a small race
+	ln.Close() // Release it so the proxy can bind to it
 
 	p.addresses = []string{proxyAddr}
 
-	// We implement a dummy module provider to test Bind
+	// Mock update provider to satisfy Bind interface
 	dummyProvider := &dummyUpdateProvider{
 		sourceName: "test-source",
 	}
@@ -256,16 +267,16 @@ func TestRedisProxy_ListenAndConnection(t *testing.T) {
 
 	p.Bind(moduleList)
 
-	time.Sleep(100 * time.Millisecond) // Allow server to start
+	time.Sleep(100 * time.Millisecond) // Allow proxy server to start
 
-	// Connect to proxy
+	// Connect to the proxy
 	conn, err := net.Dial("tcp", proxyAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer conn.Close()
 
-	// Send an allowed command
+	// Scenario 1: Send an allowed command (PING)
 	_, err = conn.Write([]byte("*1\r\n$4\r\nPING\r\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -280,7 +291,7 @@ func TestRedisProxy_ListenAndConnection(t *testing.T) {
 		t.Errorf("expected +PONG\r\n, got %s", string(buf[:n]))
 	}
 
-	// Send a denied command
+	// Scenario 2: Send a denied command (MONITOR)
 	_, err = conn.Write([]byte("*1\r\n$7\r\nMONITOR\r\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -301,6 +312,7 @@ func TestRedisProxy_ListenAndConnection(t *testing.T) {
 	wg.Wait()
 }
 
+// dummyUpdateProvider is a helper mock for testing Bind and backend updates.
 type dummyUpdateProvider struct {
 	sourceName string
 }
@@ -313,7 +325,8 @@ func (d *dummyUpdateProvider) IsBackendUpdateProvider(source string) bool {
 }
 
 // TestRedisProxy_HandleConnection_NoBackendPanic verifies that the proxy handles
-// the panic when no backends are available in the pool.
+// the scenario where no backends are available in the pool. It ensures that the
+// deferred recovery handler prevents the application from crashing.
 func TestRedisProxy_HandleConnection_NoBackendPanic(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -345,17 +358,19 @@ func TestRedisProxy_HandleConnection_NoBackendPanic(t *testing.T) {
 	}
 
 	p.connectionsWG.Add(1)
-	// Should not panic (caught by recovery handler)
+	// handleConnection should recover from the panic when GetRandom returns nil (if wait=false)
+	// or when it detects no backends available.
 	defer func() {
 		if r := recover(); r != nil {
-			t.Errorf("handleConnection panicked: %v", r)
+			t.Errorf("handleConnection panicked unexpectedly: %v", r)
 		}
 	}()
 	p.handleConnection(conn)
 }
 
 // TestRedisProxy_HandleConnection_FailedResponse verifies that an aborted response
-// from the backend (nil item) causes the client context to be cancelled.
+// from the backend (represented by a nil item in the response) causes the proxy
+// to correctly terminate the client session by cancelling the client context.
 func TestRedisProxy_HandleConnection_FailedResponse(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -374,12 +389,12 @@ func TestRedisProxy_HandleConnection_FailedResponse(t *testing.T) {
 	}
 	defer l.Close()
 
-	// Frontend client
+	// Mock client connection
 	go func() {
 		conn, err := net.Dial("tcp", l.Addr().String())
 		if err == nil {
 			conn.Write([]byte("PING\r\n"))
-			// Wait for close
+			// Wait for the proxy to close the connection
 			buf := make([]byte, 10)
 			conn.Read(buf)
 			conn.Close()
@@ -390,7 +405,6 @@ func TestRedisProxy_HandleConnection_FailedResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// We don't defer connFront.Close() here because handleConnection will close it
 
 	p.backendConnectionPool = NewRedisBackendConnectionPool(p)
 	rbc := &RedisBackendConnection{
@@ -402,14 +416,13 @@ func TestRedisProxy_HandleConnection_FailedResponse(t *testing.T) {
 	p.backendConnectionPool.waitBackendsSemaphore.Release(1)
 	p.backendConnectionPool.mutex.Unlock()
 
-	// Intercept query and abort it
+	// Intercept the query and simulate a backend failure by aborting it
 	go func() {
 		query := <-rbc.inputChan
 		query.Abort()
 	}()
 
 	p.connectionsWG.Add(1)
-	// handleConnection should return when the client context is cancelled
 	done := make(chan struct{})
 	go func() {
 		p.handleConnection(connFront)
@@ -425,7 +438,8 @@ func TestRedisProxy_HandleConnection_FailedResponse(t *testing.T) {
 }
 
 // TestRedisProxy_HandleConnection_BackendRetrySuccess verifies that if the first
-// backend chosen fails to accept the query, the proxy successfully retries with another.
+// backend connection chosen from the pool fails to process the query, the proxy
+// correctly retries with another available backend.
 func TestRedisProxy_HandleConnection_BackendRetrySuccess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -444,7 +458,7 @@ func TestRedisProxy_HandleConnection_BackendRetrySuccess(t *testing.T) {
 	}
 	defer l.Close()
 
-	// Frontend client
+	// Mock client connection
 	go func() {
 		conn, err := net.Dial("tcp", l.Addr().String())
 		if err == nil {
@@ -461,18 +475,17 @@ func TestRedisProxy_HandleConnection_BackendRetrySuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// We don't defer connFront.Close() here because handleConnection will close it
 
 	p.backendConnectionPool = NewRedisBackendConnectionPool(p)
 
-	// First backend: will fail the query
+	// First backend: simulate a failure by closing its input channel
 	rbc1 := &RedisBackendConnection{
 		pool:          p.backendConnectionPool,
 		inputChanStop: make(chan struct{}),
 	}
-	close(rbc1.inputChanStop) // Force Query() to fail
+	close(rbc1.inputChanStop) // Force Query() to return an error
 
-	// Second backend: will succeed
+	// Second backend: will successfully process the query
 	rbc2 := &RedisBackendConnection{
 		pool:      p.backendConnectionPool,
 		inputChan: make(chan RedisQuery, 1),
@@ -484,11 +497,8 @@ func TestRedisProxy_HandleConnection_BackendRetrySuccess(t *testing.T) {
 	p.backendConnectionPool.waitBackendsSemaphore.Release(1)
 	p.backendConnectionPool.mutex.Unlock()
 
-	// Intercept query on second backend and reply
+	// Intercept the query on the second backend and provide a successful reply
 	go func() {
-		// We might need to wait for rbc1 to be picked and failed
-		// Since GetRandom is random, it might pick rbc2 first.
-		
 		query := <-rbc2.inputChan
 		query.Reply([]byte("+PONG\r\n"))
 	}()
@@ -509,7 +519,8 @@ func TestRedisProxy_HandleConnection_BackendRetrySuccess(t *testing.T) {
 }
 
 // TestRedisProxy_HandleConnection_GracefulShutdownTimeout verifies that when the proxy
-// is stopped, active connections are closed after the grace period.
+// is signaled to shut down, active client connections are forcefully closed if they
+// do not close themselves within the configured closeTimeout period.
 func TestRedisProxy_HandleConnection_GracefulShutdownTimeout(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &RedisProxy{
@@ -527,11 +538,10 @@ func TestRedisProxy_HandleConnection_GracefulShutdownTimeout(t *testing.T) {
 	}
 	defer l.Close()
 
-	// Frontend client
+	// Mock client connection that hangs open
 	go func() {
 		conn, err := net.Dial("tcp", l.Addr().String())
 		if err == nil {
-			// Keep it open
 			buf := make([]byte, 10)
 			conn.Read(buf)
 			conn.Close()
@@ -542,7 +552,6 @@ func TestRedisProxy_HandleConnection_GracefulShutdownTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// We don't defer connFront.Close() here because handleConnection will close it
 
 	p.backendConnectionPool = NewRedisBackendConnectionPool(p)
 	rbc := &RedisBackendConnection{
@@ -561,19 +570,20 @@ func TestRedisProxy_HandleConnection_GracefulShutdownTimeout(t *testing.T) {
 		close(done)
 	}()
 
-	// Trigger shutdown
+	// Trigger the graceful shutdown by cancelling the main context
 	cancel()
 
 	select {
 	case <-done:
-		// Success: connection closed after timeout
+		// Success: connection closed after closeTimeout
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("handleConnection did not exit after shutdown timeout")
 	}
 }
 
-// TestRedisProxy_HandleConnection_ClientWriteError verifies that if writing to the
-// client fails, the connection handler exits.
+// TestRedisProxy_HandleConnection_ClientWriteError verifies that the proxy correctly
+// detects when it can no longer write to the client (e.g., client closed connection
+// before response) and exits the connection handler gracefully.
 func TestRedisProxy_HandleConnection_ClientWriteError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -592,12 +602,12 @@ func TestRedisProxy_HandleConnection_ClientWriteError(t *testing.T) {
 	}
 	defer l.Close()
 
-	// Frontend client that closes immediately after sending
+	// Frontend client that closes its end immediately after sending the command
 	go func() {
 		conn, err := net.Dial("tcp", l.Addr().String())
 		if err == nil {
 			conn.Write([]byte("PING\r\n"))
-			conn.Close() // Close BEFORE proxy can write back
+			conn.Close() // Close BEFORE proxy attempts to write the response back
 		}
 	}()
 
@@ -616,10 +626,10 @@ func TestRedisProxy_HandleConnection_ClientWriteError(t *testing.T) {
 	p.backendConnectionPool.waitBackendsSemaphore.Release(1)
 	p.backendConnectionPool.mutex.Unlock()
 
-	// Intercept query and reply
+	// Intercept query and reply to trigger a write to the closed client connection
 	go func() {
 		query := <-rbc.inputChan
-		// Wait a bit to ensure client closed its end
+		// Brief sleep to ensure the client has closed the connection
 		time.Sleep(100 * time.Millisecond)
 		query.Reply([]byte("+OK\r\n"))
 	}()
@@ -633,7 +643,7 @@ func TestRedisProxy_HandleConnection_ClientWriteError(t *testing.T) {
 
 	select {
 	case <-done:
-		// Success
+		// Success: handleConnection exited after encountering the write error
 	case <-time.After(1 * time.Second):
 		t.Fatal("handleConnection did not exit on client write error")
 	}

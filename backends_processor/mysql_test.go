@@ -141,27 +141,14 @@ func (m *mockSubscriber) ReceiveUpdate(upd backend.BackendUpdate)       {}
 func (m *mockSubscriber) SubscribeTo(bup backend.BackendUpdateProvider) {}
 func (m *mockSubscriber) GetUpdateSource() string                       { return "" }
 
+// TestMySQL verifies the initialization, configuration validation, and backend update handling
+// for the MySQL checker. It also tests various error and panic scenarios during health checks.
 func TestMySQL(t *testing.T) {
 	mysqlDriverName = "mysql_mock"
 
 	factory := factories["mysql"]
 
 	// Create a mock config
-	_, diags := hclsyntax.ParseExpression([]byte(`{
-		source = "test"
-		user = "user"
-		password = "pwd"
-		period = "100ms"
-		max_period = "500ms"
-		connect_timeout = "100ms"
-		read_timeout = "100ms"
-		write_timeout = "100ms"
-		check_replica = true
-	}`), "", hcl.Pos{})
-	if diags.HasErrors() {
-		t.Fatal(diags.Error())
-	}
-
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
 			"source":          {Name: "source", Expr: &hclsyntax.TemplateExpr{Parts: []hclsyntax.Expression{&hclsyntax.LiteralValueExpr{Val: cty.StringVal("test")}}}},
@@ -183,7 +170,7 @@ func TestMySQL(t *testing.T) {
 		ctx:    &hcl.EvalContext{},
 	}
 
-	diags = factory.ValidateConfig(config)
+	diags := factory.ValidateConfig(config)
 	if diags.HasErrors() {
 		t.Fatal(diags.Error())
 	}
@@ -267,15 +254,13 @@ func TestMySQL(t *testing.T) {
 	wg.Wait()
 }
 
+// TestMySQL_Coverage performs exhaustive testing of edge cases in the MySQL checker,
+// including backoff logic, connection errors, and metadata update scenarios.
 func TestMySQL_Coverage(t *testing.T) {
 	mysqlDriverName = "mysql_mock"
 	factory := factories["mysql"]
 
 	// 1. Defaults parsing in Config
-	_, diags := hclsyntax.ParseExpression([]byte(`{source="test_cov"}`), "", hcl.Pos{})
-	if diags.HasErrors() {
-		t.Fatal(diags)
-	}
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
 			"source": {Name: "source", Expr: &hclsyntax.TemplateExpr{Parts: []hclsyntax.Expression{&hclsyntax.LiteralValueExpr{Val: cty.StringVal("test_cov")}}}},
