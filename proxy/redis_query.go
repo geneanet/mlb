@@ -70,7 +70,7 @@ func (q RedisQuery) IsAllowed() bool {
 
 func (q RedisQuery) GetCommand() ([]byte, error) {
 	if len(q.item) >= 3 { // Minimum 1 character + \r\n
-		if q.item[0] == '@' { // Array
+		if q.item[0] == '*' { // Array
 			i := bytes.IndexByte(q.item, '$')
 			if i == -1 {
 				return []byte{}, fmt.Errorf("bulk string start not found")
