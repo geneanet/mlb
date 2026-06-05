@@ -109,8 +109,8 @@ func TestReadMessage_Collections(t *testing.T) {
 	}{
 		{"Array", "*2\r\n:1\r\n:2\r\n"},
 		{"Set", "~2\r\n+foo\r\n+bar\r\n"},
-		{"Map", "%1\r\n+key\r\n+value\r\n"},      // Map is 1 key-value pair (2 elements total)
-		{"Attribute", "|1\r\n+ttl\r\n:3600\r\n"}, // Attributes block has 1 key-value pair (2 elements total)
+		{"Map", "%1\r\n+key\r\n+value\r\n"},              // Map is 1 key-value pair (2 elements total)
+		{"Attribute", "|1\r\n+ttl\r\n:3600\r\n+OK\r\n"}, // Attributes block has 1 key-value pair (2 elements total) followed by a message
 	}
 
 	for _, tt := range tests {
@@ -132,16 +132,27 @@ func TestReadMessage_Collections(t *testing.T) {
 // TestReadMessage_StreamedCollections tests streaming collections (e.g., *?, ~?, %?, |?, >?)
 // terminated by the end-of-stream dot (.) marker.
 func TestReadMessage_StreamedCollections(t *testing.T) {
-	input := "*?\r\n:1\r\n:2\r\n:3\r\n.\r\n"
-	r := bytes.NewReader([]byte(input))
-	reader := NewRedisProtocolReader(r, 128)
-
-	msg, err := reader.ReadMessage(false)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"StreamedArray", "*?\r\n:1\r\n:2\r\n:3\r\n.\r\n"},
+		{"StreamedAttribute", "|?\r\n+key\r\n:value\r\n.\r\n+OK\r\n"},
 	}
-	if !bytes.Equal(msg, []byte(input)) {
-		t.Errorf("expected %s, got %s", input, string(msg))
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := bytes.NewReader([]byte(tt.input))
+			reader := NewRedisProtocolReader(r, 128)
+
+			msg, err := reader.ReadMessage(false)
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if !bytes.Equal(msg, []byte(tt.input)) {
+				t.Errorf("expected %s, got %s", tt.input, string(msg))
+			}
+		})
 	}
 }
 

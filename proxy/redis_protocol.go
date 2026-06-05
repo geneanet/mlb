@@ -39,9 +39,11 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 	eof := false
 	raw := false
 	streaming := 0
+	streamingAttributes := 0
+	streamingStack := make([]bool, 0, 8)
 	strStreaming := false
 
-	for linesToRead > 0 && !eof {
+	for (linesToRead > 0 || streaming > 0) && !eof {
 		// Read a new line of data
 		line, err := r.readLine(bytesToRead)
 		linesToRead--
@@ -105,19 +107,26 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 
 			if line[0] != '>' && line[1] == '?' { // Streamed
 				streaming++
-				linesToRead++
+				isAttr := line[0] == '|'
+				streamingStack = append(streamingStack, isAttr)
+				if isAttr {
+					streamingAttributes++
+				}
 			} else { // Defined size
 				size, errAtoi := strconv.Atoi(string(line[1 : len(line)-2]))
 				if errAtoi != nil {
 					return nil, errAtoi
 				}
 
-				// Hashes and attibutes have keys+values
+				// Hashes and attributes have keys+values
 				if line[0] == '%' || line[0] == '|' {
 					size *= 2
 				}
 
 				linesToRead += size
+				if line[0] == '|' {
+					linesToRead++
+				}
 			}
 
 		case '.':
@@ -130,6 +139,11 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 
 			// End of streaming
 			if line[1] == '\r' && line[2] == '\n' {
+				isAttr := streamingStack[len(streamingStack)-1]
+				streamingStack = streamingStack[:len(streamingStack)-1]
+				if isAttr {
+					streamingAttributes--
+				}
 				streaming--
 			}
 
@@ -144,8 +158,8 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 
 		}
 
-		if streaming > 0 && linesToRead == streaming-1 {
-			linesToRead++
+		if streaming > 0 && linesToRead < streaming+streamingAttributes {
+			linesToRead = streaming + streamingAttributes
 		}
 
 		// Inline commands only allowed if first line
