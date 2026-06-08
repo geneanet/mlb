@@ -244,10 +244,13 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn) {
 			p.log.Debug().Str("peer", peerAddress).Msg("Frontend closed, waiting for connection to end.")
 		}
 
+		timer := time.NewTimer(p.closeTimeout)
+		defer timer.Stop()
+
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(p.closeTimeout):
+		case <-timer.C:
 			p.log.Warn().Str("peer", peerAddress).Msg("Timeout reached, force closing connection.")
 			cancel()
 		}
