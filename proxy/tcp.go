@@ -182,12 +182,14 @@ func (p *ProxyTCP) listen(address string, wg *sync.WaitGroup) {
 }
 
 func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inputTimeout time.Duration, outputTimeout time.Duration, inCounter prometheus.Counter, outCounter prometheus.Counter) {
-	// Error handler
+	// Signal completion
+	defer close(done)
+
+	// Recover from unexpected panics to prevent proxy crashes
 	defer func() {
 		if r := recover(); r != nil {
 			p.log.Error().Str("input", input.RemoteAddr().String()).Str("output", output.RemoteAddr().String()).Err(misc.EnsureError(r)).Msg("Error while processing pipe")
 		}
-		close(done)
 	}()
 
 	buffer := p.bufferPool.Get().([]byte)
@@ -207,10 +209,13 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inp
 		if nbytes > 0 {
 			inCounter.Add(float64(nbytes))
 		}
-		if err == io.EOF || errors.Is(err, net.ErrClosed) {
+		if err != nil {
+			if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
+				p.log.Error().Str("input", input.RemoteAddr().String()).Str("output", output.RemoteAddr().String()).Err(err).Msg("Error reading from pipe")
+			}
 			return
 		}
-		misc.PanicIfErr(err)
+
 		if outputTimeout != 0 {
 			now := time.Now()
 			if nextWriteDeadline.IsZero() || now.Add(outputTimeout).After(nextWriteDeadline) {
@@ -222,10 +227,12 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inp
 		if nbytes > 0 {
 			outCounter.Add(float64(nbytes))
 		}
-		if errors.Is(err, net.ErrClosed) {
+		if err != nil {
+			if !errors.Is(err, net.ErrClosed) {
+				p.log.Error().Str("input", input.RemoteAddr().String()).Str("output", output.RemoteAddr().String()).Err(err).Msg("Error writing to pipe")
+			}
 			return
 		}
-		misc.PanicIfErr(err)
 	}
 }
 
@@ -242,7 +249,7 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn) {
 
 	// If the proxy context is closed, close the connection after a grace period
 	stopGracefulClosing := context.AfterFunc(p.ctx, func() {
-			p.log.Debug().Str("peer", peerAddress).Msg("Frontend closed, waiting for connection to end.")
+		p.log.Debug().Str("peer", peerAddress).Msg("Frontend closed, waiting for connection to end.")
 		timer := time.AfterFunc(p.closeTimeout, func() {
 			p.log.Warn().Str("peer", peerAddress).Msg("Timeout reached, force closing connection.")
 			cancel()
