@@ -240,7 +240,9 @@ func (p *RedisProxy) handleConnection(connFront net.Conn) {
 		<-ctx.Done()
 		p.log.Debug().Str("peer", peerAddress).Msg("Closing Frontend connection")
 		err := connFront.Close()
-		misc.PanicIfErr(err)
+		if err != nil && !errors.Is(err, net.ErrClosed) {
+			misc.PanicIfErr(err)
+		}
 	}()
 
 	// If the proxy context is closed, close the connection context after a grace period
