@@ -241,25 +241,18 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn) {
 	defer cancel()
 
 	// If the proxy context is closed, close the connection after a grace period
-	go func() {
-		select {
-		case <-ctx.Done():
-			return
-		case <-p.ctx.Done():
+	stopGracefulClosing := context.AfterFunc(p.ctx, func() {
 			p.log.Debug().Str("peer", peerAddress).Msg("Frontend closed, waiting for connection to end.")
-		}
-
-		timer := time.NewTimer(p.closeTimeout)
-		defer timer.Stop()
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
+		timer := time.AfterFunc(p.closeTimeout, func() {
 			p.log.Warn().Str("peer", peerAddress).Msg("Timeout reached, force closing connection.")
 			cancel()
-		}
-	}()
+		})
+		// Ensure we stop the timer if the connection finishes before the timeout
+		context.AfterFunc(ctx, func() {
+			timer.Stop()
+		})
+	})
+	defer stopGracefulClosing()
 
 	if p.nodelay {
 		err := connFront.(*net.TCPConn).SetNoDelay(true)
