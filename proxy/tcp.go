@@ -100,7 +100,7 @@ func (w TCPProxyFactory) parseConfig(tc *Config) *TCPProxyConfig {
 		config.TimeoutMargin = "1s"
 	}
 	if config.BufferSize == 0 {
-		config.BufferSize = 16384
+		config.BufferSize = 32768
 	}
 	return config
 }

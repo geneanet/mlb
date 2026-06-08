@@ -173,8 +173,8 @@ func TestTCPProxyFactory_Defaults(t *testing.T) {
 	p := mod.(*ProxyTCP)
 
 	// Validate correct default configuration values
-	if p.bufferSize != 16384 {
-		t.Errorf("expected bufferSize 16384, got %d", p.bufferSize)
+	if p.bufferSize != 32768 {
+		t.Errorf("expected bufferSize 32768, got %d", p.bufferSize)
 	}
 	if p.connectTimeout != 0 {
 		t.Errorf("expected connectTimeout 0, got %v", p.connectTimeout)
