@@ -224,32 +224,34 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inp
 				input.SetReadDeadline(nextReadDeadline)
 			}
 		}
-		nbytes, err := input.Read(buffer)
-		if nbytes > 0 {
-			inCounter.Add(float64(nbytes))
-		}
-		if err != nil {
-			if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
-				p.log.Error().Str("input", input.RemoteAddr().String()).Str("output", output.RemoteAddr().String()).Err(err).Msg("Error reading from pipe")
-			}
+		nbytes, readErr := input.Read(buffer)
+		if readErr != nil && !errors.Is(readErr, io.EOF) && !errors.Is(readErr, net.ErrClosed) {
+			p.log.Error().Str("input", input.RemoteAddr().String()).Str("output", output.RemoteAddr().String()).Err(readErr).Msg("Error reading from pipe")
 			return
 		}
 
-		if outputTimeout != 0 {
-			now := time.Now()
-			if nextWriteDeadline.IsZero() || now.Add(outputTimeout).After(nextWriteDeadline) {
-				nextWriteDeadline = now.Add(outputTimeout + p.timeoutMargin)
-				output.SetWriteDeadline(nextWriteDeadline)
-			}
-		}
-		nbytes, err = output.Write(buffer[:nbytes])
 		if nbytes > 0 {
-			outCounter.Add(float64(nbytes))
-		}
-		if err != nil {
-			if !errors.Is(err, net.ErrClosed) {
-				p.log.Error().Str("input", input.RemoteAddr().String()).Str("output", output.RemoteAddr().String()).Err(err).Msg("Error writing to pipe")
+			inCounter.Add(float64(nbytes))
+			if outputTimeout != 0 {
+				now := time.Now()
+				if nextWriteDeadline.IsZero() || now.Add(outputTimeout).After(nextWriteDeadline) {
+					nextWriteDeadline = now.Add(outputTimeout + p.timeoutMargin)
+					output.SetWriteDeadline(nextWriteDeadline)
+				}
 			}
+			nbytes, writeErr := output.Write(buffer[:nbytes])
+			if nbytes > 0 {
+				outCounter.Add(float64(nbytes))
+			}
+			if writeErr != nil {
+				if !errors.Is(writeErr, net.ErrClosed) {
+					p.log.Error().Str("input", input.RemoteAddr().String()).Str("output", output.RemoteAddr().String()).Err(writeErr).Msg("Error writing to pipe")
+				}
+				return
+			}
+		}
+
+		if readErr != nil {
 			return
 		}
 	}
