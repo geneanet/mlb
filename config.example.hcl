@@ -38,7 +38,8 @@ backends_processor "mysql" "mysql" {
 	// connect_timeout = "0s"
 	// read_timeout = "0s"
 	// write_timeout = "0s"
-}
+	// conn_max_lifetime = "5m"
+	}
 
 backends_processor "simple_filter" "mysql_main_ro" {
   source = backends_processor.mysql.mysql

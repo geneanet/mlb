@@ -27,39 +27,41 @@ func init() {
 }
 
 type MySQLChecker struct {
-	id             string
-	checks         map[string]*MySQLCheck
-	checksMtex     sync.RWMutex
-	user           string
-	password       string
-	defaultPeriod  time.Duration
-	maxPeriod      time.Duration
-	backoffFactor  float64
-	subscribers    []backend.BackendUpdateSubscriber
-	ctx            context.Context
-	cancel         context.CancelFunc
-	log            zerolog.Logger
-	updChan        chan backend.BackendUpdate
-	updChanStop    chan struct{}
-	source         string
-	connectTimeout time.Duration
-	readTimeout    time.Duration
-	writeTimeout   time.Duration
-	checkReplica   bool
+	id              string
+	checks          map[string]*MySQLCheck
+	checksMtex      sync.RWMutex
+	user            string
+	password        string
+	defaultPeriod   time.Duration
+	maxPeriod       time.Duration
+	backoffFactor   float64
+	subscribers     []backend.BackendUpdateSubscriber
+	ctx             context.Context
+	cancel          context.CancelFunc
+	log             zerolog.Logger
+	updChan         chan backend.BackendUpdate
+	updChanStop     chan struct{}
+	source          string
+	connectTimeout  time.Duration
+	readTimeout     time.Duration
+	writeTimeout    time.Duration
+	connMaxLifetime time.Duration
+	checkReplica    bool
 }
 
 type MySQLCheckerConfig struct {
-	ID             string  `hcl:"id,label"`
-	Source         string  `hcl:"source"`
-	User           string  `hcl:"user,optional"`
-	Password       string  `hcl:"password,optional"`
-	Period         string  `hcl:"period,optional"`
-	MaxPeriod      string  `hcl:"max_period,optional"`
-	BackoffFactor  float64 `hcl:"backoff_factor,optional"`
-	ConnectTimeout string  `hcl:"connect_timeout,optional"`
-	ReadTimeout    string  `hcl:"read_timeout,optional"`
-	WriteTimeout   string  `hcl:"write_timeout,optional"`
-	CheckReplica   bool    `hcl:"check_replica,optional"`
+	ID              string  `hcl:"id,label"`
+	Source          string  `hcl:"source"`
+	User            string  `hcl:"user,optional"`
+	Password        string  `hcl:"password,optional"`
+	Period          string  `hcl:"period,optional"`
+	MaxPeriod       string  `hcl:"max_period,optional"`
+	BackoffFactor   float64 `hcl:"backoff_factor,optional"`
+	ConnectTimeout  string  `hcl:"connect_timeout,optional"`
+	ReadTimeout     string  `hcl:"read_timeout,optional"`
+	WriteTimeout    string  `hcl:"write_timeout,optional"`
+	ConnMaxLifetime string  `hcl:"conn_max_lifetime,optional"`
+	CheckReplica    bool    `hcl:"check_replica,optional"`
 }
 
 type MySQLCheckerFactory struct{}
@@ -90,6 +92,9 @@ func (w MySQLCheckerFactory) parseConfig(tc *Config) *MySQLCheckerConfig {
 	}
 	if config.WriteTimeout == "" {
 		config.WriteTimeout = "0s"
+	}
+	if config.ConnMaxLifetime == "" {
+		config.ConnMaxLifetime = "5m"
 	}
 	return config
 }
@@ -122,6 +127,8 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 	c.readTimeout, err = time.ParseDuration(config.ReadTimeout)
 	misc.PanicIfErr(err)
 	c.writeTimeout, err = time.ParseDuration(config.WriteTimeout)
+	misc.PanicIfErr(err)
+	c.connMaxLifetime, err = time.ParseDuration(config.ConnMaxLifetime)
 	misc.PanicIfErr(err)
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
@@ -168,6 +175,7 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 							c.defaultPeriod,
 							c.maxPeriod,
 							c.backoffFactor,
+							c.connMaxLifetime,
 							statusChan,
 							c.checkReplica,
 						)
@@ -273,32 +281,34 @@ func (c *MySQLChecker) Bind(modules module.ModulesList) {
 }
 
 type MySQLCheck struct {
-	backend       *backend.Backend
-	dsn           string
-	period        time.Duration
-	defaultPeriod time.Duration
-	maxPeriod     time.Duration
-	backoffFactor float64
-	statusChan    chan *backend.Backend
-	ticker        *misc.ExponentialBackoffTicker
-	stopChan      chan struct{}
-	running       bool
-	db            *sql.DB
-	checkReplica  bool
+	backend         *backend.Backend
+	dsn             string
+	period          time.Duration
+	defaultPeriod   time.Duration
+	maxPeriod       time.Duration
+	backoffFactor   float64
+	statusChan      chan *backend.Backend
+	ticker          *misc.ExponentialBackoffTicker
+	stopChan        chan struct{}
+	running         bool
+	db              *sql.DB
+	connMaxLifetime time.Duration
+	checkReplica    bool
 }
 
-func NewMySQLCheck(backend *backend.Backend, dsn string, defaultPeriod time.Duration, maxPeriod time.Duration, backoffFactor float64, statusChan chan *backend.Backend, checkReplica bool) *MySQLCheck {
+func NewMySQLCheck(backend *backend.Backend, dsn string, defaultPeriod time.Duration, maxPeriod time.Duration, backoffFactor float64, connMaxLifetime time.Duration, statusChan chan *backend.Backend, checkReplica bool) *MySQLCheck {
 	c := &MySQLCheck{
-		backend:       backend,
-		dsn:           dsn,
-		period:        defaultPeriod,
-		defaultPeriod: defaultPeriod,
-		maxPeriod:     maxPeriod,
-		backoffFactor: backoffFactor,
-		statusChan:    statusChan,
-		stopChan:      make(chan struct{}),
-		running:       false,
-		checkReplica:  checkReplica,
+		backend:         backend,
+		dsn:             dsn,
+		period:          defaultPeriod,
+		defaultPeriod:   defaultPeriod,
+		maxPeriod:       maxPeriod,
+		backoffFactor:   backoffFactor,
+		statusChan:      statusChan,
+		stopChan:        make(chan struct{}),
+		running:         false,
+		connMaxLifetime: connMaxLifetime,
+		checkReplica:    checkReplica,
 	}
 	backend.Meta.Set("mysql", "status", cty.UnknownVal(cty.String))
 	backend.Meta.Set("mysql", "readonly", cty.UnknownVal(cty.Bool))
@@ -409,7 +419,7 @@ func (c *MySQLCheck) fetchStatus() (retStatus cty.Value, retReadonly cty.Value, 
 			} else {
 				db.SetMaxOpenConns(1)
 				db.SetMaxIdleConns(1)
-				db.SetConnMaxLifetime(time.Minute * 5)
+				db.SetConnMaxLifetime(c.connMaxLifetime)
 			}
 			c.db = db
 
@@ -512,7 +522,7 @@ func (c *MySQLCheck) StartPolling() error {
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	db.SetConnMaxLifetime(time.Minute * 5)
+	db.SetConnMaxLifetime(c.connMaxLifetime)
 	c.db = db
 
 	c.ticker = misc.NewExponentialBackoffTicker(c.defaultPeriod, c.maxPeriod, c.backoffFactor)
