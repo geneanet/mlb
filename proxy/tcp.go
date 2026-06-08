@@ -12,12 +12,12 @@ import (
 	"net"
 	"os"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sys/unix"
@@ -181,7 +181,7 @@ func (p *ProxyTCP) listen(address string, wg *sync.WaitGroup) {
 	}()
 }
 
-func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inputTimeout time.Duration, outputTimeout time.Duration, counter *atomic.Uint64) {
+func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inputTimeout time.Duration, outputTimeout time.Duration, inCounter prometheus.Counter, outCounter prometheus.Counter) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
@@ -204,7 +204,9 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inp
 			}
 		}
 		nbytes, err := input.Read(buffer)
-		counter.Add(uint64(nbytes))
+		if nbytes > 0 {
+			inCounter.Add(float64(nbytes))
+		}
 		if err == io.EOF || errors.Is(err, net.ErrClosed) {
 			return
 		}
@@ -216,7 +218,10 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inp
 				output.SetWriteDeadline(nextWriteDeadline)
 			}
 		}
-		_, err = output.Write(buffer[:nbytes])
+		nbytes, err = output.Write(buffer[:nbytes])
+		if nbytes > 0 {
+			outCounter.Add(float64(nbytes))
+		}
 		if errors.Is(err, net.ErrClosed) {
 			return
 		}
@@ -310,40 +315,23 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn) {
 		misc.PanicIfErr(err)
 	}
 
+	feBytesInCounter := metrics.FeBytesIn.WithLabelValues(frontendAddress, p.id)
+	feBytesOutCounter := metrics.FeBytesOut.WithLabelValues(frontendAddress, p.id)
+	beBytesInCounter := metrics.BeBytesIn.WithLabelValues(backendAddress, p.id)
+	beBytesOutCounter := metrics.BeBytesOut.WithLabelValues(backendAddress, p.id)
+
 	// Pipe the connections both ways
 	doneFrontBack := make(chan struct{})
 	doneBackFront := make(chan struct{})
-	var bytesIn, bytesOut atomic.Uint64
 
-	go p.pipe(connFront, connBack, doneFrontBack, p.clientTimeout, p.serverTimeout, &bytesIn)
-	go p.pipe(connBack, connFront, doneBackFront, p.serverTimeout, p.clientTimeout, &bytesOut)
+	go p.pipe(connFront, connBack, doneFrontBack, p.clientTimeout, p.serverTimeout, feBytesInCounter, beBytesOutCounter)
+	go p.pipe(connBack, connFront, doneBackFront, p.serverTimeout, p.clientTimeout, beBytesInCounter, feBytesOutCounter)
 
-	statsTicker := time.NewTicker(1 * time.Second)
-	defer statsTicker.Stop()
-
-	// Wait for one pipe to end or the context to be cancelled + ticker every second for stats
-	breakLoop := false
-	for {
-		select {
-		case <-doneFrontBack:
-			breakLoop = true
-		case <-doneBackFront:
-			breakLoop = true
-		case <-ctx.Done():
-			breakLoop = true
-		case <-statsTicker.C:
-		}
-
-		bytesInFloat := float64(bytesIn.Swap(0))
-		bytesOutFloat := float64(bytesOut.Swap(0))
-		metrics.FeBytesIn.WithLabelValues(frontendAddress, p.id).Add(bytesInFloat)
-		metrics.FeBytesOut.WithLabelValues(frontendAddress, p.id).Add(bytesOutFloat)
-		metrics.BeBytesIn.WithLabelValues(backendAddress, p.id).Add(bytesInFloat)
-		metrics.BeBytesOut.WithLabelValues(backendAddress, p.id).Add(bytesOutFloat)
-
-		if breakLoop {
-			break
-		}
+	// Wait for one pipe to end or the context to be cancelled
+	select {
+	case <-doneFrontBack:
+	case <-doneBackFront:
+	case <-ctx.Done():
 	}
 
 	// Ensure both ends are closed so both pipes will exit

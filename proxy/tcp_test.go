@@ -6,11 +6,11 @@ import (
 	"io"
 	"net"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"mlb/backend"
+	"mlb/metrics"
 	"mlb/module"
 
 	"github.com/hashicorp/hcl/v2"
@@ -470,11 +470,11 @@ func TestTCPProxy_PipeErrors(t *testing.T) {
 	}
 
 	badConn := &panicConn{}
-	var bytesProcessed atomic.Uint64
+	feBytesInCounter := metrics.FeBytesIn.WithLabelValues("1", p.id)
+	beBytesInCounter := metrics.BeBytesIn.WithLabelValues("2", p.id)
 	done := make(chan struct{})
+	go p.pipe(badConn, badConn, done, 0, 0, feBytesInCounter, beBytesInCounter)
 
-	// Manually invoke pipe with the bad connection to trigger the panic recovery path
-	go p.pipe(badConn, badConn, done, 0, 0, &bytesProcessed)
 
 	select {
 	case <-done:
@@ -528,10 +528,11 @@ func TestTCPProxy_PipeClosedErr(t *testing.T) {
 	}
 
 	badConn := &closedConn{}
-	var bytesProcessed atomic.Uint64
+	feBytesInCounter := metrics.FeBytesIn.WithLabelValues("1", p.id)
+	beBytesInCounter := metrics.BeBytesIn.WithLabelValues("2", p.id)
 	done := make(chan struct{})
 
-	go p.pipe(badConn, badConn, done, 0, 0, &bytesProcessed)
+	go p.pipe(badConn, badConn, done, 0, 0, feBytesInCounter, beBytesInCounter)
 
 	select {
 	case <-done:
@@ -611,4 +612,4 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 	conn.Close()
-}
+	}
