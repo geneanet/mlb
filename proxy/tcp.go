@@ -47,6 +47,16 @@ type ProxyTCP struct {
 	bufferSize            int
 	nodelay               bool
 	bufferPool            sync.Pool
+	beMetricsCache        map[string]*Metrics
+	beMetricsMutex        sync.RWMutex
+}
+
+type Metrics struct {
+	processed prometheus.Counter
+	active    prometheus.Gauge
+	bytesIn   prometheus.Counter
+	bytesOut  prometheus.Counter
+	cnxErrors prometheus.Counter
 }
 
 type TCPProxyConfig struct {
@@ -99,14 +109,15 @@ func (w TCPProxyFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 	config := w.parseConfig(tc)
 
 	p := &ProxyTCP{
-		id:           config.ID,
-		addresses:    config.Addresses,
-		log:          log.With().Str("id", config.ID).Logger(),
-		bufferSize:   config.BufferSize,
-		nodelay:      config.NoDelay,
-		source:       config.Source,
-		backupSource: config.BackupSource,
-		wg:           wg,
+		id:             config.ID,
+		addresses:      config.Addresses,
+		log:            log.With().Str("id", config.ID).Logger(),
+		bufferSize:     config.BufferSize,
+		nodelay:        config.NoDelay,
+		source:         config.Source,
+		backupSource:   config.BackupSource,
+		wg:             wg,
+		beMetricsCache: make(map[string]*Metrics),
 	}
 
 	var err error
@@ -135,6 +146,14 @@ func (w TCPProxyFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 
 func (p *ProxyTCP) listen(address string, wg *sync.WaitGroup) {
 	p.log.Info().Str("address", address).Msg("Opening Frontend")
+
+	feMetrics := &Metrics{
+		processed: metrics.FeCnxProcessed.WithLabelValues(address, p.id),
+		active:    metrics.FeActCnx.WithLabelValues(address, p.id),
+		bytesIn:   metrics.FeBytesIn.WithLabelValues(address, p.id),
+		bytesOut:  metrics.FeBytesOut.WithLabelValues(address, p.id),
+		cnxErrors: metrics.FeCnxErrors.WithLabelValues(address, p.id),
+	}
 
 	// Set SO_REUSEPORT
 	lc := net.ListenConfig{
@@ -174,7 +193,7 @@ func (p *ProxyTCP) listen(address string, wg *sync.WaitGroup) {
 			misc.PanicIfErr(err)
 			p.connectionsWG.Add(1)
 			p.log.Debug().Str("peer", conn.RemoteAddr().String()).Msg("Accepting Frontend connection")
-			go p.handleConnection(conn)
+			go p.handleConnection(conn, feMetrics)
 		}
 
 		p.connectionsWG.Wait()
@@ -236,8 +255,42 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inp
 	}
 }
 
-func (p *ProxyTCP) handleConnection(connFront net.Conn) {
-	frontendAddress := connFront.LocalAddr().String()
+func (p *ProxyTCP) getBackendMetrics(backendAddress string) *Metrics {
+	p.beMetricsMutex.RLock()
+	if p.beMetricsCache != nil {
+		beM, exists := p.beMetricsCache[backendAddress]
+		p.beMetricsMutex.RUnlock()
+
+		if exists {
+			return beM
+		}
+	} else {
+		p.beMetricsMutex.RUnlock()
+	}
+
+	p.beMetricsMutex.Lock()
+	defer p.beMetricsMutex.Unlock()
+
+	if p.beMetricsCache == nil {
+		p.beMetricsCache = make(map[string]*Metrics)
+	}
+
+	// Double check pattern
+	if beM, exists := p.beMetricsCache[backendAddress]; exists {
+		return beM
+	}
+
+	beM := &Metrics{
+		processed: metrics.BeCnxProcessed.WithLabelValues(backendAddress, p.id),
+		active:    metrics.BeActCnx.WithLabelValues(backendAddress, p.id),
+		bytesIn:   metrics.BeBytesIn.WithLabelValues(backendAddress, p.id),
+		bytesOut:  metrics.BeBytesOut.WithLabelValues(backendAddress, p.id),
+	}
+	p.beMetricsCache[backendAddress] = beM
+	return beM
+}
+
+func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	peerAddress := connFront.RemoteAddr().String()
 
 	defer p.connectionsWG.Done()
@@ -267,16 +320,16 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn) {
 	}
 
 	// Prometheus
-	metrics.FeCnxProcessed.WithLabelValues(frontendAddress, p.id).Inc()
-	metrics.FeActCnx.WithLabelValues(frontendAddress, p.id).Inc()
-	defer metrics.FeActCnx.WithLabelValues(frontendAddress, p.id).Dec()
+	feMetrics.processed.Inc()
+	feMetrics.active.Inc()
+	defer feMetrics.active.Dec()
 
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
 			p.log.Error().Str("peer", peerAddress).Err(misc.EnsureError(r)).Msg("Error while processing connection")
 			// Prometheus
-			metrics.FeCnxErrors.WithLabelValues(frontendAddress, p.id).Inc()
+			feMetrics.cnxErrors.Inc()
 		}
 	}()
 
@@ -298,10 +351,12 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn) {
 		panic(errors.New("no backend found"))
 	}
 
+	beMetrics := p.getBackendMetrics(backendAddress)
+
 	// Prometheus
-	metrics.BeCnxProcessed.WithLabelValues(backendAddress, p.id).Inc()
-	metrics.BeActCnx.WithLabelValues(backendAddress, p.id).Inc()
-	defer metrics.BeActCnx.WithLabelValues(backendAddress, p.id).Dec()
+	beMetrics.processed.Inc()
+	beMetrics.active.Inc()
+	defer beMetrics.active.Dec()
 
 	// Open backend connection
 	p.log.Debug().Str("peer", backendAddress).Msg("Opening Backend connection")
@@ -315,17 +370,12 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn) {
 		misc.PanicIfErr(err)
 	}
 
-	feBytesInCounter := metrics.FeBytesIn.WithLabelValues(frontendAddress, p.id)
-	feBytesOutCounter := metrics.FeBytesOut.WithLabelValues(frontendAddress, p.id)
-	beBytesInCounter := metrics.BeBytesIn.WithLabelValues(backendAddress, p.id)
-	beBytesOutCounter := metrics.BeBytesOut.WithLabelValues(backendAddress, p.id)
-
 	// Pipe the connections both ways
 	doneFrontBack := make(chan struct{})
 	doneBackFront := make(chan struct{})
 
-	go p.pipe(connFront, connBack, doneFrontBack, p.clientTimeout, p.serverTimeout, feBytesInCounter, beBytesOutCounter)
-	go p.pipe(connBack, connFront, doneBackFront, p.serverTimeout, p.clientTimeout, beBytesInCounter, feBytesOutCounter)
+	go p.pipe(connFront, connBack, doneFrontBack, p.clientTimeout, p.serverTimeout, feMetrics.bytesIn, beMetrics.bytesOut)
+	go p.pipe(connBack, connFront, doneBackFront, p.serverTimeout, p.clientTimeout, beMetrics.bytesIn, feMetrics.bytesOut)
 
 	// Wait for one pipe to end or the context to be cancelled
 	select {
