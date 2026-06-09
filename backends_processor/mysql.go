@@ -370,7 +370,7 @@ func (c *MySQLCheck) fetchReplicaLatency() (retReplicaLatency cty.Value, retErr 
 			}
 		}
 		if sbsColumn == -1 {
-			panic("Column Seconds_Behind_Source not found in SHOW REPLICA STATUS")
+			return cty.NumberIntVal(-1), fmt.Errorf("column Seconds_Behind_Source not found in SHOW REPLICA STATUS")
 		}
 
 		// Create the buffer and scan the row
