@@ -37,7 +37,7 @@ func TestReadMessage_SimpleTypes(t *testing.T) {
 		{"SimpleError", "-ERR status\r\n"},
 		{"Integer", ":42\r\n"},
 		{"Double", ",3.14\r\n"},
-		{"BigNumber", ",(12345678901234567890\r\n"},
+		{"BigNumber", "(12345678901234567890\r\n"},
 		{"Null", "_\r\n"},
 		{"BooleanTrue", "#t\r\n"},
 		{"BooleanFalse", "#f\r\n"},
@@ -425,8 +425,8 @@ func TestReadMessage_Errors(t *testing.T) {
 		}
 		fr := &fnReader{read: readerFn}
 
-		structReader := NewRedisProtocolReader(interfaceReader{fr.read}, 128)
-		_, err := structReader.ReadMessage(false)
+		reader := NewRedisProtocolReader(interfaceReader{fr.read}, 128)
+		_, err := reader.ReadMessage(false)
 		if !errors.Is(err, expectedErr) {
 			t.Errorf("expected error %v, got %v", expectedErr, err)
 		}
