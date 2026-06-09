@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"mlb/backend"
+	"mlb/testutil"
 	"net"
 	"testing"
 	"time"
@@ -186,14 +187,11 @@ func TestRedisBackendConnectionPool_Update(t *testing.T) {
 
 	go pool.Update()
 
-	time.Sleep(100 * time.Millisecond)
-
-	pool.mutex.RLock()
-	size := len(pool.pool)
-	pool.mutex.RUnlock()
-	if size != 0 {
-		t.Errorf("expected pool size 0, got %d", size)
-	}
+	testutil.Eventually(t, func() bool {
+		pool.mutex.RLock()
+		defer pool.mutex.RUnlock()
+		return len(pool.pool) == 0
+	}, 1*time.Second, 10*time.Millisecond)
 }
 
 // TestRedisBackendConnectionPool_NotifyFailure verifies the asynchronous failure notification mechanism.
@@ -230,12 +228,9 @@ func TestRedisBackendConnectionPool_NotifyFailure(t *testing.T) {
 	pool.NotifyFailure(dummyConn)
 
 	// Wait for the background goroutine to process the failure and remove the connection
-	time.Sleep(50 * time.Millisecond)
-
-	pool.mutex.RLock()
-	size := len(pool.pool)
-	pool.mutex.RUnlock()
-	if size != 0 {
-		t.Errorf("expected pool size 0, got %d", size)
-	}
+	testutil.Eventually(t, func() bool {
+		pool.mutex.RLock()
+		defer pool.mutex.RUnlock()
+		return len(pool.pool) == 0
+	}, 1*time.Second, 10*time.Millisecond)
 }

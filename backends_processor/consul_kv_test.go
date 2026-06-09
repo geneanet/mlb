@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"mlb/backend"
 	"mlb/module"
+	"mlb/testutil"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -21,11 +22,13 @@ import (
 // including initial data fetching, reacting to Consul value changes, and handling backend updates.
 func TestConsulKV_Basic(t *testing.T) {
 	// Create mock consul server
+	callCount := 0
 	var consulIndex string = "1"
 	var consulValue string = "default"
 	var statusToReturn int = 200
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
 		if statusToReturn == 404 {
 			w.WriteHeader(404)
 			return
@@ -156,7 +159,10 @@ backends_processor "consul_kv" "test" {
 
 	// Test 500 error from consul to trigger backoff
 	statusToReturn = 500
-	time.Sleep(100 * time.Millisecond) // Let it fail a few times
+	lastCallCount := callCount
+	testutil.Eventually(t, func() bool {
+		return callCount > lastCallCount+1
+	}, 1*time.Second, 10*time.Millisecond) // Let it fail a few times
 
 	statusToReturn = 200
 	consulValue = "after_error"
@@ -174,7 +180,6 @@ backends_processor "consul_kv" "test" {
 
 	// Remove non-existent
 	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: "127.0.0.1:9999"})
-	time.Sleep(10 * time.Millisecond)
 }
 
 // TestConsulKV_ProvideUpdatesExisting verifies that new subscribers receive
@@ -355,7 +360,9 @@ func TestConsulKV_FetchErrors(t *testing.T) {
 // such as context cancellation during fetch or sleep.
 func TestConsulKV_WatcherCoverage(t *testing.T) {
 	// Case 1: Cancel context during an active HTTP fetch.
+	callCount1 := 0
 	ts1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount1++
 		time.Sleep(100 * time.Millisecond)
 		w.WriteHeader(200)
 	}))
@@ -365,12 +372,17 @@ func TestConsulKV_WatcherCoverage(t *testing.T) {
 	ch := make(chan *consulKVWatcherMessage, 10)
 	newConsulKVWatcher(&backend.Backend{Address: "foo1"}, "id", ts1.URL, "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, ch, ctx1, log.Logger)
 
-	time.Sleep(20 * time.Millisecond) // Ensure request starts
-	cancel1()                         // Force context cancellation natively mid-flight
-	time.Sleep(100 * time.Millisecond)
+	// Ensure request starts
+	testutil.Eventually(t, func() bool {
+		return callCount1 > 0
+	}, 1*time.Second, 10*time.Millisecond)
+
+	cancel1() // Force context cancellation natively mid-flight
 
 	// Case 2: Cancel context while the watcher is sleeping between requests.
+	callCount2 := 0
 	ts2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount2++
 		w.Header().Set("X-Consul-Index", "1")
 		w.Write([]byte(`[{"Key":"foo","Value":"YmFy"}]`))
 	}))
@@ -380,7 +392,9 @@ func TestConsulKV_WatcherCoverage(t *testing.T) {
 	newConsulKVWatcher(&backend.Backend{Address: "foo2"}, "id", ts2.URL, "key", 500*time.Millisecond, 1*time.Second, 1.5, ch, ctx2, log.Logger)
 
 	// Give it time to execute its first request and fall into sleep
-	time.Sleep(50 * time.Millisecond)
+	testutil.Eventually(t, func() bool {
+		return callCount2 > 0
+	}, 1*time.Second, 10*time.Millisecond)
+
 	cancel2()
-	time.Sleep(50 * time.Millisecond)
 }

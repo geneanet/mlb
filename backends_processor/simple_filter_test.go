@@ -59,7 +59,7 @@ backends_processor "simple_filter" "test" {
 	filterMod.Bind(modules)
 
 	// Wait for goroutines to settle
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(2 * time.Millisecond)
 
 	// Test 1: Add passing backend
 	b1 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
@@ -74,14 +74,21 @@ backends_processor "simple_filter" "test" {
 	// Test 2: Add non-passing backend
 	b2 := &backend.Backend{Address: "127.0.0.1:8081", Meta: backend.NewEmptyMetaMap(0)}
 	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: b2.Address, Backend: b2})
-	time.Sleep(10 * time.Millisecond)
+
+	// Add a passing one to be sure the previous one was processed
+	b1ModMarker := b1.Clone()
+	b1ModMarker.Meta.Set("marker", "marker", cty.StringVal("1"))
+	sub.wg.Add(1)
+	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: b1ModMarker.Address, Backend: b1ModMarker})
+	waitSub(t, sub, "Marker update")
+
 	if len(filterMod.GetBackendList()) != 1 {
 		t.Errorf("Expected 1 backend in filter")
 	}
 
 	// Test 3: Modify passing to passing
 	sub.wg.Add(1)
-	b1Mod := b1.Clone()
+	b1Mod := b1ModMarker.Clone()
 	b1Mod.Meta.Set("test", "test", cty.StringVal("foo"))
 	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: b1Mod.Address, Backend: b1Mod})
 	waitSub(t, sub, "Modify passing to passing")
@@ -93,7 +100,15 @@ backends_processor "simple_filter" "test" {
 
 	// Test 5: Remove non-passing (does nothing)
 	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: b2.Address})
-	time.Sleep(10 * time.Millisecond)
+
+	// Marker update (add passing one then remove it)
+	b3 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
+	sub.wg.Add(1)
+	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: b3.Address, Backend: b3})
+	waitSub(t, sub, "Marker add")
+	sub.wg.Add(1)
+	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: b3.Address})
+	waitSub(t, sub, "Marker remove")
 }
 
 // TestSimpleFilter_ProvideUpdates_WithExisting verifies that a new subscriber
@@ -200,17 +215,31 @@ backends_processor "simple_filter" "test_meta" {
 	bErr := b.Clone()
 	bErr.Meta.Set("test", "active", cty.StringVal("not_a_bool"))
 	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: bErr.Address, Backend: bErr})
-	time.Sleep(10 * time.Millisecond)
-	if len(filterMod.GetBackendList()) != 0 {
-		t.Errorf("Expected 0 backend due to eval error or false eval")
+
+	// Add a separate passing marker backend to be sure the previous one was processed
+	bMarker := &backend.Backend{Address: "127.0.0.1:9999", Meta: backend.NewEmptyMetaMap(0)}
+	bMarker.Meta.Set("test", "active", cty.BoolVal(true))
+	sub.wg.Add(1)
+	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: bMarker.Address, Backend: bMarker})
+	waitSub(t, sub, "Marker add 1")
+
+	if len(filterMod.GetBackendList()) != 1 { // Only bMarker should be here
+		t.Errorf("Expected 1 backend due to eval error or false eval")
 	}
 
 	// Real error in condition evaluation: attribute does not exist
 	bErr2 := &backend.Backend{Address: "127.0.0.1:8082", Meta: backend.NewEmptyMetaMap(0)}
 	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: bErr2.Address, Backend: bErr2})
-	time.Sleep(10 * time.Millisecond)
-	if len(filterMod.GetBackendList()) != 0 {
-		t.Errorf("Expected 0 backend due to real eval error")
+
+	// Marker update
+	bMarkerMod := bMarker.Clone()
+	bMarkerMod.Meta.Set("marker", "marker", cty.StringVal("2"))
+	sub.wg.Add(1)
+	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: bMarkerMod.Address, Backend: bMarkerMod})
+	waitSub(t, sub, "Marker update 4")
+
+	if len(filterMod.GetBackendList()) != 1 {
+		t.Errorf("Expected 1 backend due to real eval error")
 	}
 }
 

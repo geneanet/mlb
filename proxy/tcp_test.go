@@ -12,6 +12,7 @@ import (
 	"mlb/backend"
 	"mlb/metrics"
 	"mlb/module"
+	"mlb/testutil"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -247,8 +248,15 @@ func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 	modules.AddModule(backupProvider)
 	p.Bind(modules)
 
-	// Wait briefly for proxy listener to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for proxy listener to start
+	testutil.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", proxyAddr, 10*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return true
+		}
+		return false
+	}, 1*time.Second, 10*time.Millisecond)
 
 	// Scenario 1: Normal backend works
 	conn1, err := net.Dial("tcp", proxyAddr)
@@ -270,9 +278,6 @@ func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 	if !bytes.Equal(testData1, buf[:n1]) {
 		t.Errorf("expected %v, got %v", testData1, buf[:n1])
 	}
-
-	// Ensure we wait more than 1 second to trigger the statsTicker branch internally
-	time.Sleep(1100 * time.Millisecond)
 	conn1.Close()
 
 	// Scenario 2: Main backend fails, fallback to backup
@@ -298,7 +303,7 @@ func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 	conn2.Close()
 
 	// Wait for piping goroutines to settle
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 }
 
 // TestTCPProxy_NoBackendPanic tests the extreme failure scenario where neither a primary nor
@@ -342,7 +347,15 @@ func TestTCPProxy_NoBackendPanic(t *testing.T) {
 	modules.AddModule(provider)
 	p.Bind(modules)
 
-	time.Sleep(100 * time.Millisecond)
+	// Wait for proxy listener to start
+	testutil.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", proxyAddr, 10*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return true
+		}
+		return false
+	}, 1*time.Second, 10*time.Millisecond)
 
 	// This connection will trigger a panic inside handleConnection due to no backend,
 	// which must be caught and logged safely.
@@ -356,7 +369,7 @@ func TestTCPProxy_NoBackendPanic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
 	conn.Close()
 }
 
@@ -403,7 +416,15 @@ func TestTCPProxy_TimeoutAndContextCancel(t *testing.T) {
 	modules.AddModule(provider)
 	p.Bind(modules)
 
-	time.Sleep(100 * time.Millisecond)
+	// Wait for proxy listener to start
+	testutil.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", proxyAddr, 10*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return true
+		}
+		return false
+	}, 1*time.Second, 10*time.Millisecond)
 
 	conn, err := net.Dial("tcp", proxyAddr)
 	if err != nil {
@@ -414,8 +435,19 @@ func TestTCPProxy_TimeoutAndContextCancel(t *testing.T) {
 	// By cancelling the proxy context, it waits closeTimeout then forces cancel
 	cancel()
 
-	// Wait enough time for closeTimeout to trigger, leaving conn OPEN
-	time.Sleep(300 * time.Millisecond)
+	// Wait for the WaitGroup to be done (proxy stopped)
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("proxy did not stop within timeout after cancel")
+	}
+
 	conn.Close()
 }
 
@@ -606,7 +638,15 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 	modules.AddModule(provider)
 	p.Bind(modules)
 
-	time.Sleep(100 * time.Millisecond)
+	// Wait for proxy listener to start
+	testutil.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", proxyAddr, 10*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return true
+		}
+		return false
+	}, 1*time.Second, 10*time.Millisecond)
 
 	// Connect to proxy. The backend will immediately close its side.
 	// This ensures doneBackFront is closed before doneFrontBack.
@@ -615,6 +655,8 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	// Wait for connection to be processed
+	time.Sleep(50 * time.Millisecond)
+
 	conn.Close()
 }

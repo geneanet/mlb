@@ -2,11 +2,11 @@ package proxy
 
 import (
 	"bytes"
+	"mlb/backend"
+	"mlb/testutil"
 	"net"
 	"testing"
 	"time"
-
-	"mlb/backend"
 
 	"github.com/rs/zerolog"
 )
@@ -131,11 +131,9 @@ func TestNewRedisBackendConnection_Success(t *testing.T) {
 	}
 
 	// Querying on closed channel must fail
-	time.Sleep(50 * time.Millisecond) // Let cleanup channel close propagate
-	err = rbc.Query(query)
-	if err == nil {
-		t.Errorf("expected error, got nil")
-	}
+	testutil.Eventually(t, func() bool {
+		return rbc.Query(query) != nil
+	}, 1*time.Second, 10*time.Millisecond)
 }
 
 // TestRedisBackendConnection_UnexpectedWriteError verifies that if the TCP connection

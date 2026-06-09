@@ -88,9 +88,6 @@ func TestNewHTTPServer(t *testing.T) {
 	// Start HTTP server on an available port (127.0.0.1:0)
 	NewHTTPServer("127.0.0.1:0", wg, ctx)
 
-	// Give the server a moment to start
-	time.Sleep(50 * time.Millisecond)
-
 	// Trigger shutdown
 	cancel()
 

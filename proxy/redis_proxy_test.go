@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 	"mlb/backend"
 	"mlb/module"
+	"mlb/testutil"
 )
 
 // TestRedisProxyFactory_ValidateConfig verifies that the RedisProxyFactory correctly validates
@@ -146,28 +147,27 @@ func TestRedisProxyFactory_New(t *testing.T) {
 		Address: "127.0.0.1:1234",
 		Backend: &backend.Backend{Address: "127.0.0.1:1234", Meta: backend.NewEmptyMetaMap(0)},
 	})
-	time.Sleep(50 * time.Millisecond) // Allow background processing
 
-	if !p.backends.Has("127.0.0.1:1234") {
-		t.Errorf("expected backends to have 127.0.0.1:1234")
-	}
+	testutil.Eventually(t, func() bool {
+		return p.backends.Has("127.0.0.1:1234")
+	}, 1*time.Second, 10*time.Millisecond)
 
 	p.ReceiveUpdate(backend.BackendUpdate{
 		Kind:    backend.UpdBackendModified,
 		Address: "127.0.0.1:1234",
 		Backend: &backend.Backend{Address: "127.0.0.1:1234", Meta: backend.NewEmptyMetaMap(0)},
 	})
-	time.Sleep(50 * time.Millisecond)
+	// No exported state change for modified in this mock, but we can wait for loop to process
+	time.Sleep(10 * time.Millisecond)
 
 	p.ReceiveUpdate(backend.BackendUpdate{
 		Kind:    backend.UpdBackendRemoved,
 		Address: "127.0.0.1:1234",
 	})
-	time.Sleep(50 * time.Millisecond)
 
-	if p.backends.Has("127.0.0.1:1234") {
-		t.Errorf("expected backends not to have 127.0.0.1:1234")
-	}
+	testutil.Eventually(t, func() bool {
+		return !p.backends.Has("127.0.0.1:1234")
+	}, 1*time.Second, 10*time.Millisecond)
 
 	cancel()
 	wg.Wait() // Ensure the mainloop stops cleanly
@@ -243,7 +243,11 @@ func TestRedisProxy_ListenAndConnection(t *testing.T) {
 	p.backends.Add(&backend.Backend{Address: backendListener.Addr().String(), Meta: backend.NewEmptyMetaMap(0)})
 	p.backendConnectionPool.Update()
 
-	time.Sleep(50 * time.Millisecond) // wait for pool to initialize
+	testutil.Eventually(t, func() bool {
+		p.backendConnectionPool.mutex.RLock()
+		defer p.backendConnectionPool.mutex.RUnlock()
+		return len(p.backendConnectionPool.pool) == 1
+	}, 1*time.Second, 10*time.Millisecond)
 
 	// Determine a free port for the proxy to listen on
 	listenAddr := "127.0.0.1:0"
@@ -267,7 +271,15 @@ func TestRedisProxy_ListenAndConnection(t *testing.T) {
 
 	p.Bind(moduleList)
 
-	time.Sleep(100 * time.Millisecond) // Allow proxy server to start
+	// Wait for proxy listener to start
+	testutil.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", proxyAddr, 10*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return true
+		}
+		return false
+	}, 1*time.Second, 10*time.Millisecond)
 
 	// Connect to the proxy
 	conn, err := net.Dial("tcp", proxyAddr)

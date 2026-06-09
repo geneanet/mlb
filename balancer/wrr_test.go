@@ -4,6 +4,7 @@ import (
 	"context"
 	"mlb/backend"
 	"mlb/module"
+	"mlb/testutil"
 	"sync"
 	"testing"
 	"time"
@@ -129,8 +130,9 @@ func TestWRRBalancer_WaitBackend(t *testing.T) {
 		backendChan <- balancer.GetBackend(true)
 	}()
 
-	// Delay briefly so GetBackend(true) enters block state
-	time.Sleep(50 * time.Millisecond)
+	// Delay briefly so GetBackend(true) enters block state.
+	// We use a small sleep here because there is no exported state to poll for "being blocked".
+	time.Sleep(20 * time.Millisecond)
 
 	backend1 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
 	provider.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend1.Address, Backend: backend1})
@@ -200,81 +202,84 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	backend1 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
 	provider.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend1.Address, Backend: backend1})
 
-	time.Sleep(50 * time.Millisecond)
+	testutil.Eventually(t, func() bool {
+		balancer.mu.RLock()
+		defer balancer.mu.RUnlock()
+		return len(balancer.weightedList) == 2
+	}, 1*time.Second, 10*time.Millisecond)
 
 	retrievedBackend := balancer.GetBackend(true) // Should return immediately now
 	if retrievedBackend == nil || retrievedBackend.Address != "127.0.0.1:8080" {
 		t.Errorf("Expected 127.0.0.1:8080, got %v", retrievedBackend)
 	}
 
-	balancer.mu.RLock()
-	if len(balancer.weightedList) != 2 {
-		t.Errorf("Expected weightedList to have 2 items, got %d", len(balancer.weightedList))
-	}
-	balancer.mu.RUnlock()
-
 	// Modify backend1 - adjust weight to 3
 	evalCtx.Variables["var_weight"] = cty.NumberIntVal(3)
 	backend1Mod := backend1.Clone()
 	provider.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: backend1Mod.Address, Backend: backend1Mod})
-	time.Sleep(50 * time.Millisecond)
 
-	balancer.mu.RLock()
-	if len(balancer.weightedList) != 3 {
-		t.Errorf("Expected weightedList to have 3 items, got %d", len(balancer.weightedList))
-	}
-	balancer.mu.RUnlock()
+	testutil.Eventually(t, func() bool {
+		balancer.mu.RLock()
+		defer balancer.mu.RUnlock()
+		return len(balancer.weightedList) == 3
+	}, 1*time.Second, 10*time.Millisecond)
 
 	// Modify backend1 - keeping the same weight (3) to test idempotency
 	provider.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: backend1Mod.Address, Backend: backend1Mod})
-	time.Sleep(50 * time.Millisecond)
 
-	balancer.mu.RLock()
-	if len(balancer.weightedList) != 3 {
-		t.Errorf("Expected weightedList to have 3 items, got %d", len(balancer.weightedList))
-	}
-	balancer.mu.RUnlock()
+	testutil.Eventually(t, func() bool {
+		balancer.mu.RLock()
+		defer balancer.mu.RUnlock()
+		return len(balancer.weightedList) == 3
+	}, 1*time.Second, 10*time.Millisecond)
 
 	// Modify backend1 - introduce error in evaluating weight expression
 	delete(evalCtx.Variables, "var_weight") // HCL resolving will fail without this
 	provider.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: backend1Mod.Address, Backend: backend1Mod})
-	time.Sleep(50 * time.Millisecond)
 
-	balancer.mu.RLock()
-	if len(balancer.weightedList) != 0 {
-		t.Errorf("Expected weightedList to have 0 items after error, got %d", len(balancer.weightedList))
-	}
-	balancer.mu.RUnlock()
+	testutil.Eventually(t, func() bool {
+		balancer.mu.RLock()
+		defer balancer.mu.RUnlock()
+		return len(balancer.weightedList) == 0
+	}, 1*time.Second, 10*time.Millisecond)
 
 	// Add backend2 - despite active evaluation error, it should still be tracked
 	backend2 := &backend.Backend{Address: "127.0.0.1:8081", Meta: backend.NewEmptyMetaMap(0)}
 	provider.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend2.Address, Backend: backend2})
-	time.Sleep(50 * time.Millisecond)
 
-	balancer.mu.RLock()
-	if !balancer.backends.Has(backend2.Address) {
-		t.Errorf("Expected backend 2 to be added despite eval error")
-	}
-	balancer.mu.RUnlock()
+	testutil.Eventually(t, func() bool {
+		balancer.mu.RLock()
+		defer balancer.mu.RUnlock()
+		return balancer.backends.Has(backend2.Address)
+	}, 1*time.Second, 10*time.Millisecond)
 
 	// Remove backend1
 	provider.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: backend1.Address})
-	time.Sleep(50 * time.Millisecond)
 
-	balancer.mu.RLock()
-	if balancer.backends.Has(backend1.Address) {
-		t.Errorf("Expected backend 1 to be removed")
-	}
-	balancer.mu.RUnlock()
+	testutil.Eventually(t, func() bool {
+		balancer.mu.RLock()
+		defer balancer.mu.RUnlock()
+		return !balancer.backends.Has(backend1.Address)
+	}, 1*time.Second, 10*time.Millisecond)
 
 	// Restore var_weight and add a final backend to verify recovery
 	evalCtx.Variables["var_weight"] = cty.NumberIntVal(2)
 	backend3 := &backend.Backend{Address: "127.0.0.1:8082", Meta: backend.NewEmptyMetaMap(0)}
 	provider.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend3.Address, Backend: backend3})
-	time.Sleep(50 * time.Millisecond)
+
+	testutil.Eventually(t, func() bool {
+		balancer.mu.RLock()
+		defer balancer.mu.RUnlock()
+		return balancer.backends.Has(backend3.Address)
+	}, 1*time.Second, 10*time.Millisecond)
 
 	provider.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: backend3.Address})
-	time.Sleep(50 * time.Millisecond)
+
+	testutil.Eventually(t, func() bool {
+		balancer.mu.RLock()
+		defer balancer.mu.RUnlock()
+		return !balancer.backends.Has(backend3.Address)
+	}, 1*time.Second, 10*time.Millisecond)
 
 	// Cancel context to stop main loop
 	cancel()

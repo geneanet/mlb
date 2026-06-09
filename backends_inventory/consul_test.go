@@ -12,6 +12,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"mlb/backend"
 	"mlb/module"
+	"mlb/testutil"
 )
 
 // consulDummySubscriber implements backend.BackendUpdateSubscriber for testing.
@@ -151,7 +152,25 @@ backends_inventory "consul" "test" {
 	sub := &consulDummySubscriber{}
 	consulMod.ProvideUpdates(sub)
 
-	time.Sleep(100 * time.Millisecond) // Let it fetch a few times
+	// Wait for all expected updates to be received
+	testutil.Eventually(t, func() bool {
+		sub.mu.Lock()
+		defer sub.mu.Unlock()
+		hasAdded := false
+		hasModified := false
+		hasRemoved := false
+		for _, u := range sub.updates {
+			switch u.Kind {
+			case backend.UpdBackendAdded:
+				hasAdded = true
+			case backend.UpdBackendModified:
+				hasModified = true
+			case backend.UpdBackendRemoved:
+				hasRemoved = true
+			}
+		}
+		return hasAdded && hasModified && hasRemoved
+	}, 1*time.Second, 10*time.Millisecond)
 
 	// Call ProvideUpdates again to cover the path where backends list is not empty
 	consulMod.ProvideUpdates(&consulDummySubscriber{})
@@ -194,7 +213,9 @@ backends_inventory "consul" "test" {
 // HTTP 500 errors from the Consul server gracefully.
 func TestConsulBackendsInventory_Error(t *testing.T) {
 	// Mock Consul server that returns 500
+	callCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer ts.Close()
@@ -214,8 +235,11 @@ backends_inventory "consul" "test_err" {
 
 	mod := New(cfg, wg, ctxBG)
 
-	// Wait a bit to let it fail fetching
-	time.Sleep(50 * time.Millisecond)
+	// Wait for at least one fetch attempt
+	testutil.Eventually(t, func() bool {
+		return callCount > 0
+	}, 1*time.Second, 10*time.Millisecond)
+
 	cancel()
 	wg.Wait()
 	_ = mod
@@ -257,7 +281,10 @@ backends_inventory "consul" "test_rec" {
 	New(cfg, wg, ctxBG)
 
 	// Let it fail and then succeed
-	time.Sleep(100 * time.Millisecond)
+	testutil.Eventually(t, func() bool {
+		return callCount >= 2
+	}, 1*time.Second, 10*time.Millisecond)
+
 	cancel()
 	wg.Wait()
 }
@@ -267,7 +294,9 @@ backends_inventory "consul" "test_rec" {
 func TestConsulBackendsInventory_ContextCanceled(t *testing.T) {
 	// Mock Consul server that blocks until the context is closed,
 	// forcing the client to cancel the request.
+	callCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
 		<-r.Context().Done()
 	}))
 	defer ts.Close()
@@ -290,7 +319,9 @@ backends_inventory "consul" "test_cancel" {
 	New(cfg, wg, ctxBG)
 
 	// Wait a bit so the fetch call begins and is blocked
-	time.Sleep(50 * time.Millisecond)
+	testutil.Eventually(t, func() bool {
+		return callCount > 0
+	}, 1*time.Second, 10*time.Millisecond)
 
 	// Cancel the context to force fetch to return context.Canceled
 	cancel()
@@ -309,7 +340,9 @@ func TestConsulServicesDiff(t *testing.T) {
 // TestConsulBackendsInventory_ProvideUpdates verifies that new subscribers
 // receive the current list of discovered backends upon registration.
 func TestConsulBackendsInventory_ProvideUpdates(t *testing.T) {
+	callCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
 		w.Header().Set("X-Consul-Index", "1")
 		services := consulServicesSlice{
 			{
@@ -359,13 +392,19 @@ backends_inventory "consul" "test_pu" {
 	consulMod := mod.(*BackendsInventoryConsul)
 
 	// Wait for the first fetch so backend is populated
-	time.Sleep(100 * time.Millisecond)
+	testutil.Eventually(t, func() bool {
+		return callCount > 0
+	}, 1*time.Second, 10*time.Millisecond)
 
 	sub := &consulDummySubscriber{}
 	consulMod.ProvideUpdates(sub)
 
 	// Wait for ProvideUpdates goroutine to execute
-	time.Sleep(50 * time.Millisecond)
+	testutil.Eventually(t, func() bool {
+		sub.mu.Lock()
+		defer sub.mu.Unlock()
+		return len(sub.updates) > 0
+	}, 1*time.Second, 10*time.Millisecond)
 
 	sub.mu.Lock()
 	count := len(sub.updates)

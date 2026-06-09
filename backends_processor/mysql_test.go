@@ -9,6 +9,7 @@ import (
 	"mlb/backend"
 	"mlb/misc"
 	"mlb/module"
+	"mlb/testutil"
 	"strings"
 	"sync"
 	"testing"
@@ -201,7 +202,12 @@ func TestMySQL(t *testing.T) {
 		Backend: b,
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	testutil.Eventually(t, func() bool {
+		mysqlChecker.checksMtex.RLock()
+		defer mysqlChecker.checksMtex.RUnlock()
+		_, ok := mysqlChecker.checks["127.0.0.1:3306"]
+		return ok
+	}, 1*time.Second, 10*time.Millisecond)
 
 	// Modified backend
 	b.Meta.Set("test", "test", cty.StringVal("test"))
@@ -211,7 +217,16 @@ func TestMySQL(t *testing.T) {
 		Backend: b,
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	testutil.Eventually(t, func() bool {
+		mysqlChecker.checksMtex.RLock()
+		defer mysqlChecker.checksMtex.RUnlock()
+		check, ok := mysqlChecker.checks["127.0.0.1:3306"]
+		if !ok {
+			return false
+		}
+		val, ok := check.backend.Meta.Get("test", "test")
+		return ok && val.AsString() == "test"
+	}, 1*time.Second, 10*time.Millisecond)
 
 	// Remove backend
 	mysqlChecker.ReceiveUpdate(backend.BackendUpdate{
@@ -219,7 +234,12 @@ func TestMySQL(t *testing.T) {
 		Address: "127.0.0.1:3306",
 	})
 
-	time.Sleep(50 * time.Millisecond)
+	testutil.Eventually(t, func() bool {
+		mysqlChecker.checksMtex.RLock()
+		defer mysqlChecker.checksMtex.RUnlock()
+		_, ok := mysqlChecker.checks["127.0.0.1:3306"]
+		return !ok
+	}, 1*time.Second, 10*time.Millisecond)
 
 	// Test directly some checks to cover panic cases and fetch logic
 	runTestCheck := func(name string) {
@@ -289,15 +309,16 @@ func TestMySQL_Coverage(t *testing.T) {
 
 	mysqlChecker.GetBackendList()
 	mysqlChecker.ProvideUpdates(&mockSubscriber{})
-	time.Sleep(10 * time.Millisecond) // Let ProvideUpdates goroutine run
+	// Give a bit of time for goroutines to run
+	time.Sleep(2 * time.Millisecond)
 
 	// 3. StartPolling / StopPolling early returns logic (c.running = true/false)
 	check.StartPolling()
 	check.StartPolling()
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(2 * time.Millisecond)
 	check.StopPolling()
 	check.StopPolling()
-	time.Sleep(10 * time.Millisecond) // Let StartPolling goroutine exit and run defer
+	time.Sleep(2 * time.Millisecond) // Let StartPolling goroutine exit and run defer
 
 	// 4. UpdateStatus specific log branches: Known status changed
 	check.updateStatus()
@@ -358,7 +379,8 @@ func TestMySQL_Coverage(t *testing.T) {
 		Address: "error_address",
 		Backend: &backend.Backend{Address: "error_address", Meta: backend.NewEmptyMetaMap(0)},
 	})
-	time.Sleep(50 * time.Millisecond) // Laisse le temps à la routine de traiter l'update
+	// Small sleep to ensure the goroutine picks up the update while mysqlDriverName is still invalid.
+	time.Sleep(20 * time.Millisecond)
 	mysqlDriverName = "mysql_mock"
 
 	// Wait for background go routine to process everything and hit stopChecks
