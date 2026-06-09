@@ -210,7 +210,7 @@ func (c *BackendsInventoryConsul) ProvideUpdates(s backend.BackendUpdateSubscrib
 		defer c.backendsMutex.RUnlock()
 
 		for _, b := range c.backends.GetList() {
-			c.sendUpdate(backend.BackendUpdate{
+			s.ReceiveUpdate(backend.BackendUpdate{
 				Kind:    backend.UpdBackendAdded,
 				Address: b.Address,
 				Backend: b,

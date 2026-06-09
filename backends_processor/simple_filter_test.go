@@ -137,11 +137,8 @@ backends_processor "simple_filter" "test" {
 	// Now add sub2
 	sub2 := &dummySubscriber{wg: sync.WaitGroup{}}
 	sub2.wg.Add(1)
-	// sub1 will ALSO receive this because of the loop in ProvideUpdates calling sendUpdate
-	sub1.wg.Add(1)
 	filterMod.ProvideUpdates(sub2)
 	waitSub(t, sub2, "ProvideUpdates with existing backend for sub2")
-	waitSub(t, sub1, "ProvideUpdates with existing backend for sub1")
 }
 
 // TestSimpleFilter_ConditionChange tests that backend membership in the filtered list

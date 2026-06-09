@@ -244,7 +244,7 @@ func (c *MySQLChecker) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 		defer c.checksMtex.RUnlock()
 
 		for _, check := range c.checks {
-			c.sendUpdate(backend.BackendUpdate{
+			s.ReceiveUpdate(backend.BackendUpdate{
 				Kind:    backend.UpdBackendAdded,
 				Address: check.backend.Address,
 				Backend: check.backend,

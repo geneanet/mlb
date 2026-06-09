@@ -211,10 +211,8 @@ backends_processor "consul_kv" "test" {
 
 	sub2 := &dummySubscriber{wg: sync.WaitGroup{}}
 	sub2.wg.Add(1)
-	sub1.wg.Add(1) // it will be sent to all
 	consulMod.ProvideUpdates(sub2)
 	waitSub(t, sub2, "Wait for sub2 existing update")
-	waitSub(t, sub1, "Wait for sub1 existing update")
 }
 
 // TestConsulKV_Defaults verifies that default values are correctly applied

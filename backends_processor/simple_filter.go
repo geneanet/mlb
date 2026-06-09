@@ -136,7 +136,7 @@ func (f *SimpleFilter) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 		defer f.backendsMutex.RUnlock()
 
 		for _, b := range f.backends.GetList() {
-			f.sendUpdate(backend.BackendUpdate{
+			s.ReceiveUpdate(backend.BackendUpdate{
 				Kind:    backend.UpdBackendAdded,
 				Address: b.Address,
 				Backend: b,
