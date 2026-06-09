@@ -39,10 +39,10 @@ backends_processor "mysql" "mysql" {
   // period = "1s"
   // max_period = "5s"
   // backoff_factor = 1.5
-	// connect_timeout = "0s"
-	// read_timeout = "0s"
-	// write_timeout = "0s"
-	// conn_max_lifetime = "5m"
+  // connect_timeout = "0s"
+  // read_timeout = "0s"
+  // write_timeout = "0s"
+  // conn_max_lifetime = "5m"
   // check_replica = false
 }
 
@@ -67,9 +67,9 @@ proxy "tcp" "mysql_main_ro" {
   // backup_source = balancer.wrr.other_balancer
   addresses = [":3306"]
   // close_timeout = "0s"
- 	// connect_timeout = "0s"
-	// client_timeout = "0s"
-	// server_timeout = "0s"
+  // connect_timeout = "0s"
+  // client_timeout = "0s"
+  // server_timeout = "0s"
   // buffer_size = 16384
   // nodelay = false
 }
