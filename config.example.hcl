@@ -67,9 +67,9 @@ proxy "tcp" "mysql_main_ro" {
   // backup_source = balancer.wrr.other_balancer
   addresses = [":3306"]
   // close_timeout = "0s"
- 	// connect_timeout = "0s"
-	// client_timeout = "0s"
-	// server_timeout = "0s"
+  // connect_timeout = "0s"
+  // client_timeout = "0s"
+  // server_timeout = "0s"
   // buffer_size = 16384
   // nodelay = false
 }
