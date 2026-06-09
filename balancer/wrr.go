@@ -71,7 +71,7 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 		backends:     backend.NewBackendsMap(),
 		weightedList: make([]string, 0),
 		log:          log.With().Str("id", config.ID).Logger(),
-		updChan:      make(chan backend.BackendUpdate),
+		updChan:      make(chan backend.BackendUpdate, 100),
 		updChanStop:  make(chan struct{}),
 		source:       config.Source,
 		evalCtx:      tc.ctx,

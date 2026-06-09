@@ -110,7 +110,7 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 		backoffFactor: config.BackoffFactor,
 		subscribers:   []backend.BackendUpdateSubscriber{},
 		log:           log.With().Str("id", config.ID).Logger(),
-		updChan:       make(chan backend.BackendUpdate),
+		updChan:       make(chan backend.BackendUpdate, 100),
 		updChanStop:   make(chan struct{}),
 		source:        config.Source,
 		checkReplica:  config.CheckReplica,

@@ -58,7 +58,7 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 		subscribers: []backend.BackendUpdateSubscriber{},
 		backends:    backend.NewBackendsMap(),
 		log:         log.With().Str("id", config.ID).Logger(),
-		updChan:     make(chan backend.BackendUpdate),
+		updChan:     make(chan backend.BackendUpdate, 100),
 		updChanStop: make(chan struct{}),
 		source:      config.Source,
 		condition:   config.Condition,

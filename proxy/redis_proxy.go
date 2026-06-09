@@ -124,7 +124,7 @@ func (f RedisProxyFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Conte
 		backendInflightQueueSize:  config.BackendInflightQueueSize,
 		backendConnectionPoolSize: config.BackendConnectionPoolSize,
 		wg:                        wg,
-		backendUpdatesChan:        make(chan backend.BackendUpdate),
+		backendUpdatesChan:        make(chan backend.BackendUpdate, 100),
 		backendUpdatesChanClosed:  make(chan struct{}),
 		backends:                  backend.NewBackendsMap(),
 	}
