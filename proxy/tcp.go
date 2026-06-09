@@ -259,37 +259,19 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inp
 }
 
 func (p *ProxyTCP) getBackendMetrics(backendAddress string) *Metrics {
-	p.beMetricsMutex.RLock()
-	if p.beMetricsCache != nil {
-		beM, exists := p.beMetricsCache[backendAddress]
-		p.beMetricsMutex.RUnlock()
-
-		if exists {
-			return beM
-		}
-	} else {
-		p.beMetricsMutex.RUnlock()
-	}
-
 	p.beMetricsMutex.Lock()
 	defer p.beMetricsMutex.Unlock()
 
-	if p.beMetricsCache == nil {
-		p.beMetricsCache = make(map[string]*Metrics)
+	beM, exists := p.beMetricsCache[backendAddress]
+	if !exists {
+		beM = &Metrics{
+			processed: metrics.BeCnxProcessed.WithLabelValues(backendAddress, p.id),
+			active:    metrics.BeActCnx.WithLabelValues(backendAddress, p.id),
+			bytesIn:   metrics.BeBytesIn.WithLabelValues(backendAddress, p.id),
+			bytesOut:  metrics.BeBytesOut.WithLabelValues(backendAddress, p.id),
+		}
+		p.beMetricsCache[backendAddress] = beM
 	}
-
-	// Double check pattern
-	if beM, exists := p.beMetricsCache[backendAddress]; exists {
-		return beM
-	}
-
-	beM := &Metrics{
-		processed: metrics.BeCnxProcessed.WithLabelValues(backendAddress, p.id),
-		active:    metrics.BeActCnx.WithLabelValues(backendAddress, p.id),
-		bytesIn:   metrics.BeBytesIn.WithLabelValues(backendAddress, p.id),
-		bytesOut:  metrics.BeBytesOut.WithLabelValues(backendAddress, p.id),
-	}
-	p.beMetricsCache[backendAddress] = beM
 	return beM
 }
 

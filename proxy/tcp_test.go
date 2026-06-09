@@ -236,6 +236,7 @@ func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 		bufferPool: sync.Pool{
 			New: func() any { return make([]byte, 32768) },
 		},
+		beMetricsCache: make(map[string]*Metrics),
 	}
 
 	primaryProvider := &mockBackendProvider{id: "primary_backend", backendAddress: primaryBackend.Addr().String()}
@@ -333,6 +334,7 @@ func TestTCPProxy_NoBackendPanic(t *testing.T) {
 		bufferPool: sync.Pool{
 			New: func() any { return make([]byte, 32768) },
 		},
+		beMetricsCache: make(map[string]*Metrics),
 	}
 
 	provider := &mockBackendProvider{id: "missing_backend", backendAddress: "", returnNil: true}
@@ -393,6 +395,7 @@ func TestTCPProxy_TimeoutAndContextCancel(t *testing.T) {
 		bufferPool: sync.Pool{
 			New: func() any { return make([]byte, 32768) },
 		},
+		beMetricsCache: make(map[string]*Metrics),
 	}
 
 	provider := &mockBackendProvider{id: "test_backend", backendAddress: backend.Addr().String()}
@@ -467,6 +470,7 @@ func TestTCPProxy_PipeErrors(t *testing.T) {
 		bufferPool: sync.Pool{
 			New: func() any { return make([]byte, 32768) },
 		},
+		beMetricsCache: make(map[string]*Metrics),
 	}
 
 	badConn := &panicConn{}
@@ -524,6 +528,7 @@ func TestTCPProxy_PipeClosedErr(t *testing.T) {
 		bufferPool: sync.Pool{
 			New: func() any { return make([]byte, 32768) },
 		},
+		beMetricsCache: make(map[string]*Metrics),
 	}
 
 	badConn := &closedConn{}
@@ -593,6 +598,7 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 		bufferPool: sync.Pool{
 			New: func() any { return make([]byte, 32768) },
 		},
+		beMetricsCache: make(map[string]*Metrics),
 	}
 
 	provider := &mockBackendProvider{id: "test_backend", backendAddress: backendAddr}
