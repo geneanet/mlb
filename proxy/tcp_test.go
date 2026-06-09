@@ -151,7 +151,7 @@ func TestTCPProxyFactory(t *testing.T) {
 // from the HCL configuration block. It tests that:
 // 1. Omitted timeout values correctly default to 0s (no timeout).
 // 2. The timeout margin defaults to 1s.
-// 3. The buffer size defaults to 16384 bytes.
+// 3. The buffer size defaults to 32768 bytes.
 func TestTCPProxyFactory_Defaults(t *testing.T) {
 	hclText := `
 		source = "s1"
@@ -221,7 +221,7 @@ func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 		id:             "proxy.tcp.test",
 		addresses:      []string{proxyAddr},
 		log:            zerolog.Nop(),
-		bufferSize:     16384,
+		bufferSize:     32768,
 		nodelay:        true,
 		source:         "primary_backend",
 		backupSource:   "backup_backend",
@@ -234,7 +234,7 @@ func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 		closeTimeout:   5 * time.Second,
 		timeoutMargin:  1 * time.Second,
 		bufferPool: sync.Pool{
-			New: func() any { return make([]byte, 16384) },
+			New: func() any { return make([]byte, 32768) },
 		},
 	}
 
@@ -319,7 +319,7 @@ func TestTCPProxy_NoBackendPanic(t *testing.T) {
 		id:             "proxy.tcp.test_panic",
 		addresses:      []string{proxyAddr},
 		log:            zerolog.Nop(),
-		bufferSize:     16384,
+		bufferSize:     32768,
 		nodelay:        true,
 		source:         "missing_backend",
 		wg:             wg,
@@ -331,7 +331,7 @@ func TestTCPProxy_NoBackendPanic(t *testing.T) {
 		closeTimeout:   5 * time.Second,
 		timeoutMargin:  1 * time.Second,
 		bufferPool: sync.Pool{
-			New: func() any { return make([]byte, 16384) },
+			New: func() any { return make([]byte, 32768) },
 		},
 	}
 
@@ -379,7 +379,7 @@ func TestTCPProxy_TimeoutAndContextCancel(t *testing.T) {
 		id:             "proxy.tcp.test_timeout",
 		addresses:      []string{proxyAddr},
 		log:            zerolog.Nop(),
-		bufferSize:     16384,
+		bufferSize:     32768,
 		nodelay:        true,
 		source:         "test_backend",
 		wg:             wg,
@@ -391,7 +391,7 @@ func TestTCPProxy_TimeoutAndContextCancel(t *testing.T) {
 		closeTimeout:   50 * time.Millisecond,
 		timeoutMargin:  10 * time.Millisecond,
 		bufferPool: sync.Pool{
-			New: func() any { return make([]byte, 16384) },
+			New: func() any { return make([]byte, 32768) },
 		},
 	}
 
@@ -453,7 +453,7 @@ func TestTCPProxy_PipeErrors(t *testing.T) {
 		id:             "proxy.tcp.test_pipe",
 		addresses:      []string{proxyAddr},
 		log:            zerolog.Nop(),
-		bufferSize:     16384,
+		bufferSize:     32768,
 		nodelay:        true,
 		source:         "test_backend",
 		wg:             wg,
@@ -465,7 +465,7 @@ func TestTCPProxy_PipeErrors(t *testing.T) {
 		closeTimeout:   5 * time.Second,
 		timeoutMargin:  1 * time.Second,
 		bufferPool: sync.Pool{
-			New: func() any { return make([]byte, 16384) },
+			New: func() any { return make([]byte, 32768) },
 		},
 	}
 
@@ -474,7 +474,6 @@ func TestTCPProxy_PipeErrors(t *testing.T) {
 	beBytesInCounter := metrics.BeBytesIn.WithLabelValues("2", p.id)
 	done := make(chan struct{})
 	go p.pipe(badConn, badConn, done, 0, 0, feBytesInCounter, beBytesInCounter)
-
 
 	select {
 	case <-done:
@@ -516,14 +515,14 @@ func TestTCPProxy_PipeClosedErr(t *testing.T) {
 		id:         "proxy.tcp.test_pipe2",
 		addresses:  []string{proxyAddr},
 		log:        zerolog.Nop(),
-		bufferSize: 16384,
+		bufferSize: 32768,
 		nodelay:    true,
 		source:     "test_backend",
 		wg:         wg,
 		ctx:        ctx,
 		cancel:     cancel,
 		bufferPool: sync.Pool{
-			New: func() any { return make([]byte, 16384) },
+			New: func() any { return make([]byte, 32768) },
 		},
 	}
 
@@ -580,7 +579,7 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 		id:             "proxy.tcp.test_done",
 		addresses:      []string{proxyAddr},
 		log:            zerolog.Nop(),
-		bufferSize:     16384,
+		bufferSize:     32768,
 		nodelay:        true,
 		source:         "test_backend",
 		wg:             wg,
@@ -592,7 +591,7 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 		closeTimeout:   5 * time.Second,
 		timeoutMargin:  1 * time.Second,
 		bufferPool: sync.Pool{
-			New: func() any { return make([]byte, 16384) },
+			New: func() any { return make([]byte, 32768) },
 		},
 	}
 
@@ -612,5 +611,4 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 	conn.Close()
-	}
-
+}
