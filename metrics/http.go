@@ -3,7 +3,6 @@ package metrics
 import (
 	"context"
 	"errors"
-	"mlb/misc"
 	"net"
 	"net/http"
 	"os"
@@ -41,44 +40,49 @@ func HttpLogWrapper(originalHandler http.Handler) http.Handler {
 	return http.HandlerFunc(logFn)
 }
 
-func NewHTTPServer(address string, wg *sync.WaitGroup, ctx context.Context) {
+func NewHTTPServer(address string, wg *sync.WaitGroup, ctx context.Context) error {
 	srv := http.Server{}
 
-	wg.Add(1)
-
 	// Shutdown the server if the context is closed
+	wg.Add(1)
 	context.AfterFunc(ctx, func() {
+		defer wg.Done()
 		err := srv.Shutdown(context.Background())
-		misc.PanicIfErr(err)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error().Err(err).Msg("Failed to shutdown HTTP server")
+		}
 	})
+
+	// Set SO_REUSEPORT
+	lc := net.ListenConfig{
+		Control: func(network, address string, conn syscall.RawConn) error {
+			var operr error
+			if err := conn.Control(func(fd uintptr) {
+				operr = os.NewSyscallError("setsockopt", syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEPORT, 1))
+			}); err != nil {
+				return err
+			}
+			return operr
+		},
+	}
+
+	// Bind
+	listener, err := lc.Listen(context.Background(), "tcp", address)
+	if err != nil {
+		return err
+	}
 
 	// Start the server and serve the requests
 	go func() {
 		log.Info().Str("address", address).Msg("Starting HTTP server")
-		defer wg.Done()
 		defer log.Info().Str("address", address).Msg("HTTP server stopped")
-
-		// Set SO_REUSEPORT
-		lc := net.ListenConfig{
-			Control: func(network, address string, conn syscall.RawConn) error {
-				var operr error
-				if err := conn.Control(func(fd uintptr) {
-					operr = os.NewSyscallError("setsockopt", syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEPORT, 1))
-				}); err != nil {
-					return err
-				}
-				return operr
-			},
-		}
-
-		// Bind
-		listener, err := lc.Listen(context.Background(), "tcp", address)
-		misc.PanicIfErr(err)
 
 		err = srv.Serve(listener)
 		if errors.Is(err, http.ErrServerClosed) {
 			return
 		}
-		misc.PanicIfErr(err)
+		log.Error().Err(err).Msg("HTTP server failed")
 	}()
+
+	return nil
 }
