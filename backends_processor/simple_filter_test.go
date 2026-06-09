@@ -86,12 +86,12 @@ backends_processor "simple_filter" "test" {
 	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: b1Mod.Address, Backend: b1Mod})
 	waitSub(t, sub, "Modify passing to passing")
 
-	// Test 5: Remove passing
+	// Test 4: Remove passing
 	sub.wg.Add(1)
 	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: b1.Address})
 	waitSub(t, sub, "Remove passing backend")
 
-	// Test 6: Remove non-passing (does nothing)
+	// Test 5: Remove non-passing (does nothing)
 	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: b2.Address})
 	time.Sleep(10 * time.Millisecond)
 }
