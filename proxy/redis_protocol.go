@@ -100,7 +100,7 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 		// Parse the line type based on the first character (RESP marker)
 		switch line[0] {
 		case '+', '-', ':', '_', ',', '#', '(':
-			// Simple types: String, Error, Integer, Null, Double, BigNumber, Boolean, Verbatim (short)
+			// Simple types: String, Error, Integer, Null, Double, Boolean, BigNumber
 			if strStreaming {
 				return nil, fmt.Errorf("RESP3 protocol violation: unexpected item type \"%s\" during streamed string", string(line[0]))
 			}

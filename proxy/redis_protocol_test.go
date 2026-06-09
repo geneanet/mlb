@@ -27,7 +27,7 @@ func TestNewRedisProtocolReader(t *testing.T) {
 }
 
 // TestReadMessage_SimpleTypes tests parsing of simple, single-line RESP3 types:
-// simple strings (+), errors (-), integers (:), doubles (_), big numbers (,), booleans (#), and verbs (().
+// simple strings (+), errors (-), integers (:), doubles (,), big numbers (() nulls (_) and booleans (#).
 func TestReadMessage_SimpleTypes(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -36,11 +36,11 @@ func TestReadMessage_SimpleTypes(t *testing.T) {
 		{"SimpleString", "+OK\r\n"},
 		{"SimpleError", "-ERR status\r\n"},
 		{"Integer", ":42\r\n"},
-		{"Double", "_3.14\r\n"},
-		{"BigNumber", ",12345678901234567890\r\n"},
+		{"Double", ",3.14\r\n"},
+		{"BigNumber", ",(12345678901234567890\r\n"},
+		{"Null", "_\r\n"},
 		{"BooleanTrue", "#t\r\n"},
 		{"BooleanFalse", "#f\r\n"},
-		{"VerbatimString", "(txt:hello\r\n"},
 	}
 
 	for _, tt := range tests {
@@ -110,7 +110,7 @@ func TestReadMessage_Collections(t *testing.T) {
 	}{
 		{"Array", "*2\r\n:1\r\n:2\r\n"},
 		{"Set", "~2\r\n+foo\r\n+bar\r\n"},
-		{"Map", "%1\r\n+key\r\n+value\r\n"},              // Map is 1 key-value pair (2 elements total)
+		{"Map", "%1\r\n+key\r\n+value\r\n"},             // Map is 1 key-value pair (2 elements total)
 		{"Attribute", "|1\r\n+ttl\r\n:3600\r\n+OK\r\n"}, // Attributes block has 1 key-value pair (2 elements total) followed by a message
 	}
 
