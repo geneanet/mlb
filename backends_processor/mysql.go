@@ -432,7 +432,7 @@ func (c *MySQLCheck) fetchStatus() (retStatus cty.Value, retReadonly cty.Value, 
 	misc.PanicIfErr(err)
 
 	// Replica Latency
-	var replicaLatency cty.Value = cty.UnknownVal(cty.Bool)
+	var replicaLatency cty.Value = cty.UnknownVal(cty.Number)
 	if c.checkReplica {
 		replicaLatency, err = c.fetchReplicaLatency()
 		misc.PanicIfErr(err)
