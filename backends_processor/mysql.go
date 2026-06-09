@@ -225,6 +225,9 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 }
 
 func (c *MySQLChecker) stopChecks() {
+	c.checksMtex.RLock()
+	defer c.checksMtex.RUnlock()
+
 	// Stop backend checks
 	for _, backend := range c.checks {
 		backend.StopPolling()
@@ -232,7 +235,9 @@ func (c *MySQLChecker) stopChecks() {
 }
 
 func (c *MySQLChecker) ProvideUpdates(s backend.BackendUpdateSubscriber) {
+	c.checksMtex.Lock()
 	c.subscribers = append(c.subscribers, s)
+	c.checksMtex.Unlock()
 
 	go func() {
 		c.checksMtex.RLock()
