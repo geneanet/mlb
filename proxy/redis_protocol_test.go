@@ -450,8 +450,8 @@ func TestReadMessage_Errors(t *testing.T) {
 		r := bytes.NewReader([]byte("+OK"))
 		reader := NewRedisProtocolReader(r, 128)
 		msg, err := reader.ReadMessage(false)
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
+		if !errors.Is(err, io.EOF) {
+			t.Errorf("expected io.EOF, got %v", err)
 		}
 		if !bytes.Equal(msg, []byte("+OK")) {
 			t.Errorf("expected +OK, got %s", string(msg))

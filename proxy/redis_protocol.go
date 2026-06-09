@@ -220,7 +220,13 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 		allowInline = false
 	}
 
-	return r.buffer[r.messageStart:r.readPosition], nil
+	var err error = nil
+
+	if eof {
+		err = io.EOF
+	}
+
+	return r.buffer[r.messageStart:r.readPosition], err
 }
 
 // readFromSource fetches more data from the underlying reader into the internal buffer.
