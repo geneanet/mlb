@@ -432,8 +432,8 @@ func (c *MySQLCheck) fetchStatus() (retStatus cty.Value, retReadonly cty.Value, 
 				db.SetMaxOpenConns(1)
 				db.SetMaxIdleConns(1)
 				db.SetConnMaxLifetime(c.connMaxLifetime)
+				c.db = db
 			}
-			c.db = db
 
 			// Increase fetch period
 			if period, updated := c.ticker.ApplyBackoff(); updated {
