@@ -17,7 +17,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/gocty"
 
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 )
 
 var mysqlDriverName = "mysql"
@@ -169,9 +169,19 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 						})
 					} else { // Added
 						c.log.Info().Str("address", upd.Address).Msg("Adding MySQL check")
+
+						cfg := mysql.NewConfig()
+						cfg.User = c.user
+						cfg.Passwd = c.password
+						cfg.Net = "tcp"
+						cfg.Addr = upd.Address
+						cfg.Timeout = c.connectTimeout
+						cfg.ReadTimeout = c.readTimeout
+						cfg.WriteTimeout = c.writeTimeout
+
 						check := NewMySQLCheck(
 							upd.Backend.Clone(),
-							c.user+":"+c.password+"@tcp("+upd.Address+")/?readTimeout="+c.readTimeout.String()+"&writeTimeout="+c.writeTimeout.String()+"&timeout="+c.connectTimeout.String(),
+							cfg.FormatDSN(),
 							c.defaultPeriod,
 							c.maxPeriod,
 							c.backoffFactor,
