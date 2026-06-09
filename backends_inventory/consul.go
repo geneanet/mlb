@@ -46,18 +46,18 @@ type consulServicesMap map[string]consulService
 type consulServicesSlice []consulService
 
 type BackendsInventoryConsul struct {
-	id            string
-	url           string
-	service       string
-	index         string
-	ticker        *misc.ExponentialBackoffTicker
-	ctx           context.Context
-	cancel        context.CancelFunc
-	subscribers   []backend.BackendUpdateSubscriber
+	id               string
+	url              string
+	service          string
+	index            string
+	ticker           *misc.ExponentialBackoffTicker
+	ctx              context.Context
+	cancel           context.CancelFunc
+	subscribers      []backend.BackendUpdateSubscriber
 	subscribersMutex sync.RWMutex
-	backends      *backend.BackendsMap
-	backendsMutex sync.RWMutex
-	log           zerolog.Logger
+	backends         *backend.BackendsMap
+	backendsMutex    sync.RWMutex
+	log              zerolog.Logger
 }
 
 type ConsulBackendsInventoryConfig struct {
@@ -78,7 +78,9 @@ func (w ConsulBackendsInventoryFactory) ValidateConfig(tc *Config) hcl.Diagnosti
 
 func (w ConsulBackendsInventoryFactory) parseConfig(tc *Config) *ConsulBackendsInventoryConfig {
 	config := &ConsulBackendsInventoryConfig{}
-	gohcl.DecodeBody(tc.Config, tc.ctx, config)
+	if diags := gohcl.DecodeBody(tc.Config, tc.ctx, config); diags.HasErrors() {
+		log.Error().Err(diags).Msg("failed to decode consul backend inventory config")
+	}
 	config.ID = fmt.Sprintf("backends_inventory.%s.%s", tc.Type, tc.Name)
 	if config.Period == "" {
 		config.Period = "1s"

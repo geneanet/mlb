@@ -27,27 +27,27 @@ func init() {
 }
 
 type MySQLChecker struct {
-	id              string
-	checks          map[string]*MySQLCheck
-	checksMtex      sync.RWMutex
-	user            string
-	password        string
-	defaultPeriod   time.Duration
-	maxPeriod       time.Duration
-	backoffFactor   float64
-	subscribers     []backend.BackendUpdateSubscriber
+	id               string
+	checks           map[string]*MySQLCheck
+	checksMtex       sync.RWMutex
+	user             string
+	password         string
+	defaultPeriod    time.Duration
+	maxPeriod        time.Duration
+	backoffFactor    float64
+	subscribers      []backend.BackendUpdateSubscriber
 	subscribersMutex sync.RWMutex
-	ctx             context.Context
-	cancel          context.CancelFunc
-	log             zerolog.Logger
-	updChan         chan backend.BackendUpdate
-	updChanStop     chan struct{}
-	source          string
-	connectTimeout  time.Duration
-	readTimeout     time.Duration
-	writeTimeout    time.Duration
-	connMaxLifetime time.Duration
-	checkReplica    bool
+	ctx              context.Context
+	cancel           context.CancelFunc
+	log              zerolog.Logger
+	updChan          chan backend.BackendUpdate
+	updChanStop      chan struct{}
+	source           string
+	connectTimeout   time.Duration
+	readTimeout      time.Duration
+	writeTimeout     time.Duration
+	connMaxLifetime  time.Duration
+	checkReplica     bool
 }
 
 type MySQLCheckerConfig struct {
@@ -74,7 +74,9 @@ func (w MySQLCheckerFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 
 func (w MySQLCheckerFactory) parseConfig(tc *Config) *MySQLCheckerConfig {
 	config := &MySQLCheckerConfig{}
-	gohcl.DecodeBody(tc.Config, tc.ctx, config)
+	if diags := gohcl.DecodeBody(tc.Config, tc.ctx, config); diags.HasErrors() {
+		log.Error().Err(diags).Msg("failed to decode mysql backend processor config")
+	}
 	config.ID = fmt.Sprintf("backends_processor.%s.%s", tc.Type, tc.Name)
 	if config.Period == "" {
 		config.Period = "1s"

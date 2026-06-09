@@ -76,7 +76,9 @@ func (f RedisProxyFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 
 func (f RedisProxyFactory) parseConfig(tc *Config) *RedisProxyConfig {
 	config := &RedisProxyConfig{}
-	gohcl.DecodeBody(tc.Config, tc.ctx, config)
+	if diags := gohcl.DecodeBody(tc.Config, tc.ctx, config); diags.HasErrors() {
+		log.Error().Err(diags).Msg("failed to decode Redis proxy config")
+	}
 	config.ID = fmt.Sprintf("proxy.%s.%s", tc.Type, tc.Name)
 	if config.ConnectTimeout == "" {
 		config.ConnectTimeout = "0s"

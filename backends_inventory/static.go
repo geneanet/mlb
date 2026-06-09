@@ -19,14 +19,14 @@ func init() {
 }
 
 type BackendsInventoryStatic struct {
-	id            string
-	subscribers   []backend.BackendUpdateSubscriber
+	id               string
+	subscribers      []backend.BackendUpdateSubscriber
 	subscribersMutex sync.RWMutex
-	backends      *backend.BackendsMap
-	backendsMutex sync.RWMutex
-	log           zerolog.Logger
-	ctx           context.Context
-	cancel        context.CancelFunc
+	backends         *backend.BackendsMap
+	backendsMutex    sync.RWMutex
+	log              zerolog.Logger
+	ctx              context.Context
+	cancel           context.CancelFunc
 }
 
 type StaticBackendsInventoryConfig struct {
@@ -43,7 +43,9 @@ func (w StaticBackendsInventoryFactory) ValidateConfig(tc *Config) hcl.Diagnosti
 
 func (w StaticBackendsInventoryFactory) parseConfig(tc *Config) *StaticBackendsInventoryConfig {
 	config := &StaticBackendsInventoryConfig{}
-	gohcl.DecodeBody(tc.Config, tc.ctx, config)
+	if diags := gohcl.DecodeBody(tc.Config, tc.ctx, config); diags.HasErrors() {
+		log.Error().Err(diags).Msg("failed to decode static backend inventory config")
+	}
 	config.ID = fmt.Sprintf("backends_inventory.%s.%s", tc.Type, tc.Name)
 	return config
 }

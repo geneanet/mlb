@@ -55,7 +55,9 @@ func (w WRRBalancerFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 
 func (w WRRBalancerFactory) parseConfig(tc *Config) *WRRBalancerConfig {
 	config := &WRRBalancerConfig{}
-	gohcl.DecodeBody(tc.Config, tc.ctx, config)
+	if diags := gohcl.DecodeBody(tc.Config, tc.ctx, config); diags.HasErrors() {
+		log.Error().Err(diags).Msg("failed to decode WRR balancer config")
+	}
 	config.ID = fmt.Sprintf("balancer.%s.%s", tc.Type, tc.Name)
 	if config.Timeout == "" {
 		config.Timeout = "0s"

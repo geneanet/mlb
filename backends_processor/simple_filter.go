@@ -18,17 +18,17 @@ func init() {
 }
 
 type SimpleFilter struct {
-	id            string
-	subscribers   []backend.BackendUpdateSubscriber
+	id               string
+	subscribers      []backend.BackendUpdateSubscriber
 	subscribersMutex sync.RWMutex
-	backends      *backend.BackendsMap
-	backendsMutex sync.RWMutex
-	log           zerolog.Logger
-	updChan       chan backend.BackendUpdate
-	updChanStop   chan struct{}
-	source        string
-	condition     hcl.Expression
-	evalCtx       *hcl.EvalContext
+	backends         *backend.BackendsMap
+	backendsMutex    sync.RWMutex
+	log              zerolog.Logger
+	updChan          chan backend.BackendUpdate
+	updChanStop      chan struct{}
+	source           string
+	condition        hcl.Expression
+	evalCtx          *hcl.EvalContext
 }
 
 type SimpleFilterConfig struct {
@@ -46,7 +46,9 @@ func (w SimpleFilterFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 
 func (w SimpleFilterFactory) parseConfig(tc *Config) *SimpleFilterConfig {
 	config := &SimpleFilterConfig{}
-	gohcl.DecodeBody(tc.Config, tc.ctx, config)
+	if diags := gohcl.DecodeBody(tc.Config, tc.ctx, config); diags.HasErrors() {
+		log.Error().Err(diags).Msg("failed to decode simple filter backend processor config")
+	}
 	config.ID = fmt.Sprintf("backends_processor.%s.%s", tc.Type, tc.Name)
 	return config
 }

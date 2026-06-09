@@ -26,24 +26,24 @@ func init() {
 }
 
 type ConsulKV struct {
-	id            string
-	url           string
-	defaultPeriod time.Duration
-	maxPeriod     time.Duration
-	backoffFactor float64
-	backends      *backend.BackendsMap
-	backendsMutex sync.RWMutex
-	defaultValues map[string]cty.Value
-	subscribers   []backend.BackendUpdateSubscriber
+	id               string
+	url              string
+	defaultPeriod    time.Duration
+	maxPeriod        time.Duration
+	backoffFactor    float64
+	backends         *backend.BackendsMap
+	backendsMutex    sync.RWMutex
+	defaultValues    map[string]cty.Value
+	subscribers      []backend.BackendUpdateSubscriber
 	subscribersMutex sync.RWMutex
-	ctx           context.Context
-	cancel        context.CancelFunc
-	log           zerolog.Logger
-	updChan       chan backend.BackendUpdate
-	updChanStop   chan struct{}
-	source        string
-	evalCtx       *hcl.EvalContext
-	watchers      map[string][]*consulKVWatcher
+	ctx              context.Context
+	cancel           context.CancelFunc
+	log              zerolog.Logger
+	updChan          chan backend.BackendUpdate
+	updChanStop      chan struct{}
+	source           string
+	evalCtx          *hcl.EvalContext
+	watchers         map[string][]*consulKVWatcher
 }
 
 type ConsulKVConfig struct {
@@ -71,7 +71,9 @@ func (w ConsulKVFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 
 func (w ConsulKVFactory) parseConfig(tc *Config) *ConsulKVConfig {
 	config := &ConsulKVConfig{}
-	gohcl.DecodeBody(tc.Config, tc.ctx, config)
+	if diags := gohcl.DecodeBody(tc.Config, tc.ctx, config); diags.HasErrors() {
+		log.Error().Err(diags).Msg("failed to decode consul kv backend processor config")
+	}
 	config.ID = fmt.Sprintf("backends_processor.%s.%s", tc.Type, tc.Name)
 	if config.Period == "" {
 		config.Period = "500ms"
