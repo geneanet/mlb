@@ -35,6 +35,7 @@ type ConsulKV struct {
 	backendsMutex sync.RWMutex
 	defaultValues map[string]cty.Value
 	subscribers   []backend.BackendUpdateSubscriber
+	subscribersMutex sync.RWMutex
 	ctx           context.Context
 	cancel        context.CancelFunc
 	log           zerolog.Logger
@@ -214,12 +215,15 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 }
 
 func (c *ConsulKV) ProvideUpdates(s backend.BackendUpdateSubscriber) {
-	c.backendsMutex.Lock()
-	defer c.backendsMutex.Unlock()
-
+	c.subscribersMutex.Lock()
 	c.subscribers = append(c.subscribers, s)
+	c.subscribersMutex.Unlock()
 
-	for _, b := range c.backends.GetList() {
+	c.backendsMutex.RLock()
+	backends := c.backends.GetList()
+	c.backendsMutex.RUnlock()
+
+	for _, b := range backends {
 		s.ReceiveUpdate(backend.BackendUpdate{
 			Kind:    backend.UpdBackendAdded,
 			Address: b.Address,
@@ -229,7 +233,12 @@ func (c *ConsulKV) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 }
 
 func (c *ConsulKV) sendUpdate(u backend.BackendUpdate) {
-	for _, s := range c.subscribers {
+	c.subscribersMutex.RLock()
+	subscribers := make([]backend.BackendUpdateSubscriber, len(c.subscribers))
+	copy(subscribers, c.subscribers)
+	c.subscribersMutex.RUnlock()
+
+	for _, s := range subscribers {
 		s.ReceiveUpdate(u)
 	}
 }

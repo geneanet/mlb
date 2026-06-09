@@ -36,6 +36,7 @@ type MySQLChecker struct {
 	maxPeriod       time.Duration
 	backoffFactor   float64
 	subscribers     []backend.BackendUpdateSubscriber
+	subscribersMutex sync.RWMutex
 	ctx             context.Context
 	cancel          context.CancelFunc
 	log             zerolog.Logger
@@ -235,22 +236,33 @@ func (c *MySQLChecker) stopChecks() {
 }
 
 func (c *MySQLChecker) ProvideUpdates(s backend.BackendUpdateSubscriber) {
-	c.checksMtex.Lock()
-	defer c.checksMtex.Unlock()
-
+	c.subscribersMutex.Lock()
 	c.subscribers = append(c.subscribers, s)
+	c.subscribersMutex.Unlock()
 
+	c.checksMtex.RLock()
+	backends := []*backend.Backend{}
 	for _, check := range c.checks {
+		backends = append(backends, check.backend)
+	}
+	c.checksMtex.RUnlock()
+
+	for _, b := range backends {
 		s.ReceiveUpdate(backend.BackendUpdate{
 			Kind:    backend.UpdBackendAdded,
-			Address: check.backend.Address,
-			Backend: check.backend,
+			Address: b.Address,
+			Backend: b,
 		})
 	}
 }
 
 func (c *MySQLChecker) sendUpdate(u backend.BackendUpdate) {
-	for _, s := range c.subscribers {
+	c.subscribersMutex.RLock()
+	subscribers := make([]backend.BackendUpdateSubscriber, len(c.subscribers))
+	copy(subscribers, c.subscribers)
+	c.subscribersMutex.RUnlock()
+
+	for _, s := range subscribers {
 		s.ReceiveUpdate(u)
 	}
 }

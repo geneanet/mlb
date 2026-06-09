@@ -21,6 +21,7 @@ func init() {
 type BackendsInventoryStatic struct {
 	id            string
 	subscribers   []backend.BackendUpdateSubscriber
+	subscribersMutex sync.RWMutex
 	backends      *backend.BackendsMap
 	backendsMutex sync.RWMutex
 	log           zerolog.Logger
@@ -70,12 +71,15 @@ func (w StaticBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 }
 
 func (c *BackendsInventoryStatic) ProvideUpdates(s backend.BackendUpdateSubscriber) {
-	c.backendsMutex.Lock()
-	defer c.backendsMutex.Unlock()
-
+	c.subscribersMutex.Lock()
 	c.subscribers = append(c.subscribers, s)
+	c.subscribersMutex.Unlock()
 
-	for _, b := range c.backends.GetList() {
+	c.backendsMutex.RLock()
+	backends := c.backends.GetList()
+	c.backendsMutex.RUnlock()
+
+	for _, b := range backends {
 		s.ReceiveUpdate(backend.BackendUpdate{
 			Kind:    backend.UpdBackendAdded,
 			Address: b.Address,
@@ -85,7 +89,12 @@ func (c *BackendsInventoryStatic) ProvideUpdates(s backend.BackendUpdateSubscrib
 }
 
 func (c *BackendsInventoryStatic) sendUpdate(u backend.BackendUpdate) {
-	for _, s := range c.subscribers {
+	c.subscribersMutex.RLock()
+	subscribers := make([]backend.BackendUpdateSubscriber, len(c.subscribers))
+	copy(subscribers, c.subscribers)
+	c.subscribersMutex.RUnlock()
+
+	for _, s := range subscribers {
 		s.ReceiveUpdate(u)
 	}
 }

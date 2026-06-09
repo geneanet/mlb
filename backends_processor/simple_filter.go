@@ -20,6 +20,7 @@ func init() {
 type SimpleFilter struct {
 	id            string
 	subscribers   []backend.BackendUpdateSubscriber
+	subscribersMutex sync.RWMutex
 	backends      *backend.BackendsMap
 	backendsMutex sync.RWMutex
 	log           zerolog.Logger
@@ -129,12 +130,15 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 }
 
 func (f *SimpleFilter) ProvideUpdates(s backend.BackendUpdateSubscriber) {
-	f.backendsMutex.Lock()
-	defer f.backendsMutex.Unlock()
-
+	f.subscribersMutex.Lock()
 	f.subscribers = append(f.subscribers, s)
+	f.subscribersMutex.Unlock()
 
-	for _, b := range f.backends.GetList() {
+	f.backendsMutex.RLock()
+	backends := f.backends.GetList()
+	f.backendsMutex.RUnlock()
+
+	for _, b := range backends {
 		s.ReceiveUpdate(backend.BackendUpdate{
 			Kind:    backend.UpdBackendAdded,
 			Address: b.Address,
@@ -144,7 +148,12 @@ func (f *SimpleFilter) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 }
 
 func (f *SimpleFilter) sendUpdate(u backend.BackendUpdate) {
-	for _, s := range f.subscribers {
+	f.subscribersMutex.RLock()
+	subscribers := make([]backend.BackendUpdateSubscriber, len(f.subscribers))
+	copy(subscribers, f.subscribers)
+	f.subscribersMutex.RUnlock()
+
+	for _, s := range subscribers {
 		s.ReceiveUpdate(u)
 	}
 }
