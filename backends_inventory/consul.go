@@ -203,20 +203,18 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 }
 
 func (c *BackendsInventoryConsul) ProvideUpdates(s backend.BackendUpdateSubscriber) {
+	c.backendsMutex.Lock()
+	defer c.backendsMutex.Unlock()
+
 	c.subscribers = append(c.subscribers, s)
 
-	go func() {
-		c.backendsMutex.RLock()
-		defer c.backendsMutex.RUnlock()
-
-		for _, b := range c.backends.GetList() {
-			s.ReceiveUpdate(backend.BackendUpdate{
-				Kind:    backend.UpdBackendAdded,
-				Address: b.Address,
-				Backend: b,
-			})
-		}
-	}()
+	for _, b := range c.backends.GetList() {
+		s.ReceiveUpdate(backend.BackendUpdate{
+			Kind:    backend.UpdBackendAdded,
+			Address: b.Address,
+			Backend: b,
+		})
+	}
 }
 
 func (c *BackendsInventoryConsul) sendUpdate(u backend.BackendUpdate) {

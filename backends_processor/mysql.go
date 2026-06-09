@@ -236,21 +236,17 @@ func (c *MySQLChecker) stopChecks() {
 
 func (c *MySQLChecker) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 	c.checksMtex.Lock()
+	defer c.checksMtex.Unlock()
+
 	c.subscribers = append(c.subscribers, s)
-	c.checksMtex.Unlock()
 
-	go func() {
-		c.checksMtex.RLock()
-		defer c.checksMtex.RUnlock()
-
-		for _, check := range c.checks {
-			s.ReceiveUpdate(backend.BackendUpdate{
-				Kind:    backend.UpdBackendAdded,
-				Address: check.backend.Address,
-				Backend: check.backend,
-			})
-		}
-	}()
+	for _, check := range c.checks {
+		s.ReceiveUpdate(backend.BackendUpdate{
+			Kind:    backend.UpdBackendAdded,
+			Address: check.backend.Address,
+			Backend: check.backend,
+		})
+	}
 }
 
 func (c *MySQLChecker) sendUpdate(u backend.BackendUpdate) {

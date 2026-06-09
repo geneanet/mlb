@@ -129,20 +129,18 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 }
 
 func (f *SimpleFilter) ProvideUpdates(s backend.BackendUpdateSubscriber) {
+	f.backendsMutex.Lock()
+	defer f.backendsMutex.Unlock()
+
 	f.subscribers = append(f.subscribers, s)
 
-	go func() {
-		f.backendsMutex.RLock()
-		defer f.backendsMutex.RUnlock()
-
-		for _, b := range f.backends.GetList() {
-			s.ReceiveUpdate(backend.BackendUpdate{
-				Kind:    backend.UpdBackendAdded,
-				Address: b.Address,
-				Backend: b,
-			})
-		}
-	}()
+	for _, b := range f.backends.GetList() {
+		s.ReceiveUpdate(backend.BackendUpdate{
+			Kind:    backend.UpdBackendAdded,
+			Address: b.Address,
+			Backend: b,
+		})
+	}
 }
 
 func (f *SimpleFilter) sendUpdate(u backend.BackendUpdate) {

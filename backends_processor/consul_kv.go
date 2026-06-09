@@ -214,20 +214,18 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 }
 
 func (c *ConsulKV) ProvideUpdates(s backend.BackendUpdateSubscriber) {
+	c.backendsMutex.Lock()
+	defer c.backendsMutex.Unlock()
+
 	c.subscribers = append(c.subscribers, s)
 
-	go func() {
-		c.backendsMutex.RLock()
-		defer c.backendsMutex.RUnlock()
-
-		for _, b := range c.backends.GetList() {
-			s.ReceiveUpdate(backend.BackendUpdate{
-				Kind:    backend.UpdBackendAdded,
-				Address: b.Address,
-				Backend: b,
-			})
-		}
-	}()
+	for _, b := range c.backends.GetList() {
+		s.ReceiveUpdate(backend.BackendUpdate{
+			Kind:    backend.UpdBackendAdded,
+			Address: b.Address,
+			Backend: b,
+		})
+	}
 }
 
 func (c *ConsulKV) sendUpdate(u backend.BackendUpdate) {

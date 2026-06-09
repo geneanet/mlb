@@ -15,38 +15,39 @@ import (
 )
 
 func init() {
-	factories["static"] = &staticBackendsInventoryFactory{}
+	factories["static"] = &StaticBackendsInventoryFactory{}
 }
 
 type BackendsInventoryStatic struct {
-	id          string
-	ctx         context.Context
-	cancel      context.CancelFunc
-	subscribers []backend.BackendUpdateSubscriber
-	backends    *backend.BackendsMap
-	log         zerolog.Logger
+	id            string
+	subscribers   []backend.BackendUpdateSubscriber
+	backends      *backend.BackendsMap
+	backendsMutex sync.RWMutex
+	log           zerolog.Logger
+	ctx           context.Context
+	cancel        context.CancelFunc
 }
 
-type staticBackendsInventoryConfig struct {
+type StaticBackendsInventoryConfig struct {
 	ID    string   `hcl:"id,label"`
 	Hosts []string `hcl:"hosts"`
 }
 
-type staticBackendsInventoryFactory struct{}
+type StaticBackendsInventoryFactory struct{}
 
-func (w staticBackendsInventoryFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
-	config := &staticBackendsInventoryConfig{}
+func (w StaticBackendsInventoryFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
+	config := &StaticBackendsInventoryConfig{}
 	return gohcl.DecodeBody(tc.Config, tc.ctx, config)
 }
 
-func (w staticBackendsInventoryFactory) parseConfig(tc *Config) *staticBackendsInventoryConfig {
-	config := &staticBackendsInventoryConfig{}
+func (w StaticBackendsInventoryFactory) parseConfig(tc *Config) *StaticBackendsInventoryConfig {
+	config := &StaticBackendsInventoryConfig{}
 	gohcl.DecodeBody(tc.Config, tc.ctx, config)
 	config.ID = fmt.Sprintf("backends_inventory.%s.%s", tc.Type, tc.Name)
 	return config
 }
 
-func (w staticBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+func (w StaticBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
 	config := w.parseConfig(tc)
 
 	c := &BackendsInventoryStatic{
@@ -69,17 +70,18 @@ func (w staticBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 }
 
 func (c *BackendsInventoryStatic) ProvideUpdates(s backend.BackendUpdateSubscriber) {
+	c.backendsMutex.Lock()
+	defer c.backendsMutex.Unlock()
+
 	c.subscribers = append(c.subscribers, s)
 
-	go func() {
-		for _, b := range c.backends.GetList() {
-			s.ReceiveUpdate(backend.BackendUpdate{
-				Kind:    backend.UpdBackendAdded,
-				Address: b.Address,
-				Backend: b,
-			})
-		}
-	}()
+	for _, b := range c.backends.GetList() {
+		s.ReceiveUpdate(backend.BackendUpdate{
+			Kind:    backend.UpdBackendAdded,
+			Address: b.Address,
+			Backend: b,
+		})
+	}
 }
 
 func (c *BackendsInventoryStatic) sendUpdate(u backend.BackendUpdate) {
