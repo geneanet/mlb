@@ -200,11 +200,10 @@ func (p *RedisProxy) listen(address string, wg *sync.WaitGroup) {
 	listener, err := lc.Listen(context.Background(), "tcp", address)
 	misc.PanicIfErr(err)
 
-	go func() {
-		<-p.ctx.Done()
+	context.AfterFunc(p.ctx, func() {
 		err := listener.Close()
 		misc.PanicIfErr(err)
-	}()
+	})
 
 	wg.Add(1)
 	go func() {
@@ -238,35 +237,27 @@ func (p *RedisProxy) handleConnection(connFront net.Conn) {
 	defer cancel()
 
 	// If the connection context is closed, close the connection
-	go func() {
-		<-ctx.Done()
+	context.AfterFunc(ctx, func() {
 		p.log.Debug().Str("peer", peerAddress).Msg("Closing Frontend connection")
 		err := connFront.Close()
 		if err != nil && !errors.Is(err, net.ErrClosed) {
 			misc.PanicIfErr(err)
 		}
-	}()
+	})
 
 	// If the proxy context is closed, close the connection context after a grace period
-	go func() {
-		select {
-		case <-ctx.Done():
-			return
-		case <-p.ctx.Done():
-			p.log.Debug().Str("peer", peerAddress).Msg("Frontend closed, waiting for connection to end.")
-		}
-
-		timer := time.NewTimer(p.closeTimeout)
-		defer timer.Stop()
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-			p.log.Warn().Str("peer", peerAddress).Msg("Timeout reached, force closing connection.")
+	stopGracefulClosing := context.AfterFunc(p.ctx, func() {
+		p.log.Debug().Str("peer", peerAddress).Msg("Frontend closed, waiting for connection to end.")
+		timer := time.AfterFunc(p.closeTimeout, func() {
+			p.log.Debug().Str("peer", peerAddress).Msg("Frontend close timeout reached, closing connection")
 			cancel()
-		}
-	}()
+		})
+		// Ensure we stop the timer if the connection finishes before the timeout
+		context.AfterFunc(ctx, func() {
+			timer.Stop()
+		})
+	})
+	defer stopGracefulClosing()
 
 	// Error handler
 	defer func() {

@@ -47,11 +47,10 @@ func NewHTTPServer(address string, wg *sync.WaitGroup, ctx context.Context) {
 	wg.Add(1)
 
 	// Shutdown the server if the context is closed
-	go func() {
-		<-ctx.Done()
+	context.AfterFunc(ctx, func() {
 		err := srv.Shutdown(context.Background())
 		misc.PanicIfErr(err)
-	}()
+	})
 
 	// Start the server and serve the requests
 	go func() {

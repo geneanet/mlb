@@ -61,10 +61,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 	misc.PanicIfErr(err)
 
 	// Cleanup routine: If the connection context is closed, ensure the connection is closed, abort all in flight request and notify the pool
-	go func() {
-		// Wait for the context to be done
-		<-rbc.ctx.Done()
-
+	context.AfterFunc(rbc.ctx, func() {
 		// Ensure the connection is closed
 		rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Closing Backend connection")
 		rbc.conn.Close()
@@ -80,8 +77,8 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 		rbc.pool.NotifyFailure(rbc)
 
 		// Prometheus
-		metrics.BeActCnx.WithLabelValues(backend.Address, rbc.pool.proxy.id).Dec()
-	}()
+		metrics.BeActCnx.WithLabelValues(rbc.backend.Address, rbc.pool.proxy.id).Dec()
+	})
 
 	// Read queries and send them to the backend
 	go func() {

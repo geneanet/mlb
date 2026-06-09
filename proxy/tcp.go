@@ -174,11 +174,10 @@ func (p *ProxyTCP) listen(address string, wg *sync.WaitGroup) {
 	listener, err := lc.Listen(context.Background(), "tcp", address)
 	misc.PanicIfErr(err)
 
-	go func() {
-		<-p.ctx.Done()
+	context.AfterFunc(p.ctx, func() {
 		err := listener.Close()
 		misc.PanicIfErr(err)
-	}()
+	})
 
 	wg.Add(1)
 	go func() {
