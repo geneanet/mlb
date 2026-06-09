@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -228,6 +229,39 @@ func TestReadMessage_BufferMove(t *testing.T) {
 	}
 	if !bytes.Equal(msg2, []byte("+PONG\r\n")) {
 		t.Errorf("expected +PONG\r\n, got %s", string(msg2))
+	}
+}
+
+// TestReadMessage_BufferShiftLarge verifies that shifting a large buffered portion
+// to the beginning of the buffer does not panic when it exceeds initialBufferSize.
+func TestReadMessage_BufferShiftLarge(t *testing.T) {
+	initialSize := 1024
+
+	// Msg 1: Small enough to stay in first grow
+	msg1 := []byte("+OK\r\n")
+
+	// Msg 2: Large enough that when buffered it will exceed initialSize
+	largeSize := 5000
+	largeData := bytes.Repeat([]byte("a"), largeSize)
+	msg2 := []byte(fmt.Sprintf("$%d\r\n%s\r\n", largeSize, string(largeData)))
+
+	// We need to ensure msg2 is partially read into the buffer when msg1 is read.
+	// bytes.NewReader will allow reading everything at once.
+	input := append(msg1, msg2...)
+	r := bytes.NewReader(input)
+	reader := NewRedisProtocolReader(r, initialSize)
+
+	// Read msg1. This will grow buffer to ~1024 and read msg1 + part of msg2.
+	_, err := reader.ReadMessage(false)
+	if err != nil {
+		t.Fatalf("unexpected error reading msg1: %v", err)
+	}
+
+	// Read msg2. It will eventually need to read the rest of the 5000 bytes,
+	// triggering readFromSource while messageStart > 0 and unparsed data > 1024.
+	_, err = reader.ReadMessage(false)
+	if err != nil {
+		t.Fatalf("unexpected error reading msg2: %v", err)
 	}
 }
 

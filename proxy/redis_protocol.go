@@ -233,8 +233,8 @@ func (r *RedisProtocolReader) readFromSource() (int, error) {
 			r.buffer = slices.Grow(r.buffer, r.initialBufferSize)
 		} else {
 			// If we have already parsed some data, shift the unparsed portion to the beginning
-			// of a new buffer of the same capacity to reuse space.
-			newBuffer := make([]byte, len(r.buffer)-r.messageStart, r.initialBufferSize)
+			// of a new buffer to reuse space.
+			newBuffer := make([]byte, len(r.buffer)-r.messageStart, max(len(r.buffer)-r.messageStart, r.initialBufferSize))
 			copy(newBuffer, r.buffer[r.messageStart:])
 			r.buffer = newBuffer
 			// Adjust offsets accordingly.
