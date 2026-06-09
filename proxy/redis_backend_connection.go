@@ -117,9 +117,17 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 				rbc.cancel()
 				return
 			}
-			query := <-rbc.inFlight
+			var query RedisQuery
+			select {
+			case query = <-rbc.inFlight:
+			case <-rbc.ctx.Done():
+				return
+			}
 
-			query.Reply(item)
+			err = query.Reply(item)
+			if err != nil {
+				rbc.pool.proxy.log.Warn().Uint64("queryId", query.id).Err(err).Msg("Unable to reply to client")
+			}
 		}
 	}()
 
