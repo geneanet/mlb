@@ -88,4 +88,57 @@ backends_inventory "static" "test" {
 	if !has8080 || !has8081 {
 		t.Errorf("Missing expected addresses in updates")
 	}
+
+	// Test sendUpdate (even if it's currently unused in normal operation)
+	// We use a fresh inventory to avoid interference with previous tests and subscribers
+	mod2 := New(cfg, wg, ctxBG)
+	staticMod2 := mod2.(*BackendsInventoryStatic)
+
+	sub2 := &dummySubscriber{
+		wg: sync.WaitGroup{},
+	}
+	sub2.wg.Add(1)
+	staticMod2.subscribersMutex.Lock()
+	staticMod2.subscribers = append(staticMod2.subscribers, sub2)
+	staticMod2.subscribersMutex.Unlock()
+
+	testUpdate := backend.BackendUpdate{
+		Kind:    backend.UpdBackendRemoved,
+		Address: "127.0.0.1:9999",
+	}
+	staticMod2.sendUpdate(testUpdate)
+
+	sub2.wg.Wait()
+	if len(sub2.updates) != 1 {
+		t.Errorf("Expected 1 update, got %d", len(sub2.updates))
+	}
+	if sub2.updates[0].Address != "127.0.0.1:9999" {
+		t.Errorf("Expected address 127.0.0.1:9999, got %s", sub2.updates[0].Address)
+	}
+}
+
+// TestStaticBackendsInventory_ParseConfigError verifies that parseConfig handles HCL decoding errors.
+func TestStaticBackendsInventory_ParseConfigError(t *testing.T) {
+	// Invalid config (hosts should be a list of strings, not a single string)
+	src := `
+backends_inventory "static" "test" {
+	hosts = "invalid"
+}
+`
+	block := parseHCL(t, src)
+	ctx := &hcl.EvalContext{}
+
+	cfg := &Config{
+		Type:   "static",
+		Name:   "test",
+		Config: block.Body,
+		ctx:    ctx,
+	}
+
+	factory := StaticBackendsInventoryFactory{}
+	// This will trigger log.Error() and still return a config object
+	config := factory.parseConfig(cfg)
+	if config == nil {
+		t.Fatal("expected config not to be nil even on error")
+	}
 }

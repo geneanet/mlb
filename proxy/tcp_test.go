@@ -16,6 +16,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 )
 
@@ -577,6 +578,103 @@ func TestTCPProxy_PipeClosedErr(t *testing.T) {
 	}
 }
 
+// errorConn is a custom net.Conn that returns a specific error on Read.
+type errorConn struct {
+	net.Conn
+	err error
+}
+
+func (c *errorConn) RemoteAddr() net.Addr {
+	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 1234}
+}
+
+func (c *errorConn) Read(b []byte) (n int, err error) {
+	return 0, c.err
+}
+
+func (c *errorConn) Write(b []byte) (n int, err error) {
+	return 0, nil
+}
+
+// TestTCPProxy_PipeReadError verifies that a generic read error (not EOF or ErrClosed)
+// is correctly caught and logged, and the pipe terminates.
+func TestTCPProxy_PipeReadError(t *testing.T) {
+	p := &ProxyTCP{
+		id:         "test_read_err",
+		log:        zerolog.Nop(),
+		bufferSize: 1024,
+		bufferPool: sync.Pool{
+			New: func() any { return make([]byte, 1024) },
+		},
+	}
+
+	expectedErr := io.ErrUnexpectedEOF
+	badConn := &errorConn{err: expectedErr}
+	done := make(chan struct{})
+
+	go p.pipe(badConn, badConn, done, 0, 0, prometheus.NewCounter(prometheus.CounterOpts{}), prometheus.NewCounter(prometheus.CounterOpts{}))
+
+	select {
+	case <-done:
+		// Success
+	case <-time.After(1 * time.Second):
+		t.Fatal("pipe did not return on read error")
+	}
+}
+
+// TestTCPProxy_PipeWriteError verifies that a generic write error (not ErrClosed)
+// is correctly caught and logged, and the pipe terminates.
+func TestTCPProxy_PipeWriteError(t *testing.T) {
+	p := &ProxyTCP{
+		id:         "test_write_err",
+		log:        zerolog.Nop(),
+		bufferSize: 1024,
+		bufferPool: sync.Pool{
+			New: func() any { return make([]byte, 1024) },
+		},
+	}
+
+	// Use the existing errorConn and mockConn
+	input := &bytes.Buffer{}
+	input.Write([]byte("some data"))
+	
+	done := make(chan struct{})
+	badWriter := &errorConn{err: io.ErrShortWrite}
+	
+	go p.pipe(&mockConn{reader: input}, badWriter, done, 0, 0, prometheus.NewCounter(prometheus.CounterOpts{}), prometheus.NewCounter(prometheus.CounterOpts{}))
+
+	select {
+	case <-done:
+		// Success
+	case <-time.After(1 * time.Second):
+		t.Fatal("pipe did not return on write error")
+	}
+}
+
+// mockConn is a helper for testing pipe
+type mockConn struct {
+	net.Conn
+	reader io.Reader
+	writer io.Writer
+}
+
+func (m *mockConn) Read(b []byte) (int, error) {
+	if m.reader != nil {
+		return m.reader.Read(b)
+	}
+	return 0, io.EOF
+}
+
+func (m *mockConn) Write(b []byte) (int, error) {
+	if m.writer != nil {
+		return m.writer.Write(b)
+	}
+	return len(b), nil
+}
+
+func (m *mockConn) RemoteAddr() net.Addr {
+	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 1234}
+}
 // TestTCPProxy_DoneBackFront tests the connection teardown synchronization inside handleConnection.
 // It verifies that:
 //  1. When the backend server terminates the connection first, the backend-to-frontend pipe

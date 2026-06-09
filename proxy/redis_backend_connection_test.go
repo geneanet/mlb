@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"mlb/backend"
 	"mlb/testutil"
 	"net"
@@ -232,6 +233,7 @@ func TestRedisBackendConnection_ResetError(t *testing.T) {
 	go func() {
 		conn, err := listener.Accept()
 		if err == nil {
+			time.Sleep(50 * time.Millisecond)
 			tcpConn := conn.(*net.TCPConn)
 			tcpConn.SetLinger(0) // Force RST on close
 			tcpConn.Close()
@@ -323,5 +325,177 @@ func TestRedisBackendConnection_UnexpectedReadError(t *testing.T) {
 		// Success
 	case <-time.After(1 * time.Second):
 		t.Fatal("Context was not cancelled on read error")
+	}
+}
+
+// TestRedisBackendConnection_AbortInflightQueries verifies that AbortInflightQueries
+// correctly drains the in-flight queue and signals abort to all pending queries.
+func TestRedisBackendConnection_AbortInflightQueries(t *testing.T) {
+	rbc := &RedisBackendConnection{
+		inFlight: make(chan RedisQuery, 5),
+		pool: &RedisBackendConnectionPool{
+			proxy: &RedisProxy{
+				log: zerolog.Nop(),
+			},
+		},
+		backend: &backend.Backend{Address: "127.0.0.1:1234"},
+	}
+
+	responseChan := make(chan RedisReponse, 5)
+	responseChanStop := make(chan struct{})
+	defer close(responseChanStop)
+
+	q1 := NewRedisQuery([]byte("PING\r\n"), responseChan, responseChanStop)
+	q2 := NewRedisQuery([]byte("QUIT\r\n"), responseChan, responseChanStop)
+
+	rbc.inFlight <- q1
+	rbc.inFlight <- q2
+
+	rbc.AbortInflightQueries()
+
+	if len(rbc.inFlight) != 0 {
+		t.Errorf("expected inFlight queue to be empty, got %d", len(rbc.inFlight))
+	}
+
+	// Verify both were aborted
+	for i := 0; i < 2; i++ {
+		select {
+		case resp := <-responseChan:
+			if resp.item != nil {
+				t.Errorf("expected nil item for aborted query, got %v", resp.item)
+			}
+		default:
+			t.Errorf("expected aborted response for query %d", i)
+		}
+	}
+}
+
+// TestRedisBackendConnection_QueryClosed verifies that Query returns an error
+// if the input channel has been stopped/closed.
+func TestRedisBackendConnection_QueryClosed(t *testing.T) {
+	rbc := &RedisBackendConnection{
+		inputChan:     make(chan RedisQuery),
+		inputChanStop: make(chan struct{}),
+	}
+	close(rbc.inputChanStop)
+
+	err := rbc.Query(RedisQuery{})
+	if err == nil {
+		t.Errorf("expected error querying closed rbc, got nil")
+	}
+	if err.Error() != "backend input channel is closed" {
+		t.Errorf("unexpected error message: %s", err.Error())
+	}
+}
+
+// TestRedisBackendConnection_WriteError verifies that a write error to the backend
+// is correctly handled and triggers connection cancellation.
+func TestRedisBackendConnection_WriteError(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	p := &RedisProxy{
+		id:                       "test-write-err",
+		log:                      zerolog.Nop(),
+		backendInflightQueueSize: 10,
+		connectTimeout:           1 * time.Second,
+		bufferSize:               1024,
+		ctx:                      context.Background(),
+	}
+	pool := NewRedisBackendConnectionPool(p)
+	p.backendConnectionPool = pool
+
+	// Accept and then close immediately to cause write error
+	go func() {
+		conn, err := l.Accept()
+		if err == nil {
+			time.Sleep(10 * time.Millisecond)
+			conn.Close()
+		}
+	}()
+
+	be := &backend.Backend{Address: l.Addr().String()}
+	rbc, err := NewRedisBackendConnection(pool, be)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rbc.cancel()
+
+	// Fill in-flight to avoid blocking on Read side if needed,
+	// but here we want to trigger a Write error.
+	query := NewRedisQuery([]byte("PING\r\n"), make(chan RedisReponse, 1), make(chan struct{}))
+	
+	// We might need to send multiple queries or wait for the connection to be closed
+	testutil.Eventually(t, func() bool {
+		_ = rbc.Query(query)
+		select {
+		case <-rbc.ctx.Done():
+			return true
+		default:
+			return false
+		}
+	}, 1*time.Second, 10*time.Millisecond)
+}
+
+// TestRedisBackendConnection_ReadError verifies that a read error from the backend
+// is correctly handled and triggers connection cancellation.
+func TestRedisBackendConnection_ReadError(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	p := &RedisProxy{
+		id:                       "test-read-err",
+		log:                      zerolog.Nop(),
+		backendInflightQueueSize: 10,
+		connectTimeout:           1 * time.Second,
+		bufferSize:               1024,
+		ctx:                      context.Background(),
+	}
+	pool := NewRedisBackendConnectionPool(p)
+	p.backendConnectionPool = pool
+
+	// Accept and then force a RESET
+	go func() {
+		conn, err := l.Accept()
+		if err == nil {
+			time.Sleep(50 * time.Millisecond)
+			tcpConn := conn.(*net.TCPConn)
+			tcpConn.SetLinger(0) // Force RST on close
+			tcpConn.Close()
+		}
+	}()
+
+	be := &backend.Backend{Address: l.Addr().String()}
+	rbc, err := NewRedisBackendConnection(pool, be)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rbc.cancel()
+
+	select {
+	case <-rbc.ctx.Done():
+		// Success: connection cancelled on read error (RST)
+	case <-time.After(1 * time.Second):
+		t.Fatal("connection was not cancelled on read error")
+	}
+}
+
+// TestRedisBackendConnection_ReplyClosed verifies that when a client's response
+// channel is closed, query.Reply returns false and it is logged.
+func TestRedisBackendConnection_ReplyClosed(t *testing.T) {
+	responseChan := make(chan RedisReponse)
+	responseChanStop := make(chan struct{})
+	close(responseChanStop) // Simulate client closed
+
+	query := NewRedisQuery(nil, responseChan, responseChanStop)
+	
+	if query.Reply([]byte("+PONG\r\n")) == nil {
+		t.Errorf("expected Reply to return error for closed response channel")
 	}
 }

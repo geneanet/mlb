@@ -414,3 +414,31 @@ backends_inventory "consul" "test_pu" {
 		t.Errorf("Expected updates from ProvideUpdates, got 0")
 	}
 }
+
+// TestConsulBackendsInventory_ParseConfigError verifies that parseConfig handles HCL decoding errors.
+func TestConsulBackendsInventory_ParseConfigError(t *testing.T) {
+	// Invalid config (backoff_factor should be a number, not a string)
+	src := `
+backends_inventory "consul" "test" {
+	url = "http://localhost:8500"
+	service = "test"
+	backoff_factor = "invalid"
+}
+`
+	block := parseHCL(t, src)
+	ctx := &hcl.EvalContext{}
+
+	cfg := &Config{
+		Type:   "consul",
+		Name:   "test",
+		Config: block.Body,
+		ctx:    ctx,
+	}
+
+	factory := ConsulBackendsInventoryFactory{}
+	// This will trigger log.Error() and still return a config object
+	config := factory.parseConfig(cfg)
+	if config == nil {
+		t.Fatal("expected config not to be nil even on error")
+	}
+}

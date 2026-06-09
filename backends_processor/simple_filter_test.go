@@ -280,3 +280,30 @@ func TestSimpleFilter_ReceiveUpdateClosed(t *testing.T) {
 	// Should hit <-f.updChanStop directly instead of blocking on the main loop
 	mod.(*SimpleFilter).ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: "foo"})
 }
+
+// TestSimpleFilter_ParseConfigError verifies that parseConfig handles HCL decoding errors.
+func TestSimpleFilter_ParseConfigError(t *testing.T) {
+	// Invalid config (source should be a string, not a list)
+	src := `
+backends_processor "simple_filter" "test" {
+	source = ["a", "b"]
+	condition = true
+}
+`
+	block := parseHCL(t, src)
+	ctx := &hcl.EvalContext{}
+
+	cfg := &Config{
+		Type:   "simple_filter",
+		Name:   "test",
+		Config: block.Body,
+		ctx:    ctx,
+	}
+
+	factory := SimpleFilterFactory{}
+	// This will trigger log.Error() and still return a config object
+	config := factory.parseConfig(cfg)
+	if config == nil {
+		t.Fatal("expected config not to be nil even on error")
+	}
+}

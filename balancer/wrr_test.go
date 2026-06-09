@@ -288,3 +288,49 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	// Test ReceiveUpdate after shutdown
 	balancer.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: "foo"})
 }
+
+// parseHCL is a helper that parses a HCL string into an hcl.Block.
+func parseHCL(t *testing.T, src string) *hcl.Block {
+	t.Helper()
+	file, diags := hclsyntax.ParseConfig([]byte(src), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		t.Fatalf("Failed to parse config: %s", diags.Error())
+	}
+	body, ok := file.Body.(*hclsyntax.Body)
+	if !ok {
+		t.Fatalf("Failed to get body")
+	}
+	if len(body.Blocks) == 0 {
+		t.Fatalf("No blocks found")
+	}
+	// Convert hclsyntax.Block to hcl.Block
+	b := body.Blocks[0]
+	return b.AsHCLBlock()
+}
+
+// TestWRRBalancer_ParseConfigError verifies that parseConfig handles HCL decoding errors.
+func TestWRRBalancer_ParseConfigError(t *testing.T) {
+	// Invalid config (source should be a string, not a list)
+	src := `
+balancer "wrr" "test" {
+	source = ["a"]
+	weight = 1
+}
+`
+	block := parseHCL(t, src)
+	ctx := &hcl.EvalContext{}
+
+	cfg := &Config{
+		Type:   "wrr",
+		Name:   "test",
+		Config: block.Body,
+		ctx:    ctx,
+	}
+
+	factory := WRRBalancerFactory{}
+	// This will trigger log.Error() and still return a config object
+	config := factory.parseConfig(cfg)
+	if config == nil {
+		t.Fatal("expected config not to be nil even on error")
+	}
+}

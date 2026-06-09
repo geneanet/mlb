@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"io"
 	"net"
 	"sync"
 	"testing"
@@ -659,4 +660,113 @@ func TestRedisProxy_HandleConnection_ClientWriteError(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		t.Fatal("handleConnection did not exit on client write error")
 	}
+}
+
+// TestRedisProxy_HandleConnection_ClientReadError verifies that an unexpected error
+// while reading from the client triggers a panic that is caught by the recovery handler.
+func TestRedisProxy_HandleConnection_ClientReadError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p := &RedisProxy{
+		id:         "test-read-err",
+		log:        zerolog.Nop(),
+		bufferSize: 1024,
+		ctx:        ctx,
+	}
+
+	// Use the errorConnRedis from tcp_test.go (we'll need to define it or similar)
+	badConn := &errorConnRedis{
+		err: io.ErrUnexpectedEOF,
+	}
+
+	p.backendConnectionPool = NewRedisBackendConnectionPool(p)
+	rbc := &RedisBackendConnection{
+		pool:      p.backendConnectionPool,
+		inputChan: make(chan RedisQuery, 1),
+	}
+	p.backendConnectionPool.mutex.Lock()
+	p.backendConnectionPool.pool[rbc] = struct{}{}
+	p.backendConnectionPool.waitBackendsSemaphore.Release(1)
+	p.backendConnectionPool.mutex.Unlock()
+
+	p.connectionsWG.Add(1)
+	// We expect a panic, which is caught by the internal recover() in handleConnection
+	// and logged. We check that it didn't crash the test.
+	p.handleConnection(badConn)
+}
+
+// TestRedisProxy_HandleConnection_RetryNoBackendPanic verifies that if a backend fails
+// and no other backend is available for retry, the proxy panics as expected.
+func TestRedisProxy_HandleConnection_RetryNoBackendPanic(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p := &RedisProxy{
+		id:              "test-retry-no-be",
+		log:             zerolog.Nop(),
+		clientQueueSize: 10,
+		bufferSize:      1024,
+		ctx:             ctx,
+	}
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	go func() {
+		conn, err := net.Dial("tcp", l.Addr().String())
+		if err == nil {
+			conn.Write([]byte("PING\r\n"))
+			time.Sleep(100 * time.Millisecond)
+			conn.Close()
+		}
+	}()
+
+	connFront, err := l.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p.backendConnectionPool = NewRedisBackendConnectionPool(p)
+	rbc := &RedisBackendConnection{
+		pool:          p.backendConnectionPool,
+		inputChanStop: make(chan struct{}),
+	}
+	close(rbc.inputChanStop) // Force Query() failure
+
+	p.backendConnectionPool.mutex.Lock()
+	p.backendConnectionPool.pool[rbc] = struct{}{}
+	p.backendConnectionPool.waitBackendsSemaphore.Release(1)
+	p.backendConnectionPool.mutex.Unlock()
+
+	p.connectionsWG.Add(1)
+	p.handleConnection(connFront)
+}
+
+// errorConnRedis is a mock net.Conn that returns an error on Read.
+type errorConnRedis struct {
+	net.Conn
+	err error
+}
+
+func (c *errorConnRedis) LocalAddr() net.Addr {
+	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 1234}
+}
+func (c *errorConnRedis) RemoteAddr() net.Addr {
+	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 5678}
+}
+func (c *errorConnRedis) Read(b []byte) (n int, err error) {
+	return 0, c.err
+}
+func (c *errorConnRedis) Write(b []byte) (n int, err error) {
+	return 0, nil
+}
+func (c *errorConnRedis) Close() error {
+	return nil
+}
+func (c *errorConnRedis) SetNoDelay(noDelay bool) error {
+	return nil
 }

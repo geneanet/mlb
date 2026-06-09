@@ -473,7 +473,40 @@ func TestReadMessage_Errors(t *testing.T) {
 	})
 }
 
+// TestParseSize verifies the decimal integer parsing logic for RESP sizes.
+func TestParseSize(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    int
+		wantErr bool
+	}{
+		{"42", 42, false},
+		{"0", 0, false},
+		{"-1", -1, false},
+		{"-42", -42, false},
+		{"", 0, true},
+		{"-", 0, true},
+		{"abc", 0, true},
+		{"12a", 0, true},
+		{"-12a", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := parseSize([]byte(tt.input))
+			if (err != nil) != tt.wantErr {
+				t.Errorf("parseSize() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("parseSize() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // interfaceReader is a helper to wrap a read function in an io.Reader.
+
 type interfaceReader struct {
 	read func([]byte) (int, error)
 }

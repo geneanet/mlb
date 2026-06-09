@@ -398,3 +398,31 @@ func TestConsulKV_WatcherCoverage(t *testing.T) {
 
 	cancel2()
 }
+
+// TestConsulKV_ParseConfigError verifies that parseConfig handles HCL decoding errors.
+func TestConsulKV_ParseConfigError(t *testing.T) {
+	// Invalid config (backoff_factor should be a number, not a string)
+	src := `
+backends_processor "consul_kv" "test" {
+	source = "foo"
+	url = "http://localhost"
+	backoff_factor = "invalid"
+}
+`
+	block := parseHCL(t, src)
+	ctx := &hcl.EvalContext{}
+
+	cfg := &Config{
+		Type:   "consul_kv",
+		Name:   "test",
+		Config: block.Body,
+		ctx:    ctx,
+	}
+
+	factory := ConsulKVFactory{}
+	// This will trigger log.Error() and still return a config object
+	config := factory.parseConfig(cfg)
+	if config == nil {
+		t.Fatal("expected config not to be nil even on error")
+	}
+}

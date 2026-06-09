@@ -27,6 +27,7 @@ func TestNewRedisBackendConnectionPool(t *testing.T) {
 	}
 
 	pool := NewRedisBackendConnectionPool(p)
+	p.backendConnectionPool = pool
 	if pool == nil {
 		t.Fatal("expected pool not to be nil")
 	}
@@ -60,6 +61,7 @@ func TestRedisBackendConnectionPool_GetRandom(t *testing.T) {
 	}
 
 	pool := NewRedisBackendConnectionPool(p)
+	p.backendConnectionPool = pool
 
 	// Test wait timeout when pool is empty
 	start := time.Now()
@@ -86,6 +88,45 @@ func TestRedisBackendConnectionPool_GetRandom(t *testing.T) {
 	}
 }
 
+// TestRedisBackendConnectionPool_GetRandom_SuccessWait verifies that GetRandom correctly blocks
+// and then returns a connection when one becomes available within the timeout period.
+func TestRedisBackendConnectionPool_GetRandom_SuccessWait(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p := &RedisProxy{
+		id:                 "test-proxy-success-wait",
+		log:                zerolog.Nop(),
+		ctx:                ctx,
+		backendWaitTimeout: 500 * time.Millisecond,
+	}
+
+	pool := NewRedisBackendConnectionPool(p)
+	p.backendConnectionPool = pool
+
+	dummyConn := &RedisBackendConnection{}
+
+	// Add a connection after a short delay to trigger the successful wait path
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		pool.mutex.Lock()
+		pool.pool[dummyConn] = struct{}{}
+		pool.waitBackendsSemaphore.Release(1)
+		pool.mutex.Unlock()
+	}()
+
+	start := time.Now()
+	rbc := pool.GetRandom(true)
+	duration := time.Since(start)
+
+	if rbc != dummyConn {
+		t.Errorf("expected rbc %v, got %v", dummyConn, rbc)
+	}
+	if duration < 50*time.Millisecond {
+		t.Errorf("expected duration >= 50ms, got %v", duration)
+	}
+}
+
 // TestRedisBackendConnectionPool_Del verifies that removing a connection from the pool works correctly.
 // It checks that:
 // 1. The connection is removed from the internal map.
@@ -102,6 +143,7 @@ func TestRedisBackendConnectionPool_Del(t *testing.T) {
 	}
 
 	pool := NewRedisBackendConnectionPool(p)
+	p.backendConnectionPool = pool
 
 	dummyConn := &RedisBackendConnection{}
 	pool.mutex.Lock()
@@ -163,7 +205,8 @@ func TestRedisBackendConnectionPool_Update(t *testing.T) {
 	}
 
 	pool := NewRedisBackendConnectionPool(p)
-	p.backendConnectionPool = pool // Needed for failure channel
+	p.backendConnectionPool = pool
+ // Needed for failure channel
 
 	// Accept connections in server goroutine
 	go func() {
@@ -208,7 +251,8 @@ func TestRedisBackendConnectionPool_NotifyFailure(t *testing.T) {
 	}
 
 	pool := NewRedisBackendConnectionPool(p)
-	p.backendConnectionPool = pool // Needed by the failure listening goroutine
+	p.backendConnectionPool = pool
+ // Needed by the failure listening goroutine
 
 	dummyConn := &RedisBackendConnection{
 		backend: &backend.Backend{Address: "127.0.0.1:1234"},

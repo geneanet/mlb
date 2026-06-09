@@ -393,3 +393,30 @@ func TestMySQL_Coverage(t *testing.T) {
 		Address: "unknown_address",
 	})
 }
+
+// TestMySQL_ParseConfigError verifies that parseConfig handles HCL decoding errors.
+func TestMySQL_ParseConfigError(t *testing.T) {
+	// Invalid config (source should be a string, not a list)
+	src := `
+backends_processor "mysql" "test" {
+	source = ["a"]
+	user = "foo"
+}
+`
+	block := parseHCL(t, src)
+	ctx := &hcl.EvalContext{}
+
+	cfg := &Config{
+		Type:   "mysql",
+		Name:   "test",
+		Config: block.Body,
+		ctx:    ctx,
+	}
+
+	factory := MySQLCheckerFactory{}
+	// This will trigger log.Error() and still return a config object
+	config := factory.parseConfig(cfg)
+	if config == nil {
+		t.Fatal("expected config not to be nil even on error")
+	}
+}

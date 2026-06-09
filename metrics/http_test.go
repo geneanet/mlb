@@ -86,7 +86,10 @@ func TestNewHTTPServer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Start HTTP server on an available port (127.0.0.1:0)
-	NewHTTPServer("127.0.0.1:0", wg, ctx)
+	err := NewHTTPServer("127.0.0.1:0", wg, ctx)
+	if err != nil {
+		t.Fatalf("Failed to start HTTP server: %v", err)
+	}
 
 	// Trigger shutdown
 	cancel()
@@ -103,5 +106,19 @@ func TestNewHTTPServer(t *testing.T) {
 		// Success: server shut down cleanly
 	case <-time.After(1 * time.Second):
 		t.Fatalf("Server shutdown timed out")
+	}
+}
+
+// TestNewHTTPServer_ListenError verifies that NewHTTPServer returns an error
+// when it cannot bind to the specified address.
+func TestNewHTTPServer_ListenError(t *testing.T) {
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Use an invalid address (e.g. out of range port)
+	err := NewHTTPServer("127.0.0.1:99999", wg, ctx)
+	if err == nil {
+		t.Errorf("Expected error for invalid address, got nil")
 	}
 }
