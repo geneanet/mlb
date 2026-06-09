@@ -16,6 +16,14 @@ backends_inventory "consul" "mysql" {
   // backoff_factor = 1.5
 }
 
+backends_inventory "consul" "redis" {
+  url = "http://localhost:8500"
+  service = "redis"
+  // period = "1s"
+  // max_period = "5s"
+  // backoff_factor = 1.5
+}
+
 backends_inventory "static" "mysql_static" {
   hosts = ["127.0.0.1:3306", "127.0.0.1:3307"]
 }
@@ -75,7 +83,7 @@ proxy "tcp" "mysql_main_ro" {
 }
 
 proxy "redis" "redis" {
-  source = backends_inventory.consul.mysql
+  source = backends_inventory.consul.redis
   addresses = [":6379"]
   // connect_timeout = "0s"
   // close_timeout = "0s"
