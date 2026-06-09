@@ -332,13 +332,7 @@ func (c *MySQLCheck) fetchReadOnly() (retReadonly cty.Value, retErr error) {
 	// Execute query with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), c.defaultPeriod)
 	defer cancel()
-	result, err := c.db.QueryContext(ctx, "SELECT @@read_only")
-	misc.PanicIfErr(err)
-	defer result.Close()
-
-	// Fetch row
-	result.Next()
-	err = result.Scan(&readOnly)
+	err := c.db.QueryRowContext(ctx, "SELECT @@read_only").Scan(&readOnly)
 	misc.PanicIfErr(err)
 
 	return cty.BoolVal(readOnly), nil
