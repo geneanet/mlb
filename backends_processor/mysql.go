@@ -291,6 +291,7 @@ type MySQLCheck struct {
 	ticker          *misc.ExponentialBackoffTicker
 	stopChan        chan struct{}
 	running         bool
+	runningMu       sync.Mutex
 	db              *sql.DB
 	connMaxLifetime time.Duration
 	checkReplica    bool
@@ -510,14 +511,17 @@ func (c *MySQLCheck) updateStatus() {
 }
 
 func (c *MySQLCheck) StartPolling() error {
+	c.runningMu.Lock()
 	if c.running {
+		c.runningMu.Unlock()
 		return nil
 	}
-	c.running = true
+
+	c.stopChan = make(chan struct{})
 
 	db, err := sql.Open(mysqlDriverName, c.dsn)
 	if err != nil {
-		c.running = false
+		c.runningMu.Unlock()
 		return err
 	}
 	db.SetMaxOpenConns(1)
@@ -527,8 +531,24 @@ func (c *MySQLCheck) StartPolling() error {
 
 	c.ticker = misc.NewExponentialBackoffTicker(c.defaultPeriod, c.maxPeriod, c.backoffFactor)
 
+	c.running = true
+	c.runningMu.Unlock()
+
 	go func() {
-		defer func() { c.running = false }()
+		defer func() {
+			c.runningMu.Lock()
+			db := c.db
+			ticker := c.ticker
+			c.running = false
+			c.runningMu.Unlock()
+
+			if db != nil {
+				db.Close()
+			}
+			if ticker != nil {
+				ticker.Stop()
+			}
+		}()
 
 		for {
 			c.updateStatus()
@@ -546,18 +566,13 @@ func (c *MySQLCheck) StartPolling() error {
 }
 
 func (c *MySQLCheck) StopPolling() {
+	c.runningMu.Lock()
+	defer c.runningMu.Unlock()
+
 	if !c.running {
 		return
 	}
 
-	c.running = false
-
-	if c.db != nil {
-		c.db.Close()
-	}
-	if c.ticker != nil {
-		c.ticker.Stop()
-	}
 	select {
 	case <-c.stopChan:
 	default:
