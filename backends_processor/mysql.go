@@ -305,6 +305,8 @@ type MySQLCheck struct {
 	statusChan      chan *backend.Backend
 	ticker          *misc.ExponentialBackoffTicker
 	stopChan        chan struct{}
+	ctx             context.Context
+	cancel          context.CancelFunc
 	running         bool
 	runningMu       sync.Mutex
 	db              *sql.DB
@@ -346,7 +348,7 @@ func (c *MySQLCheck) fetchReadOnly() (retReadonly cty.Value, retErr error) {
 	var readOnly bool
 
 	// Execute query with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), c.defaultPeriod)
+	ctx, cancel := context.WithTimeout(c.ctx, c.defaultPeriod)
 	defer cancel()
 	err := c.db.QueryRowContext(ctx, "SELECT @@read_only").Scan(&readOnly)
 	misc.PanicIfErr(err)
@@ -366,7 +368,7 @@ func (c *MySQLCheck) fetchReplicaLatency() (retReplicaLatency cty.Value, retErr 
 	var replicationLatency int64 = -1
 
 	// Execute query with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), c.defaultPeriod)
+	ctx, cancel := context.WithTimeout(c.ctx, c.defaultPeriod)
 	defer cancel()
 	result, err := c.db.QueryContext(ctx, "SHOW REPLICA STATUS")
 	misc.PanicIfErr(err)
@@ -533,6 +535,7 @@ func (c *MySQLCheck) StartPolling() error {
 	}
 
 	c.stopChan = make(chan struct{})
+	c.ctx, c.cancel = context.WithCancel(context.Background())
 
 	db, err := sql.Open(mysqlDriverName, c.dsn)
 	if err != nil {
@@ -586,6 +589,10 @@ func (c *MySQLCheck) StopPolling() {
 
 	if !c.running {
 		return
+	}
+
+	if c.cancel != nil {
+		c.cancel()
 	}
 
 	select {
