@@ -452,6 +452,8 @@ func (c *MySQLCheck) updateStatus() {
 		log.Error().Str("address", c.backend.Address).Err(err).Msg("Error while fetching status from backend")
 	}
 
+	changed := false
+
 	oldStatus, ok := c.backend.Meta.Get("mysql", "status")
 	if !ok || !oldStatus.IsKnown() || oldStatus.Equals(newStatus).False() {
 		c.backend.Meta.Set("mysql", "status", newStatus)
@@ -461,8 +463,7 @@ func (c *MySQLCheck) updateStatus() {
 		} else {
 			log.Info().Str("address", c.backend.Address).Str("oldStatus", oldStatus.AsString()).Str("newStatus", newStatus.AsString()).Msg("Backend status changed")
 		}
-
-		c.statusChan <- c.backend
+		changed = true
 	}
 
 	oldReadonly, ok := c.backend.Meta.Get("mysql", "readonly")
@@ -474,8 +475,7 @@ func (c *MySQLCheck) updateStatus() {
 		} else {
 			log.Info().Str("address", c.backend.Address).Bool("oldReadonly", oldReadonly.True()).Bool("newReadonly", newReadonly.True()).Msg("Backend readonly changed")
 		}
-
-		c.statusChan <- c.backend
+		changed = true
 	}
 
 	if c.checkReplica {
@@ -497,8 +497,14 @@ func (c *MySQLCheck) updateStatus() {
 
 				log.Debug().Str("address", c.backend.Address).Int64("oldReplicaLatency", oldReplicaLatencyValue).Int64("newReplicaLatency", newReplicaLatencyValue).Msg("Backend replica_latency changed")
 			}
+			changed = true
+		}
+	}
 
-			c.statusChan <- c.backend
+	if changed {
+		select {
+		case c.statusChan <- c.backend:
+		case <-c.stopChan:
 		}
 	}
 }
