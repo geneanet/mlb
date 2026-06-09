@@ -39,10 +39,10 @@ backends_processor "mysql" "mysql" {
   // period = "1s"
   // max_period = "5s"
   // backoff_factor = 1.5
-	// connect_timeout = "0s"
-	// read_timeout = "0s"
-	// write_timeout = "0s"
-	// conn_max_lifetime = "5m"
+  // connect_timeout = "0s"
+  // read_timeout = "0s"
+  // write_timeout = "0s"
+  // conn_max_lifetime = "5m"
   // check_replica = false
 }
 
