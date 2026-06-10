@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"fmt"
 	"runtime"
 	"testing"
 	"time"
@@ -19,7 +20,15 @@ func Eventually(t *testing.T, condition func() bool, timeout time.Duration, tick
 	}
 
 	if len(msgAndArgs) > 0 {
-		t.Errorf("Condition not met within %v: %v", timeout, msgAndArgs)
+		var msg string
+		if len(msgAndArgs) == 1 {
+			msg = fmt.Sprint(msgAndArgs[0])
+		} else if format, ok := msgAndArgs[0].(string); ok {
+			msg = fmt.Sprintf(format, msgAndArgs[1:]...)
+		} else {
+			msg = fmt.Sprint(msgAndArgs...)
+		}
+		t.Errorf("Condition not met within %v: %s", timeout, msg)
 	} else {
 		_, file, line, _ := runtime.Caller(1)
 		t.Errorf("%s:%d: Condition not met within %v", file, line, timeout)
