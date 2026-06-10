@@ -34,7 +34,11 @@ func Consistently(t *testing.T, condition func() bool, duration time.Duration, t
 	for time.Now().Before(end) {
 		if !condition() {
 			if len(msgAndArgs) > 0 {
-				t.Errorf("Condition failed within %v: %v", duration, msgAndArgs)
+				if format, ok := msgAndArgs[0].(string); ok {
+					t.Errorf("Condition failed within %v: "+format, append([]interface{}{duration}, msgAndArgs[1:]...)...)
+				} else {
+					t.Errorf("Condition failed within %v: %v", duration, msgAndArgs...)
+				}
 			} else {
 				_, file, line, _ := runtime.Caller(1)
 				t.Errorf("%s:%d: Condition failed within %v", file, line, duration)
