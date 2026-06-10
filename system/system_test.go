@@ -143,7 +143,17 @@ func TestSetRlimitNOFILE(t *testing.T) {
 		t.Fatalf("Failed to get current rlimit: %v", err)
 	}
 
-	testVal := initialLimit.Cur
+	var testVal uint64
+	switch {
+	case initialLimit.Cur > 0:
+		// Prefer lowering by 1 since reducing soft limit is generally permitted.
+		testVal = initialLimit.Cur - 1
+	case initialLimit.Cur < initialLimit.Max:
+		// If we cannot lower (already 0), try increasing within the hard limit.
+		testVal = initialLimit.Cur + 1
+	default:
+		t.Skipf("No alternate RLIMIT_NOFILE value available (cur=%d, max=%d)", initialLimit.Cur, initialLimit.Max)
+	}
 
 	defer func() {
 		// Restore after test to avoid affecting the environment or subsequent tests
