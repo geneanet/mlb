@@ -19,6 +19,11 @@ func Eventually(t testing.TB, condition func() bool, timeout time.Duration, tick
 		time.Sleep(tick)
 	}
 
+	// Final check to avoid missing a condition transition at the timeout boundary.
+	if condition() {
+		return
+	}
+
 	if len(msgAndArgs) > 0 {
 		t.Errorf("Condition not met within %v: %v", timeout, formatMsgAndArgs(msgAndArgs...))
 	} else {
@@ -41,6 +46,15 @@ func Consistently(t testing.TB, condition func() bool, duration time.Duration, t
 			return
 		}
 		time.Sleep(tick)
+	}
+
+	if !condition() {
+		if len(msgAndArgs) > 0 {
+			t.Errorf("Condition failed within %v: %v", duration, formatMsgAndArgs(msgAndArgs...))
+		} else {
+			t.Errorf("Condition failed within %v", duration)
+		}
+		return
 	}
 }
 
