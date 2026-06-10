@@ -42,6 +42,15 @@ func Consistently(t testing.TB, condition func() bool, duration time.Duration, t
 		}
 		time.Sleep(tick)
 	}
+
+	if !condition() {
+		if len(msgAndArgs) > 0 {
+			t.Errorf("Condition failed within %v: %v", duration, formatMsgAndArgs(msgAndArgs...))
+		} else {
+			t.Errorf("Condition failed within %v", duration)
+		}
+		return
+	}
 }
 
 func formatMsgAndArgs(msgAndArgs ...interface{}) string {
