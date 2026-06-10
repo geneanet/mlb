@@ -169,3 +169,20 @@ func TestSetRlimitNOFILE(t *testing.T) {
 		t.Errorf("Expected Max to be %d, got %d", testVal, newLimit.Max)
 	}
 }
+
+// TestSetRlimitNOFILEPanicOnSetError verifies that SetRlimitNOFILE panics when
+// syscall.Setrlimit fails (via misc.PanicIfErr in the implementation).
+func TestSetRlimitNOFILEPanicOnSetError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("RLIMIT_NOFILE is not supported on windows")
+	}
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("Expected SetRlimitNOFILE to panic on syscall.Setrlimit error")
+		}
+	}()
+
+	// Use an invalidly large value to provoke syscall.Setrlimit failure.
+	SetRlimitNOFILE(^uint64(0))
+}
