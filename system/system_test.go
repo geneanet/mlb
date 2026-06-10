@@ -143,7 +143,17 @@ func TestSetRlimitNOFILE(t *testing.T) {
 		t.Fatalf("Failed to get current rlimit: %v", err)
 	}
 
-	testVal := initialLimit.Cur
+	var testVal uint64
+	switch {
+	case initialLimit.Cur > 0:
+		// Prefer lowering by 1 since reducing soft limit is generally permitted.
+		testVal = initialLimit.Cur - 1
+	case initialLimit.Cur < initialLimit.Max:
+		// If we cannot lower (already 0), try increasing within the hard limit.
+		testVal = initialLimit.Cur + 1
+	default:
+		t.Skipf("No alternate RLIMIT_NOFILE value available (cur=%d, max=%d)", initialLimit.Cur, initialLimit.Max)
+	}
 
 	defer func() {
 		// Restore after test to avoid affecting the environment or subsequent tests
@@ -168,4 +178,21 @@ func TestSetRlimitNOFILE(t *testing.T) {
 	if syscall.Geteuid() == 0 && newLimit.Max != testVal {
 		t.Errorf("Expected Max to be %d, got %d", testVal, newLimit.Max)
 	}
+}
+
+// TestSetRlimitNOFILEPanicOnSetError verifies that SetRlimitNOFILE panics when
+// syscall.Setrlimit fails (via misc.PanicIfErr in the implementation).
+func TestSetRlimitNOFILEPanicOnSetError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("RLIMIT_NOFILE is not supported on windows")
+	}
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("Expected SetRlimitNOFILE to panic on syscall.Setrlimit error")
+		}
+	}()
+
+	// Use an invalidly large value to provoke syscall.Setrlimit failure.
+	SetRlimitNOFILE(^uint64(0))
 }
