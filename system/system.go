@@ -2,6 +2,7 @@ package system
 
 import (
 	"mlb/misc"
+	"runtime"
 	"syscall"
 
 	"github.com/hashicorp/hcl/v2"
@@ -10,17 +11,23 @@ import (
 )
 
 type SystemConfig struct {
-	RLimit RLimitConfig `hcl:"rlimit,block"`
+	RLimit     *RLimitConfig `hcl:"rlimit,block"`
+	GoMaxProcs int           `hcl:"gomaxprocs,optional"`
 }
 
 type RLimitConfig struct {
-	NOFile uint64 `hcl:"nofile"`
+	NOFile uint64 `hcl:"nofile,optional"`
 }
 
 func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*SystemConfig, hcl.Diagnostics) {
 	c := &SystemConfig{}
 	diag := gohcl.DecodeBody(block.Body, ctx, c)
 	return c, diag
+}
+
+func SetGoMaxProcs(gomaxprocs int) {
+	log.Debug().Int("value", gomaxprocs).Msg("Setting GOMAXPROCS")
+	runtime.GOMAXPROCS(gomaxprocs)
 }
 
 func SetRlimitNOFILE(nofile uint64) {

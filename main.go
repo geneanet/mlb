@@ -61,9 +61,17 @@ func main() {
 			os.Exit(1)
 		}
 
-		// Adjust max allowed file descriptors
-		if conf.System.RLimit.NOFile > 0 {
-			system.SetRlimitNOFILE(conf.System.RLimit.NOFile)
+		// System configuration
+		if conf.System != nil {
+			// Adjust max allowed file descriptors
+			if conf.System.RLimit != nil && conf.System.RLimit.NOFile > 0 {
+				system.SetRlimitNOFILE(conf.System.RLimit.NOFile)
+			}
+
+			// Adjust GOMAXPROCS
+			if conf.System.GoMaxProcs > 0 {
+				system.SetGoMaxProcs(conf.System.GoMaxProcs)
+			}
 		}
 
 		// Instanciate modules

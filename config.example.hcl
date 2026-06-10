@@ -6,6 +6,7 @@ system {
   rlimit {
     nofile = 65536
   }
+  // gomaxprocs = 4
 }
 
 backends_inventory "consul" "mysql" {
