@@ -426,7 +426,7 @@ func TestRedisProxy_HandleConnection_FailedResponse(t *testing.T) {
 	}
 	p.backendConnectionPool.mutex.Lock()
 	p.backendConnectionPool.pool[rbc] = struct{}{}
-	p.backendConnectionPool.waitBackendsSemaphore.Release(1)
+	p.backendConnectionPool.updateWaitState()
 	p.backendConnectionPool.mutex.Unlock()
 
 	// Intercept the query and simulate a backend failure by aborting it
@@ -507,7 +507,7 @@ func TestRedisProxy_HandleConnection_BackendRetrySuccess(t *testing.T) {
 	p.backendConnectionPool.mutex.Lock()
 	p.backendConnectionPool.pool[rbc1] = struct{}{}
 	p.backendConnectionPool.pool[rbc2] = struct{}{}
-	p.backendConnectionPool.waitBackendsSemaphore.Release(1)
+	p.backendConnectionPool.updateWaitState()
 	p.backendConnectionPool.mutex.Unlock()
 
 	// Intercept the query on the second backend and provide a successful reply
@@ -573,7 +573,7 @@ func TestRedisProxy_HandleConnection_GracefulShutdownTimeout(t *testing.T) {
 	}
 	p.backendConnectionPool.mutex.Lock()
 	p.backendConnectionPool.pool[rbc] = struct{}{}
-	p.backendConnectionPool.waitBackendsSemaphore.Release(1)
+	p.backendConnectionPool.updateWaitState()
 	p.backendConnectionPool.mutex.Unlock()
 
 	p.connectionsWG.Add(1)
@@ -636,7 +636,7 @@ func TestRedisProxy_HandleConnection_ClientWriteError(t *testing.T) {
 	}
 	p.backendConnectionPool.mutex.Lock()
 	p.backendConnectionPool.pool[rbc] = struct{}{}
-	p.backendConnectionPool.waitBackendsSemaphore.Release(1)
+	p.backendConnectionPool.updateWaitState()
 	p.backendConnectionPool.mutex.Unlock()
 
 	// Intercept query and reply to trigger a write to the closed client connection
@@ -687,7 +687,7 @@ func TestRedisProxy_HandleConnection_ClientReadError(t *testing.T) {
 	}
 	p.backendConnectionPool.mutex.Lock()
 	p.backendConnectionPool.pool[rbc] = struct{}{}
-	p.backendConnectionPool.waitBackendsSemaphore.Release(1)
+	p.backendConnectionPool.updateWaitState()
 	p.backendConnectionPool.mutex.Unlock()
 
 	p.connectionsWG.Add(1)
@@ -739,7 +739,7 @@ func TestRedisProxy_HandleConnection_RetryNoBackendPanic(t *testing.T) {
 
 	p.backendConnectionPool.mutex.Lock()
 	p.backendConnectionPool.pool[rbc] = struct{}{}
-	p.backendConnectionPool.waitBackendsSemaphore.Release(1)
+	p.backendConnectionPool.updateWaitState()
 	p.backendConnectionPool.mutex.Unlock()
 
 	p.connectionsWG.Add(1)

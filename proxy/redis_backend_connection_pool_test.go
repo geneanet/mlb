@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"mlb/backend"
 	"mlb/testutil"
 	"net"
@@ -40,8 +39,8 @@ func TestNewRedisBackendConnectionPool(t *testing.T) {
 	if pool.chanFailure == nil {
 		t.Errorf("expected pool.chanFailure not to be nil")
 	}
-	if pool.waitBackendsSemaphore == nil {
-		t.Errorf("expected pool.waitBackendsSemaphore not to be nil")
+	if pool.waitBackends == nil {
+		t.Errorf("expected pool.waitBackends not to be nil")
 	}
 }
 
@@ -79,7 +78,7 @@ func TestRedisBackendConnectionPool_GetRandom(t *testing.T) {
 	dummyConn := &RedisBackendConnection{}
 	pool.mutex.Lock()
 	pool.pool[dummyConn] = struct{}{}
-	pool.waitBackendsSemaphore.Release(1) // Release since it was blocked by New
+	pool.updateWaitState() // Replaces manual close
 	pool.mutex.Unlock()
 
 	rbc = pool.GetRandom(false)
@@ -111,7 +110,7 @@ func TestRedisBackendConnectionPool_GetRandom_SuccessWait(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 		pool.mutex.Lock()
 		pool.pool[dummyConn] = struct{}{}
-		pool.waitBackendsSemaphore.Release(1)
+		pool.updateWaitState()
 		pool.mutex.Unlock()
 	}()
 
@@ -148,8 +147,8 @@ func TestRedisBackendConnectionPool_Del(t *testing.T) {
 	dummyConn := &RedisBackendConnection{}
 	pool.mutex.Lock()
 	pool.pool[dummyConn] = struct{}{}
-	// Release the initially acquired lock in New
-	pool.waitBackendsSemaphore.Release(1)
+	// Use updateWaitState instead of manual close
+	pool.updateWaitState()
 	pool.mutex.Unlock()
 
 	if len(pool.pool) != 1 {
@@ -162,12 +161,12 @@ func TestRedisBackendConnectionPool_Del(t *testing.T) {
 		t.Errorf("expected pool size 0, got %d", len(pool.pool))
 	}
 
-	// Ensure the semaphore was acquired again because the pool is now empty
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Millisecond)
-	defer cancel2()
-	err := pool.waitBackendsSemaphore.Acquire(ctx2, 1)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("expected context.DeadlineExceeded, got %v", err)
+	// Ensure the channel is blocked because the pool is now empty
+	select {
+	case <-pool.waitBackends:
+		t.Errorf("expected waitBackends to be blocked")
+	case <-time.After(10 * time.Millisecond):
+		// Success
 	}
 }
 
@@ -261,7 +260,7 @@ func TestRedisBackendConnectionPool_NotifyFailure(t *testing.T) {
 	// Add the connection to the pool map manually and signal availability
 	pool.mutex.Lock()
 	pool.pool[dummyConn] = struct{}{}
-	pool.waitBackendsSemaphore.Release(1) // Release initial lock from New
+	pool.updateWaitState() // Release initial lock from New
 	pool.mutex.Unlock()
 
 	if len(pool.pool) != 1 {
