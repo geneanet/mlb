@@ -104,9 +104,13 @@ func (w ConsulKVFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx context.
 	var err error
 
 	c.defaultPeriod, err = time.ParseDuration(config.Period)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 	c.maxPeriod, err = time.ParseDuration(config.MaxPeriod)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	// Default values
 	for _, v := range config.Values {
@@ -352,10 +356,14 @@ func (w *consulKVWatcher) fetch() (retValue cty.Value, retError error) {
 	defer cancel()
 
 	rq, err := http.NewRequestWithContext(ctx, "GET", w.url+"/v1/kv/"+w.key+"?index="+w.index+"&timeout=60s", nil)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	resp, err := http.DefaultClient.Do(rq)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 	defer resp.Body.Close()
 
 	w.log.Debug().Int("status", resp.StatusCode).Msg("Key value fetched")
@@ -367,14 +375,20 @@ func (w *consulKVWatcher) fetch() (retValue cty.Value, retError error) {
 	}
 
 	body, err := io.ReadAll(resp.Body)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	data := []consulKVValue{}
 	err = json.Unmarshal(body, &data)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	dataDecoded, err := base64.StdEncoding.DecodeString(data[0].Value)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	dataStr := string(dataDecoded)
 

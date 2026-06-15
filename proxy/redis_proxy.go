@@ -134,15 +134,25 @@ func (f RedisProxyFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx contex
 	var err error
 
 	p.connectTimeout, err = time.ParseDuration(config.ConnectTimeout)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 	p.closeTimeout, err = time.ParseDuration(config.CloseTimeout)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 	p.backendWaitTimeout, err = time.ParseDuration(config.BackendWaitTimeout)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 	p.retryPeriod, err = time.ParseDuration(config.RetryPeriod)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 	p.retryMaxPeriod, err = time.ParseDuration(config.RetryMaxPeriod)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	p.ctx, p.cancel = context.WithCancel(ctx)
 
@@ -198,11 +208,15 @@ func (p *RedisProxy) listen(address string, wg *sync.WaitGroup) {
 
 	// Bind
 	listener, err := lc.Listen(context.Background(), "tcp", address)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	context.AfterFunc(p.ctx, func() {
 		err := listener.Close()
-		misc.PanicIfErr(err)
+		if err != nil {
+			panic(err)
+		}
 	})
 
 	wg.Add(1)
@@ -217,7 +231,9 @@ func (p *RedisProxy) listen(address string, wg *sync.WaitGroup) {
 			if errors.Is(err, net.ErrClosed) {
 				break
 			}
-			misc.PanicIfErr(err)
+			if err != nil {
+				panic(err)
+			}
 			p.connectionsWG.Add(1)
 			p.log.Debug().Str("peer", conn.RemoteAddr().String()).Msg("Accepting Frontend connection")
 			go p.handleConnection(conn)
@@ -241,7 +257,9 @@ func (p *RedisProxy) handleConnection(connFront net.Conn) {
 		p.log.Debug().Str("peer", peerAddress).Msg("Closing Frontend connection")
 		err := connFront.Close()
 		if err != nil && !errors.Is(err, net.ErrClosed) {
-			misc.PanicIfErr(err)
+			if err != nil {
+				panic(err)
+			}
 		}
 	})
 
@@ -270,7 +288,9 @@ func (p *RedisProxy) handleConnection(connFront net.Conn) {
 
 	// Set TCPNoDelay
 	err := connFront.(*net.TCPConn).SetNoDelay(true)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	// Prometheus
 	metrics.FeCnxProcessed.WithLabelValues(frontendAddress, p.id).Inc()

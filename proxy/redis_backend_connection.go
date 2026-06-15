@@ -52,13 +52,17 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 	// Open backend connection
 	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Opening Backend connection")
 	connBack, err := net.DialTimeout("tcp", rbc.backend.Address, rbc.pool.proxy.connectTimeout)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	rbc.conn = connBack
 
 	// Set TCPNoDelay
 	err = rbc.conn.(*net.TCPConn).SetNoDelay(true)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	// Cleanup routine: If the connection context is closed, ensure the connection is closed, abort all in flight request and notify the pool
 	context.AfterFunc(rbc.ctx, func() {

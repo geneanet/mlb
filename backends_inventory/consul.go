@@ -105,10 +105,14 @@ func (w ConsulBackendsInventoryFactory) New(tc *module.Config, wg *sync.WaitGrou
 	var err error
 
 	defaultPeriod, err := time.ParseDuration(config.Period)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	maxPeriod, err := time.ParseDuration(config.MaxPeriod)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
 
@@ -215,10 +219,14 @@ func (c *BackendsInventoryConsul) fetch() (retServices consulServicesSlice, retE
 	defer cancel()
 
 	rq, err := http.NewRequestWithContext(ctx, "GET", c.url+"/v1/health/service/"+c.service+"?index="+c.index+"&timeout=60s", nil)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	resp, err := http.DefaultClient.Do(rq)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 	defer resp.Body.Close()
 
 	c.log.Debug().Int("status", resp.StatusCode).Msg("Service list fetched")
@@ -228,11 +236,15 @@ func (c *BackendsInventoryConsul) fetch() (retServices consulServicesSlice, retE
 	}
 
 	body, err := io.ReadAll(resp.Body)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	var data consulServicesSlice
 	err = json.Unmarshal(body, &data)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	c.index = resp.Header.Get("X-Consul-Index")
 

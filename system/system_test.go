@@ -118,7 +118,7 @@ func TestSetRlimitNOFILE(t *testing.T) {
 
 	// Since we can't easily verify the change without potential side effects
 	// or permission issues, we rely on the fact that SetRlimitNOFILE will panic
-	// if it fails (via misc.PanicIfErr in the implementation).
+	// if it fails (using an explicit panic).
 }
 
 // TestDecodeConfigBlock_InvalidBody ensures that decoding fails with errors for invalid HCL bodies.

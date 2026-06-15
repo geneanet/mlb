@@ -5,30 +5,6 @@ import (
 	"testing"
 )
 
-// TestPanicIfErr verifies that the PanicIfErr function correctly triggers a panic
-// when a non-nil error is passed, and does nothing when the error is nil.
-func TestPanicIfErr(t *testing.T) {
-	// Case 1: Should NOT panic when err is nil
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				t.Errorf("Expected no panic for nil error, but got %v", r)
-			}
-		}()
-		PanicIfErr(nil)
-	}()
-
-	// Case 2: Should panic when a non-nil error is provided
-	func() {
-		defer func() {
-			if r := recover(); r == nil {
-				t.Errorf("Expected panic for non-nil error, but got none")
-			}
-		}()
-		PanicIfErr(errors.New("test error"))
-	}()
-}
-
 // TestEnsureError verifies the EnsureError utility function which converts various types into errors.
 // It tests conversion for:
 // 1. Existing error types (should return as is).

@@ -125,15 +125,25 @@ func (w TCPProxyFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx context.
 	var err error
 
 	p.connectTimeout, err = time.ParseDuration(config.ConnectTimeout)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 	p.clientTimeout, err = time.ParseDuration(config.ClientTimeout)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 	p.serverTimeout, err = time.ParseDuration(config.ServerTimeout)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 	p.closeTimeout, err = time.ParseDuration(config.CloseTimeout)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 	p.timeoutMargin, err = time.ParseDuration(config.TimeoutMargin)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	p.ctx, p.cancel = context.WithCancel(ctx)
 
@@ -172,11 +182,15 @@ func (p *ProxyTCP) listen(address string, wg *sync.WaitGroup) {
 
 	// Bind
 	listener, err := lc.Listen(context.Background(), "tcp", address)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	context.AfterFunc(p.ctx, func() {
 		err := listener.Close()
-		misc.PanicIfErr(err)
+		if err != nil {
+			panic(err)
+		}
 	})
 
 	wg.Add(1)
@@ -191,7 +205,9 @@ func (p *ProxyTCP) listen(address string, wg *sync.WaitGroup) {
 			if errors.Is(err, net.ErrClosed) {
 				break
 			}
-			misc.PanicIfErr(err)
+			if err != nil {
+				panic(err)
+			}
 			p.connectionsWG.Add(1)
 			p.log.Debug().Str("peer", conn.RemoteAddr().String()).Msg("Accepting Frontend connection")
 			go p.handleConnection(conn, feMetrics)
@@ -301,7 +317,9 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 
 	if p.nodelay {
 		err := connFront.(*net.TCPConn).SetNoDelay(true)
-		misc.PanicIfErr(err)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	// Prometheus
@@ -346,13 +364,17 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	// Open backend connection
 	p.log.Debug().Str("peer", backendAddress).Msg("Opening Backend connection")
 	connBack, err := net.DialTimeout("tcp", backendAddress, p.connectTimeout)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 	defer connBack.Close()
 	defer p.log.Debug().Str("peer", backendAddress).Msg("Closing Backend connection")
 
 	if p.nodelay {
 		err = connBack.(*net.TCPConn).SetNoDelay(true)
-		misc.PanicIfErr(err)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	// Pipe the connections both ways

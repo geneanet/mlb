@@ -1,7 +1,6 @@
 package system
 
 import (
-	"mlb/misc"
 	"runtime"
 	"syscall"
 
@@ -39,5 +38,7 @@ func SetRlimitNOFILE(nofile uint64) {
 	rLimit.Cur = nofile
 
 	err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 }

@@ -121,17 +121,29 @@ func (w MySQLCheckerFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx cont
 	var err error
 
 	c.defaultPeriod, err = time.ParseDuration(config.Period)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 	c.maxPeriod, err = time.ParseDuration(config.MaxPeriod)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 	c.connectTimeout, err = time.ParseDuration(config.ConnectTimeout)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 	c.readTimeout, err = time.ParseDuration(config.ReadTimeout)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 	c.writeTimeout, err = time.ParseDuration(config.WriteTimeout)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 	c.connMaxLifetime, err = time.ParseDuration(config.ConnMaxLifetime)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
 
@@ -325,7 +337,9 @@ func (c *MySQLCheck) fetchReadOnly() (retReadonly cty.Value, retErr error) {
 	ctx, cancel := context.WithTimeout(c.ctx, c.defaultPeriod)
 	defer cancel()
 	err := c.db.QueryRowContext(ctx, "SELECT @@read_only").Scan(&readOnly)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	return cty.BoolVal(readOnly), nil
 }
@@ -345,14 +359,18 @@ func (c *MySQLCheck) fetchReplicaLatency() (retReplicaLatency cty.Value, retErr 
 	ctx, cancel := context.WithTimeout(c.ctx, c.defaultPeriod)
 	defer cancel()
 	result, err := c.db.QueryContext(ctx, "SHOW REPLICA STATUS")
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 	defer result.Close()
 
 	// If we have a row
 	if result.Next() {
 		// Find the column index for Seconds_Behind_Source
 		columns, err := result.Columns()
-		misc.PanicIfErr(err)
+		if err != nil {
+			panic(err)
+		}
 		sbsColumn := -1
 		for i := range columns {
 			if columns[i] == "Seconds_Behind_Source" {
@@ -375,7 +393,9 @@ func (c *MySQLCheck) fetchReplicaLatency() (retReplicaLatency cty.Value, retErr 
 			}
 		}
 		err = result.Scan(values...)
-		misc.PanicIfErr(err)
+		if err != nil {
+			panic(err)
+		}
 
 		// Get the value if not null
 		if sbsValue.Valid {
@@ -420,13 +440,17 @@ func (c *MySQLCheck) fetchStatus() (retStatus cty.Value, retReadonly cty.Value, 
 
 	// Read Only
 	readOnly, err := c.fetchReadOnly()
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	// Replica Latency
 	var replicaLatency cty.Value = cty.UnknownVal(cty.Number)
 	if c.checkReplica {
 		replicaLatency, err = c.fetchReplicaLatency()
-		misc.PanicIfErr(err)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	// If everything went OK, reset the fetch period if needed
@@ -478,14 +502,18 @@ func (c *MySQLCheck) updateStatus() {
 
 			var newReplicaLatencyValue int64
 			err := gocty.FromCtyValue(newReplicaLatency, &newReplicaLatencyValue)
-			misc.PanicIfErr(err)
+			if err != nil {
+				panic(err)
+			}
 
 			if !oldReplicaLatency.IsKnown() {
 				log.Debug().Str("address", c.backend.Address).Int64("newReplicaLatency", newReplicaLatencyValue).Msg("Backend replica_latency changed")
 			} else {
 				var oldReplicaLatencyValue int64
 				err := gocty.FromCtyValue(oldReplicaLatency, &oldReplicaLatencyValue)
-				misc.PanicIfErr(err)
+				if err != nil {
+					panic(err)
+				}
 
 				log.Debug().Str("address", c.backend.Address).Int64("oldReplicaLatency", oldReplicaLatencyValue).Int64("newReplicaLatency", newReplicaLatencyValue).Msg("Backend replica_latency changed")
 			}

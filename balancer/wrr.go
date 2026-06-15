@@ -15,7 +15,6 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"mlb/backend"
-	"mlb/misc"
 	"mlb/module"
 )
 
@@ -81,7 +80,9 @@ func (w WRRBalancerFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx conte
 	var err error
 
 	b.timeout, err = time.ParseDuration(config.Timeout)
-	misc.PanicIfErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	b.ctx, b.ctxCancel = context.WithCancel(ctx)
 
