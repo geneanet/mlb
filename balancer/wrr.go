@@ -35,7 +35,6 @@ type WRRBalancer struct {
 	evalCtx      *hcl.EvalContext
 	ctx          context.Context
 	ctxCancel    context.CancelFunc
-	waitBackends chan struct{}
 	timeout      time.Duration
 }
 
@@ -77,7 +76,6 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 		updChanStop:  make(chan struct{}),
 		source:       config.Source,
 		evalCtx:      tc.ctx,
-		waitBackends: make(chan struct{}),
 	}
 
 	var err error
@@ -101,8 +99,6 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 			select {
 			case upd := <-b.updChan: // Backend changed
 				b.mu.Lock()
-
-				listPreviousSize := len(b.weightedList)
 
 				switch upd.Kind {
 				case backend.UpdBackendAdded:
@@ -149,16 +145,6 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 					b.backends.Remove(upd.Address)
 				}
 
-				listNewSize := len(b.weightedList)
-
-				if listPreviousSize == 0 && listNewSize > 0 {
-					b.log.Debug().Msg("At least one backend has been added to the list, unblocking GetBackend")
-					close(b.waitBackends)
-				} else if listPreviousSize > 0 && listNewSize == 0 {
-					b.log.Debug().Msg("There are no more backends in the list, blocking GetBackend")
-					b.waitBackends = make(chan struct{})
-				}
-
 				b.mu.Unlock()
 
 			case <-b.ctx.Done(): // Context cancelled
@@ -179,10 +165,7 @@ func (b *WRRBalancer) GetBackend(wait bool) *backend.Backend {
 		b.mu.RUnlock()
 		ctx, ctxCancel := context.WithDeadline(b.ctx, time.Now().Add(b.timeout))
 		defer ctxCancel()
-		select {
-		case <-b.waitBackends: // Channel closed = backends available
-		case <-ctx.Done():
-		}
+		_ = b.backends.Wait(ctx)
 		b.mu.RLock()
 	}
 

@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"context"
 	"maps"
 	"slices"
 	"sort"
@@ -72,11 +73,42 @@ type Registry struct {
 	backends    map[string]*Backend
 	subscribers []BackendUpdateSubscriber
 	mu          sync.RWMutex
+	waitChan    chan struct{}
+	isBlocked   bool
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
-		backends: make(map[string]*Backend),
+		backends:  make(map[string]*Backend),
+		waitChan:  make(chan struct{}),
+		isBlocked: true,
+	}
+}
+
+func (r *Registry) updateWaitState() {
+	if len(r.backends) > 0 && r.isBlocked {
+		close(r.waitChan)
+		r.isBlocked = false
+	} else if len(r.backends) == 0 && !r.isBlocked {
+		r.waitChan = make(chan struct{})
+		r.isBlocked = true
+	}
+}
+
+func (r *Registry) Wait(ctx context.Context) error {
+	r.mu.RLock()
+	if !r.isBlocked {
+		r.mu.RUnlock()
+		return nil
+	}
+	waitChan := r.waitChan
+	r.mu.RUnlock()
+
+	select {
+	case <-waitChan:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -104,6 +136,7 @@ func (r *Registry) Add(b *Backend) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.backends[b.Address] = b
+	r.updateWaitState()
 }
 
 func (r *Registry) Update(b *Backend, exceptMeta ...string) {
@@ -118,12 +151,14 @@ func (r *Registry) Update(b *Backend, exceptMeta ...string) {
 	} else {
 		r.backends[b.Address] = b
 	}
+	r.updateWaitState()
 }
 
 func (r *Registry) Remove(address string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.backends, address)
+	r.updateWaitState()
 }
 
 func (r *Registry) Has(address string) bool {

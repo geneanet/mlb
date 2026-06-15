@@ -1,8 +1,10 @@
 package backend
 
 import (
+	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -289,6 +291,54 @@ func TestRegistry_PublishSubscribe(t *testing.T) {
 	reg.Publish(u)
 	if len(sub2.updates) != 1 {
 		t.Errorf("sub2 should have received 1 update")
+	}
+}
+
+// TestRegistry_Wait tests the blocking behavior of Wait method in Registry.
+func TestRegistry_Wait(t *testing.T) {
+	reg := NewRegistry()
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	// 1. Test timeout when empty
+	timeoutCtx, timeoutCancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	err := reg.Wait(timeoutCtx)
+	timeoutCancel()
+	if err == nil || err != context.DeadlineExceeded {
+		t.Errorf("expected DeadlineExceeded, got %v", err)
+	}
+
+	// 2. Test unblocking when adding a backend
+	unblockChan := make(chan error, 1)
+	go func() {
+		unblockChan <- reg.Wait(ctx)
+	}()
+
+	time.Sleep(20 * time.Millisecond) // Ensure Wait is blocking
+	reg.Add(&Backend{Address: "127.0.0.1", Meta: NewEmptyMetaMap(0)})
+
+	select {
+	case err := <-unblockChan:
+		if err != nil {
+			t.Errorf("expected nil error, got %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Errorf("Wait did not unblock after Add")
+	}
+
+	// 3. Test immediate return when NOT empty
+	err = reg.Wait(ctx)
+	if err != nil {
+		t.Errorf("expected immediate return (nil error) when not empty, got %v", err)
+	}
+
+	// 4. Test re-blocking after removal
+	reg.Remove("127.0.0.1")
+	timeoutCtx2, timeoutCancel2 := context.WithTimeout(ctx, 50*time.Millisecond)
+	err = reg.Wait(timeoutCtx2)
+	timeoutCancel2()
+	if err == nil || err != context.DeadlineExceeded {
+		t.Errorf("expected DeadlineExceeded after removal, got %v", err)
 	}
 }
 
