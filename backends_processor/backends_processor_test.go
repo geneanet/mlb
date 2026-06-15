@@ -39,9 +39,8 @@ func (d *dummySubscriber) GetUpdateSource() string {
 
 // dummyProvider implements backend.BackendUpdateProvider for testing.
 type dummyProvider struct {
-	id          string
-	subscribers []backend.BackendUpdateSubscriber
-	mu          sync.Mutex
+	id        string
+	publisher backend.Publisher
 }
 
 // GetID returns the provider's identifier.
@@ -57,18 +56,12 @@ func (d *dummyProvider) Bind(modules module.ModulesList) {}
 
 // ProvideUpdates registers a subscriber.
 func (d *dummyProvider) ProvideUpdates(s backend.BackendUpdateSubscriber) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.subscribers = append(d.subscribers, s)
+	d.publisher.Subscribe(s)
 }
 
 // sendUpdate broadcasts an update to all registered subscribers.
 func (d *dummyProvider) sendUpdate(u backend.BackendUpdate) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	for _, s := range d.subscribers {
-		s.ReceiveUpdate(u)
-	}
+	d.publisher.Publish(u)
 }
 
 // parseHCL is a helper that parses a HCL string into an hcl.Block.

@@ -19,14 +19,13 @@ func init() {
 }
 
 type BackendsInventoryStatic struct {
-	id               string
-	subscribers      []backend.BackendUpdateSubscriber
-	subscribersMutex sync.RWMutex
-	backends         *backend.BackendsMap
-	backendsMutex    sync.RWMutex
-	log              zerolog.Logger
-	ctx              context.Context
-	cancel           context.CancelFunc
+	id            string
+	publisher     backend.Publisher
+	backends      *backend.BackendsMap
+	backendsMutex sync.RWMutex
+	log           zerolog.Logger
+	ctx           context.Context
+	cancel        context.CancelFunc
 }
 
 type StaticBackendsInventoryConfig struct {
@@ -54,10 +53,9 @@ func (w StaticBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 	config := w.parseConfig(tc)
 
 	c := &BackendsInventoryStatic{
-		id:          config.ID,
-		subscribers: []backend.BackendUpdateSubscriber{},
-		backends:    backend.NewBackendsMap(),
-		log:         log.With().Str("id", config.ID).Logger(),
+		id:       config.ID,
+		backends: backend.NewBackendsMap(),
+		log:      log.With().Str("id", config.ID).Logger(),
 	}
 
 	for _, address := range config.Hosts {
@@ -73,9 +71,7 @@ func (w StaticBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 }
 
 func (c *BackendsInventoryStatic) ProvideUpdates(s backend.BackendUpdateSubscriber) {
-	c.subscribersMutex.Lock()
-	c.subscribers = append(c.subscribers, s)
-	c.subscribersMutex.Unlock()
+	c.publisher.Subscribe(s)
 
 	c.backendsMutex.RLock()
 	backends := c.backends.GetList()
@@ -87,17 +83,6 @@ func (c *BackendsInventoryStatic) ProvideUpdates(s backend.BackendUpdateSubscrib
 			Address: b.Address,
 			Backend: b,
 		})
-	}
-}
-
-func (c *BackendsInventoryStatic) sendUpdate(u backend.BackendUpdate) {
-	c.subscribersMutex.RLock()
-	subscribers := make([]backend.BackendUpdateSubscriber, len(c.subscribers))
-	copy(subscribers, c.subscribers)
-	c.subscribersMutex.RUnlock()
-
-	for _, s := range subscribers {
-		s.ReceiveUpdate(u)
 	}
 }
 

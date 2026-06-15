@@ -16,8 +16,8 @@ import (
 
 // mockProvider implements backend.BackendUpdateProvider for testing purposes.
 type mockProvider struct {
-	id          string
-	subscribers []backend.BackendUpdateSubscriber
+	id        string
+	publisher backend.Publisher
 }
 
 // GetID returns the provider's identifier.
@@ -30,14 +30,12 @@ func (mp *mockProvider) Bind(modules module.ModulesList) {}
 
 // ProvideUpdates registers a subscriber to receive backend updates.
 func (mp *mockProvider) ProvideUpdates(sub backend.BackendUpdateSubscriber) {
-	mp.subscribers = append(mp.subscribers, sub)
+	mp.publisher.Subscribe(sub)
 }
 
 // sendUpdate broadcasts a backend update to all registered subscribers.
 func (mp *mockProvider) sendUpdate(upd backend.BackendUpdate) {
-	for _, sub := range mp.subscribers {
-		sub.ReceiveUpdate(upd)
-	}
+	mp.publisher.Publish(upd)
 }
 
 // TestWRRBalancer_ValidateConfig verifies that a valid WRR balancer configuration

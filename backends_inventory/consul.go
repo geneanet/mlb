@@ -46,18 +46,17 @@ type consulServicesMap map[string]consulService
 type consulServicesSlice []consulService
 
 type BackendsInventoryConsul struct {
-	id               string
-	url              string
-	service          string
-	index            string
-	ticker           *misc.ExponentialBackoffTicker
-	ctx              context.Context
-	cancel           context.CancelFunc
-	subscribers      []backend.BackendUpdateSubscriber
-	subscribersMutex sync.RWMutex
-	backends         *backend.BackendsMap
-	backendsMutex    sync.RWMutex
-	log              zerolog.Logger
+	id            string
+	url           string
+	service       string
+	index         string
+	ticker        *misc.ExponentialBackoffTicker
+	ctx           context.Context
+	cancel        context.CancelFunc
+	publisher     backend.Publisher
+	backends      *backend.BackendsMap
+	backendsMutex sync.RWMutex
+	log           zerolog.Logger
 }
 
 type ConsulBackendsInventoryConfig struct {
@@ -98,12 +97,11 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 	config := w.parseConfig(tc)
 
 	c := &BackendsInventoryConsul{
-		id:          config.ID,
-		url:         config.URL,
-		service:     config.Service,
-		subscribers: []backend.BackendUpdateSubscriber{},
-		backends:    backend.NewBackendsMap(),
-		log:         log.With().Str("id", config.ID).Logger(),
+		id:       config.ID,
+		url:      config.URL,
+		service:  config.Service,
+		backends: backend.NewBackendsMap(),
+		log:      log.With().Str("id", config.ID).Logger(),
 	}
 
 	var err error
@@ -160,7 +158,7 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 							},
 						}),
 					})
-					c.sendUpdate(backend.BackendUpdate{
+					c.publisher.Publish(backend.BackendUpdate{
 						Kind:    backend.UpdBackendAdded,
 						Address: address,
 						Backend: c.backends.Get(address),
@@ -173,7 +171,7 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 					b.Meta.Set("consul", "tags", ctyTagSet(service.Service.Tags))
 					b.Meta.Set("consul", "weight", cty.NumberUIntVal(service.Service.Weights.Passing))
 					b.Meta.Set("consul", "node", cty.StringVal(service.Node.Node))
-					c.sendUpdate(backend.BackendUpdate{
+					c.publisher.Publish(backend.BackendUpdate{
 						Kind:    backend.UpdBackendModified,
 						Address: address,
 						Backend: b,
@@ -183,7 +181,7 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 				for address := range removed {
 					log.Debug().Str("address", address).Msg("Service removed")
 					c.backends.Remove(address)
-					c.sendUpdate(backend.BackendUpdate{
+					c.publisher.Publish(backend.BackendUpdate{
 						Kind:    backend.UpdBackendRemoved,
 						Address: address,
 					})
@@ -206,9 +204,7 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 }
 
 func (c *BackendsInventoryConsul) ProvideUpdates(s backend.BackendUpdateSubscriber) {
-	c.subscribersMutex.Lock()
-	c.subscribers = append(c.subscribers, s)
-	c.subscribersMutex.Unlock()
+	c.publisher.Subscribe(s)
 
 	c.backendsMutex.RLock()
 	backends := c.backends.GetList()
@@ -220,17 +216,6 @@ func (c *BackendsInventoryConsul) ProvideUpdates(s backend.BackendUpdateSubscrib
 			Address: b.Address,
 			Backend: b,
 		})
-	}
-}
-
-func (c *BackendsInventoryConsul) sendUpdate(u backend.BackendUpdate) {
-	c.subscribersMutex.RLock()
-	subscribers := make([]backend.BackendUpdateSubscriber, len(c.subscribers))
-	copy(subscribers, c.subscribers)
-	c.subscribersMutex.RUnlock()
-
-	for _, s := range subscribers {
-		s.ReceiveUpdate(u)
 	}
 }
 

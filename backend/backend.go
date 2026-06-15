@@ -175,6 +175,28 @@ type BackendUpdateSubscriber interface {
 	ReceiveUpdate(BackendUpdate)
 }
 
+// Publisher implements a thread-safe Observer pattern for BackendUpdates.
+type Publisher struct {
+	subscribers []BackendUpdateSubscriber
+	mu          sync.RWMutex
+}
+
+func (p *Publisher) Subscribe(s BackendUpdateSubscriber) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.subscribers = append(p.subscribers, s)
+}
+
+func (p *Publisher) Publish(u BackendUpdate) {
+	p.mu.RLock()
+	subs := slices.Clone(p.subscribers)
+	p.mu.RUnlock()
+
+	for _, s := range subs {
+		s.ReceiveUpdate(u)
+	}
+}
+
 type BackendProvider interface {
 	GetBackend(wait bool) *Backend
 }

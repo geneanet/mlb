@@ -98,15 +98,13 @@ backends_inventory "static" "test" {
 		wg: sync.WaitGroup{},
 	}
 	sub2.wg.Add(1)
-	staticMod2.subscribersMutex.Lock()
-	staticMod2.subscribers = append(staticMod2.subscribers, sub2)
-	staticMod2.subscribersMutex.Unlock()
+	staticMod2.publisher.Subscribe(sub2)
 
 	testUpdate := backend.BackendUpdate{
 		Kind:    backend.UpdBackendRemoved,
 		Address: "127.0.0.1:9999",
 	}
-	staticMod2.sendUpdate(testUpdate)
+	staticMod2.publisher.Publish(testUpdate)
 
 	sub2.wg.Wait()
 	if len(sub2.updates) != 1 {

@@ -26,24 +26,23 @@ func init() {
 }
 
 type ConsulKV struct {
-	id               string
-	url              string
-	defaultPeriod    time.Duration
-	maxPeriod        time.Duration
-	backoffFactor    float64
-	backends         *backend.BackendsMap
-	backendsMutex    sync.RWMutex
-	defaultValues    map[string]cty.Value
-	subscribers      []backend.BackendUpdateSubscriber
-	subscribersMutex sync.RWMutex
-	ctx              context.Context
-	cancel           context.CancelFunc
-	log              zerolog.Logger
-	updChan          chan backend.BackendUpdate
-	updChanStop      chan struct{}
-	source           string
-	evalCtx          *hcl.EvalContext
-	watchers         map[string][]*consulKVWatcher
+	id            string
+	url           string
+	defaultPeriod time.Duration
+	maxPeriod     time.Duration
+	backoffFactor float64
+	backends      *backend.BackendsMap
+	backendsMutex sync.RWMutex
+	defaultValues map[string]cty.Value
+	publisher     backend.Publisher
+	ctx           context.Context
+	cancel        context.CancelFunc
+	log           zerolog.Logger
+	updChan       chan backend.BackendUpdate
+	updChanStop   chan struct{}
+	source        string
+	evalCtx       *hcl.EvalContext
+	watchers      map[string][]*consulKVWatcher
 }
 
 type ConsulKVConfig struct {
@@ -100,7 +99,6 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 		source:        config.Source,
 		backends:      backend.NewBackendsMap(),
 		defaultValues: make(map[string]cty.Value),
-		subscribers:   []backend.BackendUpdateSubscriber{},
 		evalCtx:       tc.ctx,
 		watchers:      make(map[string][]*consulKVWatcher),
 	}
@@ -138,7 +136,7 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 				msg.backend.Meta.Set("consul_kv", msg.id, cty.StringVal(msg.value))
 
 				// Send the update
-				c.sendUpdate(backend.BackendUpdate{
+				c.publisher.Publish(backend.BackendUpdate{
 					Kind:    backend.UpdBackendModified,
 					Address: msg.backend.Address,
 					Backend: msg.backend,
@@ -180,7 +178,7 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 					}
 
 					// Send the update
-					c.sendUpdate(backend.BackendUpdate{
+					c.publisher.Publish(backend.BackendUpdate{
 						Kind:    upd.Kind,
 						Address: upd.Address,
 						Backend: c.backends.Get(upd.Address),
@@ -200,7 +198,7 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 						c.backends.Remove(upd.Address)
 
 						// Send the update
-						c.sendUpdate(backend.BackendUpdate{
+						c.publisher.Publish(backend.BackendUpdate{
 							Kind:    backend.UpdBackendRemoved,
 							Address: upd.Address,
 						})
@@ -217,9 +215,7 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 }
 
 func (c *ConsulKV) ProvideUpdates(s backend.BackendUpdateSubscriber) {
-	c.subscribersMutex.Lock()
-	c.subscribers = append(c.subscribers, s)
-	c.subscribersMutex.Unlock()
+	c.publisher.Subscribe(s)
 
 	c.backendsMutex.RLock()
 	backends := c.backends.GetList()
@@ -231,17 +227,6 @@ func (c *ConsulKV) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 			Address: b.Address,
 			Backend: b,
 		})
-	}
-}
-
-func (c *ConsulKV) sendUpdate(u backend.BackendUpdate) {
-	c.subscribersMutex.RLock()
-	subscribers := make([]backend.BackendUpdateSubscriber, len(c.subscribers))
-	copy(subscribers, c.subscribers)
-	c.subscribersMutex.RUnlock()
-
-	for _, s := range subscribers {
-		s.ReceiveUpdate(u)
 	}
 }
 

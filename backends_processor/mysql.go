@@ -27,27 +27,26 @@ func init() {
 }
 
 type MySQLChecker struct {
-	id               string
-	checks           map[string]*MySQLCheck
-	checksMtex       sync.RWMutex
-	user             string
-	password         string
-	defaultPeriod    time.Duration
-	maxPeriod        time.Duration
-	backoffFactor    float64
-	subscribers      []backend.BackendUpdateSubscriber
-	subscribersMutex sync.RWMutex
-	ctx              context.Context
-	cancel           context.CancelFunc
-	log              zerolog.Logger
-	updChan          chan backend.BackendUpdate
-	updChanStop      chan struct{}
-	source           string
-	connectTimeout   time.Duration
-	readTimeout      time.Duration
-	writeTimeout     time.Duration
-	connMaxLifetime  time.Duration
-	checkReplica     bool
+	id              string
+	checks          map[string]*MySQLCheck
+	checksMtex      sync.RWMutex
+	user            string
+	password        string
+	defaultPeriod   time.Duration
+	maxPeriod       time.Duration
+	backoffFactor   float64
+	publisher       backend.Publisher
+	ctx             context.Context
+	cancel          context.CancelFunc
+	log             zerolog.Logger
+	updChan         chan backend.BackendUpdate
+	updChanStop     chan struct{}
+	source          string
+	connectTimeout  time.Duration
+	readTimeout     time.Duration
+	writeTimeout    time.Duration
+	connMaxLifetime time.Duration
+	checkReplica    bool
 }
 
 type MySQLCheckerConfig struct {
@@ -111,7 +110,6 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 		user:          config.User,
 		password:      config.Password,
 		backoffFactor: config.BackoffFactor,
-		subscribers:   []backend.BackendUpdateSubscriber{},
 		log:           log.With().Str("id", config.ID).Logger(),
 		updChan:       make(chan backend.BackendUpdate, 100),
 		updChanStop:   make(chan struct{}),
@@ -152,7 +150,7 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 			select {
 			case b := <-statusChan: // Backend status changed
 				c.checksMtex.Lock()
-				c.sendUpdate(backend.BackendUpdate{
+				c.publisher.Publish(backend.BackendUpdate{
 					Kind:    backend.UpdBackendModified,
 					Address: b.Address,
 					Backend: b,
@@ -165,7 +163,7 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 				case backend.UpdBackendAdded, backend.UpdBackendModified:
 					if check, ok := c.checks[upd.Address]; ok { // Modified
 						check.backend.Meta.Update(upd.Backend.Meta, "mysql")
-						c.sendUpdate(backend.BackendUpdate{
+						c.publisher.Publish(backend.BackendUpdate{
 							Kind:    backend.UpdBackendModified,
 							Address: check.backend.Address,
 							Backend: check.backend,
@@ -197,7 +195,7 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 							c.log.Error().Str("address", upd.Address).Err(err).Msg("Error while adding MySQL check")
 						} else {
 							c.checks[upd.Address] = check
-							c.sendUpdate(backend.BackendUpdate{
+							c.publisher.Publish(backend.BackendUpdate{
 								Kind:    backend.UpdBackendAdded,
 								Address: check.backend.Address,
 								Backend: check.backend,
@@ -210,7 +208,7 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 						c.log.Info().Str("address", upd.Address).Msg("Removing MySQL check")
 						check.StopPolling()
 						delete(c.checks, upd.Address)
-						c.sendUpdate(backend.BackendUpdate{
+						c.publisher.Publish(backend.BackendUpdate{
 							Kind:    backend.UpdBackendRemoved,
 							Address: upd.Address,
 						})
@@ -238,9 +236,7 @@ func (c *MySQLChecker) stopChecks() {
 }
 
 func (c *MySQLChecker) ProvideUpdates(s backend.BackendUpdateSubscriber) {
-	c.subscribersMutex.Lock()
-	c.subscribers = append(c.subscribers, s)
-	c.subscribersMutex.Unlock()
+	c.publisher.Subscribe(s)
 
 	c.checksMtex.RLock()
 	backends := []*backend.Backend{}
@@ -255,17 +251,6 @@ func (c *MySQLChecker) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 			Address: b.Address,
 			Backend: b,
 		})
-	}
-}
-
-func (c *MySQLChecker) sendUpdate(u backend.BackendUpdate) {
-	c.subscribersMutex.RLock()
-	subscribers := make([]backend.BackendUpdateSubscriber, len(c.subscribers))
-	copy(subscribers, c.subscribers)
-	c.subscribersMutex.RUnlock()
-
-	for _, s := range subscribers {
-		s.ReceiveUpdate(u)
 	}
 }
 
