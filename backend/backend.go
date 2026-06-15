@@ -1,7 +1,8 @@
 package backend
 
 import (
-	"mlb/misc"
+	"maps"
+	"slices"
 	"sort"
 	"sync"
 
@@ -94,7 +95,7 @@ func (bm *BackendsMap) GetList() BackendsList {
 	bm.lock.RLock()
 	defer bm.lock.RUnlock()
 
-	return misc.MapValues(bm.backends)
+	return slices.Collect(maps.Values(bm.backends))
 }
 
 func (bm *BackendsMap) GetSortedList() BackendsList {

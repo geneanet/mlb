@@ -53,28 +53,3 @@ func TestEnsureError(t *testing.T) {
 		t.Errorf("Expected an error object, got nil for input %v", num)
 	}
 }
-
-// TestMapValues verifies the MapValues utility function.
-// It ensures that all values from a map are correctly extracted into a slice,
-// regardless of their order (since maps are unordered in Go).
-func TestMapValues(t *testing.T) {
-	m := map[string]int{"a": 1, "b": 2}
-	vals := MapValues(m)
-	if len(vals) != 2 {
-		t.Fatalf("Expected slice of length 2, got %d", len(vals))
-	}
-
-	// Verify that both expected values (1 and 2) are present in the resulting slice
-	var has1, has2 bool
-	for _, v := range vals {
-		if v == 1 {
-			has1 = true
-		}
-		if v == 2 {
-			has2 = true
-		}
-	}
-	if !has1 || !has2 {
-		t.Errorf("One or more values missing from extracted slice: %v", vals)
-	}
-}
