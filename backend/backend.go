@@ -14,14 +14,18 @@ import (
 
 // Backend
 type Backend struct {
-	Address string   `json:"address"`
-	Meta    *MetaMap `json:"meta"`
+	Address string             `json:"address"`
+	Meta    *MetaMap           `json:"meta"`
+	Ctx     context.Context    `json:"-"`
+	Cancel  context.CancelFunc `json:"-"`
 }
 
 func (b *Backend) Clone() *Backend {
 	new := &Backend{
 		Address: b.Address,
 		Meta:    b.Meta.Clone(),
+		Ctx:     b.Ctx,
+		Cancel:  b.Cancel,
 	}
 	return new
 }

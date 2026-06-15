@@ -373,3 +373,48 @@ balancer "wrr" "test" {
 		t.Fatal("expected config not to be nil even on error")
 	}
 }
+
+// TestWRRBalancer_ContextCancellation verifies that the WRR balancer properly
+// initializes a context for each added backend and cancels it upon removal.
+func TestWRRBalancer_ContextCancellation(t *testing.T) {
+	body := &hclsyntax.Body{
+		Attributes: map[string]*hclsyntax.Attribute{
+			"source": {Name: "source", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("src1")}},
+			"weight": {Name: "weight", Expr: &hclsyntax.LiteralValueExpr{Val: cty.NumberIntVal(1)}},
+		},
+	}
+	cfg := &module.Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	factory := module.GetFactory("balancer", "wrr")
+	mod := factory.New(cfg, wg, ctx)
+	balancer := mod.(*WRRBalancer)
+
+	provider := &mockProvider{id: "src1", backends: backend.NewRegistry()}
+	balancer.SubscribeTo(provider)
+
+	backend1 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
+	provider.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend1.Address, Backend: backend1})
+
+	var retrievedBackend *backend.Backend
+	testutil.Eventually(t, func() bool {
+		retrievedBackend = balancer.GetBackend(false)
+		return retrievedBackend != nil
+	}, 1*time.Second, 10*time.Millisecond)
+
+	if retrievedBackend.Ctx == nil {
+		t.Fatalf("Expected Ctx to be set")
+	}
+
+	// Remove backend
+	provider.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: backend1.Address})
+
+	select {
+	case <-retrievedBackend.Ctx.Done():
+		// Success
+	case <-time.After(1 * time.Second):
+		t.Errorf("Backend context was not cancelled after removal")
+	}
+}

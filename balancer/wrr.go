@@ -110,7 +110,9 @@ func (w WRRBalancerFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx conte
 					}
 
 					b.log.Info().Str("address", upd.Address).Int("weight", weight).Msg("Adding backend to WRR balancer")
-					b.backends.Add(upd.Backend.Clone())
+					clone := upd.Backend.Clone()
+					clone.Ctx, clone.Cancel = context.WithCancel(b.ctx)
+					b.backends.Add(clone)
 					b.backends.Get(upd.Address).Meta.Set("wrr", "weight", cty.NumberIntVal(int64(weight)))
 					for i := 0; i < weight; i++ {
 						b.weightedList = append(b.weightedList, upd.Address)
@@ -143,6 +145,9 @@ func (w WRRBalancerFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx conte
 				case backend.UpdBackendRemoved:
 					b.log.Info().Str("address", upd.Address).Msg("Removing backend from WRR balancer")
 					b.weightedList = slices.DeleteFunc(b.weightedList, func(a string) bool { return a == upd.Address })
+					if be := b.backends.Get(upd.Address); be != nil && be.Cancel != nil {
+						be.Cancel()
+					}
 					b.backends.Remove(upd.Address)
 				}
 

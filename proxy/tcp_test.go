@@ -193,6 +193,9 @@ func TestTCPProxyFactory_Defaults(t *testing.T) {
 	if p.timeoutMargin != 1*time.Second {
 		t.Errorf("expected timeoutMargin 1s, got %v", p.timeoutMargin)
 	}
+	if p.closeOnBackendRemoval {
+		t.Errorf("expected closeOnBackendRemoval to default to false")
+	}
 }
 
 // TestTCPProxy_NormalAndBackupAndNoBackend tests the primary request routing and failover logic
@@ -758,4 +761,102 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	conn.Close()
+}
+
+type customBackendProvider struct {
+	id string
+	be *backend.Backend
+}
+
+func (c *customBackendProvider) GetBackend(wait bool) *backend.Backend {
+	return c.be
+}
+
+func (c *customBackendProvider) GetID() string {
+	return c.id
+}
+
+func (c *customBackendProvider) Bind(modules module.ModulesRegistry) {}
+
+// TestTCPProxy_CloseOnBackendRemoval verifies that active connections are closed when
+// the backend is removed from the balancer, if close_on_backend_removal is enabled.
+func TestTCPProxy_CloseOnBackendRemoval(t *testing.T) {
+	backendServer := startEchoServer(t)
+	defer backendServer.Close()
+
+	proxyAddr, err := getFreePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p := &ProxyTCP{
+		id:                    "proxy.tcp.test_close",
+		addresses:             []string{proxyAddr},
+		log:                   zerolog.Nop(),
+		bufferSize:            32768,
+		nodelay:               true,
+		source:                "test_backend",
+		wg:                    wg,
+		ctx:                   ctx,
+		cancel:                cancel,
+		connectTimeout:        5 * time.Second,
+		clientTimeout:         5 * time.Second,
+		serverTimeout:         5 * time.Second,
+		closeTimeout:          5 * time.Second,
+		timeoutMargin:         1 * time.Second,
+		closeOnBackendRemoval: true,
+		bufferPool: sync.Pool{
+			New: func() any { return make([]byte, 32768) },
+		},
+		beMetricsCache: make(map[string]*Metrics),
+	}
+
+	beCtx, beCancel := context.WithCancel(context.Background())
+	testBe := &backend.Backend{
+		Address: backendServer.Addr().String(),
+		Ctx:     beCtx,
+		Cancel:  beCancel,
+	}
+
+	provider := &customBackendProvider{id: "test_backend", be: testBe}
+	modules := module.NewModulesRegistry()
+	modules.AddModule(provider)
+	p.Bind(modules)
+
+	// Wait for proxy listener to start
+	testutil.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", proxyAddr, 10*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return true
+		}
+		return false
+	}, 1*time.Second, 10*time.Millisecond)
+
+	conn, err := net.Dial("tcp", proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Trigger backend removal (via context cancel)
+	beCancel()
+
+	// The connection should be closed shortly
+	done := make(chan struct{})
+	go func() {
+		buf := make([]byte, 1)
+		_, _ = conn.Read(buf)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success
+	case <-time.After(1 * time.Second):
+		t.Fatal("connection was not closed after backend removal")
+	}
 }

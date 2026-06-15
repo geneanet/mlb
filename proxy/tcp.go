@@ -48,6 +48,7 @@ type ProxyTCP struct {
 	bufferPool            sync.Pool
 	beMetricsCache        map[string]*Metrics
 	beMetricsMutex        sync.RWMutex
+	closeOnBackendRemoval bool
 }
 
 type Metrics struct {
@@ -59,17 +60,18 @@ type Metrics struct {
 }
 
 type TCPProxyConfig struct {
-	ID             string   `hcl:"id,label"`
-	Source         string   `hcl:"source"`
-	BackupSource   string   `hcl:"backup_source,optional"`
-	Addresses      []string `hcl:"addresses,optional"`
-	ConnectTimeout string   `hcl:"connect_timeout,optional"`
-	ClientTimeout  string   `hcl:"client_timeout,optional"`
-	ServerTimeout  string   `hcl:"server_timeout,optional"`
-	CloseTimeout   string   `hcl:"close_timeout,optional"`
-	TimeoutMargin  string   `hcl:"timeout_margin,optional"`
-	BufferSize     int      `hcl:"buffer_size,optional"`
-	NoDelay        bool     `hcl:"nodelay,optional"`
+	ID                    string   `hcl:"id,label"`
+	Source                string   `hcl:"source"`
+	BackupSource          string   `hcl:"backup_source,optional"`
+	Addresses             []string `hcl:"addresses,optional"`
+	ConnectTimeout        string   `hcl:"connect_timeout,optional"`
+	ClientTimeout         string   `hcl:"client_timeout,optional"`
+	ServerTimeout         string   `hcl:"server_timeout,optional"`
+	CloseTimeout          string   `hcl:"close_timeout,optional"`
+	TimeoutMargin         string   `hcl:"timeout_margin,optional"`
+	BufferSize            int      `hcl:"buffer_size,optional"`
+	NoDelay               bool     `hcl:"nodelay,optional"`
+	CloseOnBackendRemoval bool     `hcl:"close_on_backend_removal,optional"`
 }
 
 type TCPProxyFactory struct{}
@@ -110,15 +112,16 @@ func (w TCPProxyFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx context.
 	config := w.parseConfig(tc)
 
 	p := &ProxyTCP{
-		id:             config.ID,
-		addresses:      config.Addresses,
-		log:            log.With().Str("id", config.ID).Logger(),
-		bufferSize:     config.BufferSize,
-		nodelay:        config.NoDelay,
-		source:         config.Source,
-		backupSource:   config.BackupSource,
-		wg:             wg,
-		beMetricsCache: make(map[string]*Metrics),
+		id:                    config.ID,
+		addresses:             config.Addresses,
+		log:                   log.With().Str("id", config.ID).Logger(),
+		bufferSize:            config.BufferSize,
+		nodelay:               config.NoDelay,
+		source:                config.Source,
+		backupSource:          config.BackupSource,
+		wg:                    wg,
+		beMetricsCache:        make(map[string]*Metrics),
+		closeOnBackendRemoval: config.CloseOnBackendRemoval,
 	}
 
 	var err error
@@ -351,6 +354,14 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 		backendAddress = backend.Address
 	} else {
 		panic(errors.New("no backend found"))
+	}
+
+	if p.closeOnBackendRemoval && backend.Ctx != nil {
+		stopReset := context.AfterFunc(backend.Ctx, func() {
+			p.log.Debug().Str("peer", peerAddress).Msg("Backend removed from balancer, closing connection")
+			cancel()
+		})
+		defer stopReset()
 	}
 
 	beMetrics := p.getBackendMetrics(backendAddress)

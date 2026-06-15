@@ -81,6 +81,7 @@ proxy "tcp" "mysql_main_ro" {
   // server_timeout = "0s"
   // buffer_size = 16384
   // nodelay = false
+  // close_on_backend_removal = false
 }
 
 proxy "redis" "redis" {
