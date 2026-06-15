@@ -281,6 +281,33 @@ func (e *errorReader) Read(p []byte) (n int, err error) {
 	return n, nil
 }
 
+// TestReadMessage_Nesting verifies complex nesting of defined-size and streamed collections.
+func TestReadMessage_Nesting(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"NestedStreamInFixedArray", "*2\r\n*?\r\n:1\r\n.\r\n:2\r\n"},
+		{"NestedFixedInStreamedArray", "*?\r\n*1\r\n:1\r\n.\r\n"},
+		{"BulkStringWithMarker", "$1\r\n*\r\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := bytes.NewReader([]byte(tt.input))
+			reader := NewRedisProtocolReader(r, 128)
+
+			msg, err := reader.ReadMessage(false)
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if !bytes.Equal(msg, []byte(tt.input)) {
+				t.Errorf("expected %s, got %s", tt.input, string(msg))
+			}
+		})
+	}
+}
+
 // TestReadMessage_Errors verifies all protocol violations and reading errors.
 func TestReadMessage_Errors(t *testing.T) {
 	// 1. Unexpected simple type during streamed string
@@ -471,8 +498,126 @@ func TestReadMessage_Errors(t *testing.T) {
 			t.Errorf("expected %s, got %s", input, string(msg))
 		}
 	})
-}
 
+	// 15. Malformed short message at EOF (should not panic)
+	t.Run("MalformedShortAtEOF", func(t *testing.T) {
+		input := "*"
+		r := bytes.NewReader([]byte(input))
+		reader := NewRedisProtocolReader(r, 128)
+		msg, err := reader.ReadMessage(false)
+		if !errors.Is(err, io.EOF) {
+			t.Errorf("expected io.EOF, got %v", err)
+		}
+		if !bytes.Equal(msg, []byte(input)) {
+			t.Errorf("expected %s, got %s", input, string(msg))
+		}
+	})
+
+	// 16. Various RESP types for coverage
+	t.Run("AdditionalTypesCoverage", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			input string
+		}{
+			{"NullBulkString", "$-1\r\n"},
+			{"EmptyArray", "*0\r\n"},
+			{"PushMessage", ">2\r\n+pubsub\r\n+message\r\n"},
+			{"Map", "%1\r\n+key\r\n:1\r\n"},
+			{"Set", "~1\r\n:1\r\n"},
+			{"Verbatim", "=7\r\ntxt:abc\r\n"},
+			{"BulkError", "!3\r\nerr\r\n"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				r := bytes.NewReader([]byte(tt.input))
+				reader := NewRedisProtocolReader(r, 128)
+				msg, err := reader.ReadMessage(false)
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if !bytes.Equal(msg, []byte(tt.input)) {
+					t.Errorf("expected %s, got %s", tt.input, string(msg))
+				}
+			})
+		}
+	})
+
+	// 17. EOF during various headers for coverage
+	t.Run("EOFInHeadersCoverage", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			input string
+		}{
+			{"ShortBulkHeader", "$1"},
+			{"ShortChunkHeader", "$?\r\n;1"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				r := bytes.NewReader([]byte(tt.input))
+				reader := NewRedisProtocolReader(r, 128)
+				msg, err := reader.ReadMessage(false)
+				if !errors.Is(err, io.EOF) {
+					t.Errorf("expected io.EOF, got %v", err)
+				}
+				if !bytes.Equal(msg, []byte(tt.input)) {
+					t.Errorf("expected %s, got %s", tt.input, string(msg))
+				}
+			})
+		}
+	})
+	// 18. Protocol violations for 100% coverage
+	t.Run("ProtocolViolationsCoverage", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			input string
+			err   string
+		}{
+			{"InvalidBulkSize", "$abc\r\n", "invalid integer"},
+			{"InvalidChunkSize", "$?\r\n;abc\r\n", "invalid integer"},
+			{"InvalidCollectionSize", "*abc\r\n", "invalid integer"},
+			{"UnexpectedStreamedString", ";5\r\nhello\r\n", "unexpected streamed string"},
+			{"StreamedStringViolation", "$?\r\n+OK\r\n", "unexpected item type"},
+			{"StreamedStringViolationBulk", "$?\r\n$5\r\nhello\r\n", "unexpected item type"},
+			{"StreamedStringViolationColl", "$?\r\n*1\r\n:1\r\n", "unexpected item type"},
+			{"StreamedStringViolationDot", "$?\r\n.\r\n", "unexpected item type"},
+			{"UnexpectedDot", ".\r\n", "while not streaming"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				r := bytes.NewReader([]byte(tt.input))
+				reader := NewRedisProtocolReader(r, 128)
+				_, err := reader.ReadMessage(false)
+				if err == nil {
+					t.Errorf("expected error, got nil")
+				}
+			})
+		}
+	})
+
+	// 19. readLine error case
+	t.Run("ReadLineError", func(t *testing.T) {
+		expectedErr := errors.New("read fail")
+		er := &errorReader{
+			data: []byte("+"),
+			err:  expectedErr,
+		}
+		reader := NewRedisProtocolReader(er, 128)
+		_, err := reader.ReadMessage(false)
+		if !errors.Is(err, expectedErr) {
+			t.Errorf("expected %v, got %v", expectedErr, err)
+		}
+	})
+
+	// 20. coverage for inline error and empty line
+	t.Run("InlineErrorAndEmpty", func(t *testing.T) {
+		r := bytes.NewReader([]byte("PING\r\n"))
+		reader := NewRedisProtocolReader(r, 128)
+		_, err := reader.ReadMessage(false)
+		if err == nil || !strings.Contains(err.Error(), "unsupported item type") {
+			t.Errorf("expected unsupported item type error, got %v", err)
+		}
+	})
+}
 // TestParseSize verifies the decimal integer parsing logic for RESP sizes.
 func TestParseSize(t *testing.T) {
 	tests := []struct {

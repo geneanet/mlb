@@ -74,154 +74,188 @@ func NewRedisProtocolReader(reader io.Reader, initialBufferSize int) RedisProtoc
 //
 // Returns the raw bytes of the entire message, including protocol markers and CRLF.
 func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
-	linesToRead := 1 // Number of logical lines/items remaining to complete the current message
-	bytesToRead := 0 // Number of raw bytes to read if the next line is a fixed-size bulk payload
-
 	r.messageStart = r.readPosition
 	eof := false
-	raw := false                         // True if we are expecting a raw data line (e.g., after $5\r\n)
-	streaming := 0                       // Depth of nested streamed collections (e.g., *?\r\n)
-	streamingAttributes := 0             // Number of active streamed attributes requiring an extra following message
-	streamingStack := make([]bool, 0, 8) // Stack to track if a streamed collection is an attribute
-	strStreaming := false                // True if we are currently reading a streamed bulk string ($?\r\n)
 
-	// Continue reading as long as we have pending items or active streamed collections
-	for (linesToRead > 0 || streaming > 0) && !eof {
-		// Read a new line of data from the source/buffer
+	// raw is true when the next line to read is an unformatted bulk payload (fixed-size).
+	// In this state, we skip RESP marker detection to avoid misinterpreting binary data.
+	raw := false
+
+	// bytesToRead is the expected size of a bulk payload. It is passed to readLine to
+	// ensure internal CRLFs within the payload don't prematurely end the line.
+	bytesToRead := 0
+
+	// stack tracks the nesting levels and expected items remaining at each level.
+	// Positive (n > 0): Number of items remaining in a fixed-size collection (Array, Map, etc.)
+	//                   or 1 for a pending raw bulk payload line.
+	// -1: Currently parsing a streamed collection (waiting for '.' terminator).
+	// -2: Currently parsing a streamed bulk string (waiting for ';0' terminator).
+	stack := make([]int, 0, 8)
+	stack = append(stack, 1) // Expect one top-level message initially
+
+	for len(stack) > 0 && !eof {
 		line, err := r.readLine(bytesToRead)
-		linesToRead--
-		bytesToRead = 0
-		if len(line) == 0 || err != nil && err != io.EOF {
+		bytesToRead = 0 // Reset after use; next line might be a header or a simple type
+		if err != nil && err != io.EOF {
 			return nil, err
 		} else if err == io.EOF {
 			eof = true
 		}
 
-		// Parse the line type based on the first character (RESP marker)
-		switch line[0] {
-		case '+', '-', ':', '_', ',', '#', '(':
-			// Simple types: String, Error, Integer, Null, Double, Boolean, BigNumber
-			if strStreaming {
-				return nil, fmt.Errorf("RESP3 protocol violation: unexpected item type \"%s\" during streamed string", string(line[0]))
-			}
+		if len(line) == 0 {
+			continue
+		}
 
-		case '$', '!', '=':
-			// Fixed-size types: Bulk String, Bulk Error, Verbatim String
-			if strStreaming {
-				return nil, fmt.Errorf("RESP3 protocol violation: unexpected item type \"%s\" during streamed string", string(line[0]))
-			}
+		topIdx := len(stack) - 1
+		inStreamedString := stack[topIdx] == -2
 
-			if line[0] == '$' && line[1] == '?' { // Streamed string start ($?\r\n)
-				strStreaming = true
-				linesToRead++
-			} else { // Defined size (e.g., $12\r\n)
-				size, errAtoi := parseSize(line[1 : len(line)-2])
-				if errAtoi != nil {
-					return nil, errAtoi
+		// Decrement remaining items if we are in a fixed collection or reading raw data.
+		// A value of 1 for a raw line will reach 0 and trigger an automatic pop below.
+		if stack[topIdx] > 0 {
+			stack[topIdx]--
+		}
+
+		if raw {
+			raw = false
+		} else {
+			// Parse the line type based on the first character (RESP marker)
+			switch line[0] {
+			case '+', '-', ':', '_', ',', '#', '(':
+				// Simple types: String, Error, Integer, Null, Double, Boolean, BigNumber
+				if inStreamedString {
+					return nil, fmt.Errorf("RESP3 protocol violation: unexpected item type \"%s\" during streamed string", string(line[0]))
 				}
 
-				if size >= 0 {
-					// We expect one more "line" which is the raw data of 'size' bytes
-					linesToRead++
-					bytesToRead = size
-					raw = true
+			case '$', '!', '=':
+				// Fixed-size bulk types: Bulk String, Bulk Error, Verbatim String
+				if inStreamedString {
+					return nil, fmt.Errorf("RESP3 protocol violation: unexpected item type \"%s\" during streamed string", string(line[0]))
 				}
-			}
 
-		case ';':
-			// Streamed string chunk (;size\r\ndata\r\n)
-			if strStreaming {
+				if len(line) >= 2 && line[0] == '$' && line[1] == '?' { // Streamed string start ($?\r\n)
+					stack = append(stack, -2)
+				} else { // Defined size (e.g., $12\r\n)
+					if len(line) < 4 {
+						if eof {
+							break
+						}
+						return nil, fmt.Errorf("RESP3 protocol violation: malformed bulk string header")
+					}
+					size, errAtoi := parseSize(line[1 : len(line)-2])
+					if errAtoi != nil {
+						if eof {
+							break
+						}
+						return nil, errAtoi
+					}
+
+					if size >= 0 {
+						// Expect one raw data line
+						stack = append(stack, 1)
+						bytesToRead = size
+						raw = true
+					}
+				}
+
+			case ';':
+				// Streamed string chunk (;size\r\ndata\r\n)
+				if !inStreamedString {
+					return nil, fmt.Errorf("RESP3 protocol violation: unexpected streamed string")
+				}
+				if len(line) < 4 {
+					if eof {
+						break
+					}
+					return nil, fmt.Errorf("RESP3 protocol violation: malformed streamed string chunk header")
+				}
 				size, errAtoi := parseSize(line[1 : len(line)-2])
 				if errAtoi != nil {
+					if eof {
+						break
+					}
 					return nil, errAtoi
 				}
 				if size > 0 {
-					// Expect the raw data line and then potentially more chunks
-					linesToRead += 2
+					// Expect one raw data line
+					stack = append(stack, 1)
 					bytesToRead = size
 					raw = true
 				} else {
-					// Final chunk (;0\r\n)
-					strStreaming = false
+					// Final chunk (;0\r\n), pop streamed string state
+					stack = stack[:len(stack)-1]
 				}
 
-			} else {
-				return nil, fmt.Errorf("RESP3 protocol violation: unexpected streamed string")
-			}
-
-		case '*', '~', '%', '|', '>':
-			// Collection types: Array, Set, Map, Attribute, Push
-			if strStreaming {
-				return nil, fmt.Errorf("RESP3 protocol violation: unexpected item type \"%s\" during streamed string", string(line[0]))
-			}
-
-			if line[0] != '>' && line[1] == '?' { // Streamed collection start (e.g., *?\r\n)
-				streaming++
-				isAttr := line[0] == '|'
-				streamingStack = append(streamingStack, isAttr)
-				if isAttr {
-					streamingAttributes++
-				}
-			} else { // Defined size collection (e.g., *3\r\n)
-				size, errAtoi := parseSize(line[1 : len(line)-2])
-				if errAtoi != nil {
-					return nil, errAtoi
+			case '*', '~', '%', '|', '>':
+				// Collection types: Array, Set, Map, Attribute, Push
+				if inStreamedString {
+					return nil, fmt.Errorf("RESP3 protocol violation: unexpected item type \"%s\" during streamed string", string(line[0]))
 				}
 
-				// Hashes (%) and attributes (|) are pairs of keys+values
-				if line[0] == '%' || line[0] == '|' {
-					size *= 2
+				if len(line) >= 2 && line[0] != '>' && line[1] == '?' { // Streamed collection start (e.g., *?\r\n)
+					if line[0] == '|' {
+						stack = append(stack, 1) // Attributes prefix: one more message after stream
+					}
+					stack = append(stack, -1)
+				} else { // Defined size collection (e.g., *3\r\n)
+					if len(line) < 4 {
+						if eof {
+							break
+						}
+						return nil, fmt.Errorf("RESP3 protocol violation: malformed collection header")
+					}
+					size, errAtoi := parseSize(line[1 : len(line)-2])
+					if errAtoi != nil {
+						if eof {
+							break
+						}
+						return nil, errAtoi
+					}
+
+					count := size
+					// Hashes (%) and attributes (|) are pairs of keys+values
+					if line[0] == '%' || line[0] == '|' {
+						count *= 2
+					}
+					// Attributes (|) are prefixes; we must read one more complete message after the pairs
+					if line[0] == '|' {
+						count++
+					}
+
+					if count > 0 {
+						stack = append(stack, count)
+					}
 				}
 
-				linesToRead += size
-				// Attributes (|) are prefixes; we must read one more complete message after the pairs
-				if line[0] == '|' {
-					linesToRead++
+			case '.':
+				// Streamed collection terminator (.\r\n)
+				if inStreamedString {
+					return nil, fmt.Errorf("RESP3 protocol violation: unexpected item type \".\" during streamed string")
+				}
+				if stack[topIdx] != -1 {
+					return nil, fmt.Errorf("RESP3 protocol violation: unexpected item . while not streaming")
+				}
+				// Pop streamed collection state
+				stack = stack[:len(stack)-1]
+
+			default:
+				// Inline commands or unknown protocol markers
+				if !allowInline {
+					return nil, fmt.Errorf("RESP3 protocol violation: unsupported item type \"%s\"", string(line[0]))
 				}
 			}
-
-		case '.':
-			// Streamed collection terminator (.\r\n)
-			if strStreaming {
-				return nil, fmt.Errorf("RESP3 protocol violation: unexpected item type \".\" during streamed string")
-			}
-			if streaming == 0 {
-				return nil, fmt.Errorf("RESP3 protocol violation: unexpected item . while not streaming")
-			}
-
-			// Pop from the streaming stack
-			if line[1] == '\r' && line[2] == '\n' {
-				isAttr := streamingStack[len(streamingStack)-1]
-				streamingStack = streamingStack[:len(streamingStack)-1]
-				if isAttr {
-					streamingAttributes--
-				}
-				streaming--
-			}
-
-		default:
-			if raw {
-				// We just read the raw data payload line for a bulk type
-				raw = false
-			} else if !allowInline {
-				// Protocol error: unknown marker
-				return nil, fmt.Errorf("RESP3 protocol violation: unsupported item type \"%s\"", string(line[0]))
-			}
-
 		}
 
-		// Ensure that while we are in a streamed collection, we don't finish the message
-		// prematurely if there are still open collection markers or pending attribute suffixes.
-		if streaming > 0 && linesToRead < streaming+streamingAttributes {
-			linesToRead = streaming + streamingAttributes
+		// Finished levels (remaining count == 0) are popped automatically.
+		// This handles the end of fixed-size arrays/maps and the completion of raw bulk lines.
+		for len(stack) > 0 && stack[len(stack)-1] == 0 {
+			stack = stack[:len(stack)-1]
 		}
 
-		// Inline commands (no marker) are only allowed as the very first line of a message
+		// Inline commands are only allowed as the very first line of a message
 		allowInline = false
 	}
 
 	var err error = nil
-
 	if eof {
 		err = io.EOF
 	}
