@@ -43,6 +43,9 @@ func (m *MetaMap) Set(bucket string, key string, value cty.Value) {
 
 // Replace all the metadata with the provided ones, except for the specified bucket that is preserved
 func (m *MetaMap) Update(source *MetaMap, except ...string) {
+	if m == source {
+		return
+	}
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -84,6 +87,9 @@ func (m *MetaMap) ToCtyObject() cty.Value {
 }
 
 func (m *MetaMap) Equal(other *MetaMap) bool {
+	if m == other {
+		return true
+	}
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
