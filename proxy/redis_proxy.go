@@ -7,7 +7,6 @@ import (
 	"io"
 	"mlb/backend"
 	"mlb/metrics"
-	"mlb/misc"
 	"mlb/module"
 	"net"
 	"os"
@@ -280,7 +279,7 @@ func (p *RedisProxy) handleConnection(connFront net.Conn) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
-			p.log.Error().Str("peer", peerAddress).Err(misc.EnsureError(r)).Msg("Error while processing connection")
+			p.log.Error().Str("peer", peerAddress).Interface("error", r).Msg("Error while processing connection")
 			// Prometheus
 			metrics.FeCnxErrors.WithLabelValues(frontendAddress, p.id).Inc()
 		}

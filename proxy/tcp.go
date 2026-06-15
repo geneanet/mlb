@@ -7,7 +7,6 @@ import (
 	"io"
 	"mlb/backend"
 	"mlb/metrics"
-	"mlb/misc"
 	"mlb/module"
 	"net"
 	"os"
@@ -224,7 +223,7 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inp
 	// Recover from unexpected panics to prevent proxy crashes
 	defer func() {
 		if r := recover(); r != nil {
-			p.log.Error().Str("input", input.RemoteAddr().String()).Str("output", output.RemoteAddr().String()).Err(misc.EnsureError(r)).Msg("Error while processing pipe")
+			p.log.Error().Str("input", input.RemoteAddr().String()).Str("output", output.RemoteAddr().String()).Interface("error", r).Msg("Error while processing pipe")
 		}
 	}()
 
@@ -330,7 +329,7 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
-			p.log.Error().Str("peer", peerAddress).Err(misc.EnsureError(r)).Msg("Error while processing connection")
+			p.log.Error().Str("peer", peerAddress).Interface("error", r).Msg("Error while processing connection")
 			// Prometheus
 			feMetrics.cnxErrors.Inc()
 		}

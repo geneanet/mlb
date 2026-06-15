@@ -346,7 +346,11 @@ func (w *consulKVWatcher) fetch() (retValue cty.Value, retError error) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
-			retError = misc.EnsureError(r)
+			if e, ok := r.(error); ok {
+				retError = e
+			} else {
+				retError = fmt.Errorf("%v", r)
+			}
 		}
 	}()
 

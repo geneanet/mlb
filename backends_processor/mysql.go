@@ -327,7 +327,11 @@ func (c *MySQLCheck) fetchReadOnly() (retReadonly cty.Value, retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
 			retReadonly = cty.BoolVal(false)
-			retErr = misc.EnsureError(r)
+			if e, ok := r.(error); ok {
+				retErr = e
+			} else {
+				retErr = fmt.Errorf("%v", r)
+			}
 		}
 	}()
 
@@ -348,7 +352,11 @@ func (c *MySQLCheck) fetchReplicaLatency() (retReplicaLatency cty.Value, retErr 
 	defer func() {
 		if r := recover(); r != nil {
 			retReplicaLatency = cty.NumberIntVal(-1)
-			retErr = misc.EnsureError(r)
+			if e, ok := r.(error); ok {
+				retErr = e
+			} else {
+				retErr = fmt.Errorf("%v", r)
+			}
 		}
 	}()
 
@@ -412,7 +420,11 @@ func (c *MySQLCheck) fetchStatus() (retStatus cty.Value, retReadonly cty.Value, 
 			retStatus = cty.StringVal("err")
 			retReadonly = cty.BoolVal(false)
 			retReplicaLatency = cty.NumberIntVal(-1)
-			retErr = misc.EnsureError(r)
+			if e, ok := r.(error); ok {
+				retErr = e
+			} else {
+				retErr = fmt.Errorf("%v", r)
+			}
 
 			// Close and reopen MySQL connection to ensure we start on a good base next time
 			log.Info().Str("address", c.backend.Address).Msg("Reopening MySQL connection")

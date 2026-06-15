@@ -7,7 +7,6 @@ import (
 	"io"
 	"mlb/backend"
 	"mlb/metrics"
-	"mlb/misc"
 	"net"
 )
 
@@ -30,7 +29,11 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
-			e = misc.EnsureError(r)
+			if err, ok := r.(error); ok {
+				e = err
+			} else {
+				e = fmt.Errorf("%v", r)
+			}
 			rbc = nil
 		}
 	}()
