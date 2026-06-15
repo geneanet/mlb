@@ -22,7 +22,7 @@ import (
 )
 
 func init() {
-	module.Register("proxy", "redis", &RedisProxyFactory{})
+	module.RegisterFactory("proxy", "redis", &RedisProxyFactory{})
 }
 
 type RedisProxy struct {
@@ -382,7 +382,7 @@ func (p *RedisProxy) GetUpdateSource() string {
 	return p.source
 }
 
-func (p *RedisProxy) Bind(modules module.ModulesList) {
+func (p *RedisProxy) Bind(modules module.ModulesRegistry) {
 	p.SubscribeTo(module.Get[backend.BackendUpdateProvider](modules, p.source))
 
 	// Listening to incoming connections only makes sense after backend providers are available

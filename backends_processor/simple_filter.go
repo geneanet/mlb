@@ -14,7 +14,7 @@ import (
 )
 
 func init() {
-	module.Register("backends_processor", "simple_filter", &SimpleFilterFactory{})
+	module.RegisterFactory("backends_processor", "simple_filter", &SimpleFilterFactory{})
 }
 
 type SimpleFilter struct {
@@ -162,6 +162,6 @@ func (f *SimpleFilter) GetBackendList() []*backend.Backend {
 	return f.backends.GetList()
 }
 
-func (f *SimpleFilter) Bind(modules module.ModulesList) {
+func (f *SimpleFilter) Bind(modules module.ModulesRegistry) {
 	f.SubscribeTo(module.Get[backend.BackendUpdateProvider](modules, f.source))
 }

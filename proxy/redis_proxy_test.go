@@ -8,12 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclsyntax"
-	"github.com/rs/zerolog"
 	"mlb/backend"
 	"mlb/module"
 	"mlb/testutil"
+
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/rs/zerolog"
 )
 
 // TestRedisProxyFactory_ValidateConfig verifies that the RedisProxyFactory correctly validates
@@ -320,7 +321,7 @@ func TestRedisProxy_ListenAndConnection(t *testing.T) {
 	dummyProvider := &dummyUpdateProvider{
 		sourceName: "test-source",
 	}
-	moduleList := module.NewModulesList()
+	moduleList := module.NewModulesRegistry()
 	moduleList.AddModule(dummyProvider)
 
 	p.Bind(moduleList)
@@ -385,7 +386,7 @@ type dummyUpdateProvider struct {
 
 func (d *dummyUpdateProvider) ProvideUpdates(r backend.BackendUpdateSubscriber) {}
 func (d *dummyUpdateProvider) GetID() string                                    { return d.sourceName }
-func (d *dummyUpdateProvider) Bind(modules module.ModulesList)                  {}
+func (d *dummyUpdateProvider) Bind(modules module.ModulesRegistry)              {}
 func (d *dummyUpdateProvider) IsBackendUpdateProvider(source string) bool {
 	return d.sourceName == source
 }

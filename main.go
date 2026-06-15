@@ -75,7 +75,7 @@ func main() {
 		}
 
 		// Instanciate modules
-		ml := module.NewModulesList()
+		ml := module.NewModulesRegistry()
 
 		for _, c := range conf.BackendsInventoryList {
 			ml.AddModule(module.New(c, &wg, ctx, "backends_inventory"))

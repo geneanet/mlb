@@ -96,7 +96,7 @@ backends_processor "consul_kv" "test" {
 	}
 
 	dp := &dummyProvider{id: "foo", backends: backend.NewRegistry()}
-	modules := module.NewModulesList()
+	modules := module.NewModulesRegistry()
 	modules.AddModule(dp)
 	consulMod.Bind(modules)
 
@@ -218,7 +218,7 @@ backends_processor "consul_kv" "test" {
 	consulMod := mod.(*ConsulKV)
 
 	dp := &dummyProvider{id: "foo", backends: backend.NewRegistry()}
-	modules := module.NewModulesList()
+	modules := module.NewModulesRegistry()
 	modules.AddModule(dp)
 	consulMod.Bind(modules)
 

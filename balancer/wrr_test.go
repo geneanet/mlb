@@ -26,7 +26,7 @@ func (mp *mockProvider) GetID() string {
 }
 
 // Bind is a no-op implementation of the module.Module interface.
-func (mp *mockProvider) Bind(modules module.ModulesList) {}
+func (mp *mockProvider) Bind(modules module.ModulesRegistry) {}
 
 // ProvideUpdates registers a subscriber to receive backend updates.
 func (mp *mockProvider) ProvideUpdates(sub backend.BackendUpdateSubscriber) {
@@ -182,7 +182,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	}
 
 	provider := &mockProvider{id: "src1", backends: backend.NewRegistry()}
-	modules := module.NewModulesList()
+	modules := module.NewModulesRegistry()
 	modules.AddModule(provider)
 	balancer.Bind(modules)
 

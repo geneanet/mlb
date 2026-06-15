@@ -15,7 +15,7 @@ import (
 )
 
 func init() {
-	module.Register("backends_inventory", "static", &StaticBackendsInventoryFactory{})
+	module.RegisterFactory("backends_inventory", "static", &StaticBackendsInventoryFactory{})
 }
 
 type BackendsInventoryStatic struct {
@@ -80,6 +80,6 @@ func (c *BackendsInventoryStatic) GetBackendList() []*backend.Backend {
 	return c.backends.GetList()
 }
 
-func (c *BackendsInventoryStatic) Bind(modules module.ModulesList) {
+func (c *BackendsInventoryStatic) Bind(modules module.ModulesRegistry) {
 	_ = modules
 }

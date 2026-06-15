@@ -51,7 +51,7 @@ func (d *dummyProvider) GetID() string {
 }
 
 // Bind is a no-op implementation of the module.Module interface.
-func (d *dummyProvider) Bind(modules module.ModulesList) {}
+func (d *dummyProvider) Bind(modules module.ModulesRegistry) {}
 
 // ProvideUpdates registers a subscriber.
 func (d *dummyProvider) ProvideUpdates(s backend.BackendUpdateSubscriber) {

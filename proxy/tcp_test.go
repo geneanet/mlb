@@ -40,7 +40,7 @@ func (m *mockBackendProvider) GetID() string {
 	return m.id
 }
 
-func (m *mockBackendProvider) Bind(modules module.ModulesList) {
+func (m *mockBackendProvider) Bind(modules module.ModulesRegistry) {
 	// No operation needed for this mock
 }
 
@@ -244,7 +244,7 @@ func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 	primaryProvider := &mockBackendProvider{id: "primary_backend", backendAddress: primaryBackend.Addr().String()}
 	backupProvider := &mockBackendProvider{id: "backup_backend", backendAddress: backupBackend.Addr().String()}
 
-	modules := module.NewModulesList()
+	modules := module.NewModulesRegistry()
 	modules.AddModule(primaryProvider)
 	modules.AddModule(backupProvider)
 	p.Bind(modules)
@@ -344,7 +344,7 @@ func TestTCPProxy_NoBackendPanic(t *testing.T) {
 	}
 
 	provider := &mockBackendProvider{id: "missing_backend", backendAddress: "", returnNil: true}
-	modules := module.NewModulesList()
+	modules := module.NewModulesRegistry()
 	modules.AddModule(provider)
 	p.Bind(modules)
 
@@ -413,7 +413,7 @@ func TestTCPProxy_TimeoutAndContextCancel(t *testing.T) {
 	}
 
 	provider := &mockBackendProvider{id: "test_backend", backendAddress: backend.Addr().String()}
-	modules := module.NewModulesList()
+	modules := module.NewModulesRegistry()
 	modules.AddModule(provider)
 	p.Bind(modules)
 
@@ -637,10 +637,10 @@ func TestTCPProxy_PipeWriteError(t *testing.T) {
 	// Use the existing errorConn and mockConn
 	input := &bytes.Buffer{}
 	input.Write([]byte("some data"))
-	
+
 	done := make(chan struct{})
 	badWriter := &errorConn{err: io.ErrShortWrite}
-	
+
 	go p.pipe(&mockConn{reader: input}, badWriter, done, 0, 0, prometheus.NewCounter(prometheus.CounterOpts{}), prometheus.NewCounter(prometheus.CounterOpts{}))
 
 	select {
@@ -675,6 +675,7 @@ func (m *mockConn) Write(b []byte) (int, error) {
 func (m *mockConn) RemoteAddr() net.Addr {
 	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 1234}
 }
+
 // TestTCPProxy_DoneBackFront tests the connection teardown synchronization inside handleConnection.
 // It verifies that:
 //  1. When the backend server terminates the connection first, the backend-to-frontend pipe
@@ -732,7 +733,7 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 	}
 
 	provider := &mockBackendProvider{id: "test_backend", backendAddress: backendAddr}
-	modules := module.NewModulesList()
+	modules := module.NewModulesRegistry()
 	modules.AddModule(provider)
 	p.Bind(modules)
 

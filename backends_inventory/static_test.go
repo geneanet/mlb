@@ -42,10 +42,10 @@ backends_inventory "static" "test" {
 
 	backends := staticMod.GetBackendList()
 	if len(backends) != 2 {
-		t.Errorf("Expected 2 backends, got %d", len(backends) )
+		t.Errorf("Expected 2 backends, got %d", len(backends))
 	}
 
-	staticMod.Bind(module.ModulesList{}) // Should do nothing
+	staticMod.Bind(module.ModulesRegistry{}) // Should do nothing
 
 	// Test ProvideUpdates functionality: new subscribers should receive current backends.
 	sub := &dummySubscriber{

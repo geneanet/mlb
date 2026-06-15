@@ -23,7 +23,7 @@ import (
 )
 
 func init() {
-	module.Register("proxy", "tcp", &TCPProxyFactory{})
+	module.RegisterFactory("proxy", "tcp", &TCPProxyFactory{})
 }
 
 type ProxyTCP struct {
@@ -399,7 +399,7 @@ func (p *ProxyTCP) GetID() string {
 	return p.id
 }
 
-func (p *ProxyTCP) Bind(modules module.ModulesList) {
+func (p *ProxyTCP) Bind(modules module.ModulesRegistry) {
 	p.backendProvider = module.Get[backend.BackendProvider](modules, p.source)
 
 	if p.backupSource != "" {
@@ -411,4 +411,3 @@ func (p *ProxyTCP) Bind(modules module.ModulesList) {
 		p.listen(v, p.wg)
 	}
 }
-

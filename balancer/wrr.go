@@ -19,7 +19,7 @@ import (
 )
 
 func init() {
-	module.Register("balancer", "wrr", &WRRBalancerFactory{})
+	module.RegisterFactory("balancer", "wrr", &WRRBalancerFactory{})
 }
 
 type WRRBalancer struct {
@@ -201,7 +201,6 @@ func (b *WRRBalancer) GetBackendList() []*backend.Backend {
 	return b.backends.GetList()
 }
 
-func (b *WRRBalancer) Bind(modules module.ModulesList) {
+func (b *WRRBalancer) Bind(modules module.ModulesRegistry) {
 	b.SubscribeTo(module.Get[backend.BackendUpdateProvider](modules, b.source))
 }
-

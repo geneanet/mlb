@@ -23,7 +23,7 @@ import (
 var mysqlDriverName = "mysql"
 
 func init() {
-	module.Register("backends_processor", "mysql", &MySQLCheckerFactory{})
+	module.RegisterFactory("backends_processor", "mysql", &MySQLCheckerFactory{})
 }
 
 type MySQLChecker struct {
@@ -276,10 +276,9 @@ func (c *MySQLChecker) GetBackendList() []*backend.Backend {
 	return c.backends.GetList()
 }
 
-func (c *MySQLChecker) Bind(modules module.ModulesList) {
+func (c *MySQLChecker) Bind(modules module.ModulesRegistry) {
 	c.SubscribeTo(module.Get[backend.BackendUpdateProvider](modules, c.source))
 }
-
 
 type MySQLCheck struct {
 	backend         *backend.Backend

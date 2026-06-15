@@ -187,7 +187,7 @@ func TestMySQL(t *testing.T) {
 	mysqlChecker.GetBackendList()
 
 	dp := &dummyProvider{id: "test", backends: backend.NewRegistry()}
-	modules := module.NewModulesList()
+	modules := module.NewModulesRegistry()
 	modules.AddModule(dp)
 	mysqlChecker.Bind(modules)
 

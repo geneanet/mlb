@@ -22,7 +22,7 @@ import (
 )
 
 func init() {
-	module.Register("backends_processor", "consul_kv", &ConsulKVFactory{})
+	module.RegisterFactory("backends_processor", "consul_kv", &ConsulKVFactory{})
 }
 
 type ConsulKV struct {
@@ -244,7 +244,7 @@ func (c *ConsulKV) GetBackendList() []*backend.Backend {
 	return c.backends.GetList()
 }
 
-func (c *ConsulKV) Bind(modules module.ModulesList) {
+func (c *ConsulKV) Bind(modules module.ModulesRegistry) {
 	c.SubscribeTo(module.Get[backend.BackendUpdateProvider](modules, c.source))
 }
 

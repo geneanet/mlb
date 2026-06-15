@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hashicorp/hcl/v2"
 	"mlb/backend"
 	"mlb/module"
 	"mlb/testutil"
+
+	"github.com/hashicorp/hcl/v2"
 )
 
 // consulDummySubscriber implements backend.BackendUpdateSubscriber for testing.
@@ -147,7 +148,7 @@ backends_inventory "consul" "test" {
 		t.Errorf("Unexpected ID: %s", consulMod.GetID())
 	}
 
-	consulMod.Bind(module.ModulesList{})
+	consulMod.Bind(module.ModulesRegistry{})
 
 	sub := &consulDummySubscriber{}
 	consulMod.ProvideUpdates(sub)

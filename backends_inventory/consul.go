@@ -23,7 +23,7 @@ import (
 )
 
 func init() {
-	module.Register("backends_inventory", "consul", &ConsulBackendsInventoryFactory{})
+	module.RegisterFactory("backends_inventory", "consul", &ConsulBackendsInventoryFactory{})
 }
 
 type consulService struct {
@@ -263,7 +263,7 @@ func (c *BackendsInventoryConsul) GetBackendList() backend.BackendsList {
 	return c.backends.GetList()
 }
 
-func (c *BackendsInventoryConsul) Bind(modules module.ModulesList) {
+func (c *BackendsInventoryConsul) Bind(modules module.ModulesRegistry) {
 	_ = modules
 }
 

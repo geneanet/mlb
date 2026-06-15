@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/rs/zerolog/log"
 )
 
 // Config represents a module's HCL configuration.
@@ -22,26 +23,26 @@ type FactoryInterface interface {
 	ValidateConfig(config *Config) hcl.Diagnostics
 }
 
-var registries = make(map[string]map[string]FactoryInterface)
+var factories = make(map[string]map[string]FactoryInterface)
 
-// Register adds a module factory to the central registry.
-func Register(category string, typeName string, factory FactoryInterface) {
-	if _, ok := registries[category]; !ok {
-		registries[category] = make(map[string]FactoryInterface)
+// RegisterFactory adds a module factory to the central registry.
+func RegisterFactory(category string, typeName string, factory FactoryInterface) {
+	if _, ok := factories[category]; !ok {
+		factories[category] = make(map[string]FactoryInterface)
 	}
-	registries[category][typeName] = factory
+	factories[category][typeName] = factory
 }
 
-// Unregister removes a module factory from the central registry.
-func Unregister(category string, typeName string) {
-	if reg, ok := registries[category]; ok {
+// UnregisterFactory removes a module factory from the central registry.
+func UnregisterFactory(category string, typeName string) {
+	if reg, ok := factories[category]; ok {
 		delete(reg, typeName)
 	}
 }
 
 // GetFactory returns a module factory from the central registry.
 func GetFactory(category string, typeName string) FactoryInterface {
-	if reg, ok := registries[category]; ok {
+	if reg, ok := factories[category]; ok {
 		return reg[typeName]
 	}
 	return nil
@@ -86,4 +87,51 @@ func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext, category string) 
 	}
 	diags := factory.ValidateConfig(tc)
 	return tc, diags
+}
+
+type Module interface {
+	GetID() string
+	Bind(modules ModulesRegistry)
+}
+
+type ModulesRegistry map[string]Module
+
+func NewModulesRegistry() ModulesRegistry {
+	return ModulesRegistry{}
+}
+
+func (ml ModulesRegistry) AddModule(m Module) {
+	ml[m.GetID()] = m
+}
+
+// TODO: Rewrite Get and Filter as methods of ModulesList when Go 1.27 (supporting generic methods) is released.
+
+func Get[T any](ml ModulesRegistry, id string) T {
+	module, ok := ml[id]
+	if !ok {
+		log.Panic().Str("module", id).Msg("Module does not exist")
+	}
+
+	target, ok := module.(T)
+	if !ok {
+		log.Panic().
+			Str("module", id).
+			Str("expected", fmt.Sprintf("%T", *new(T))).
+			Str("actual", fmt.Sprintf("%T", module)).
+			Msg("Module is not of the expected type")
+	}
+
+	return target
+}
+
+func Filter[T any](ml ModulesRegistry) ModulesRegistry {
+	result := NewModulesRegistry()
+
+	for _, m := range ml {
+		if _, ok := m.(T); ok {
+			result.AddModule(m)
+		}
+	}
+
+	return result
 }
