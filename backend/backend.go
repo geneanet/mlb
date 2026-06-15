@@ -67,83 +67,107 @@ func (b *Backend) ResolveExpression(expression hcl.Expression, ctx *hcl.EvalCont
 	return true, diags
 }
 
-// Map
-type BackendsMap struct {
-	backends map[string]*Backend
-	lock     sync.RWMutex
+// Registry implements a thread-safe store for backends and a publisher for updates.
+type Registry struct {
+	backends    map[string]*Backend
+	subscribers []BackendUpdateSubscriber
+	mu          sync.RWMutex
 }
 
-func NewBackendsMap() *BackendsMap {
-	return &BackendsMap{
+func NewRegistry() *Registry {
+	return &Registry{
 		backends: make(map[string]*Backend),
-		lock:     sync.RWMutex{},
 	}
 }
 
-func (bm *BackendsMap) Get(address string) *Backend {
-	bm.lock.RLock()
-	defer bm.lock.RUnlock()
-
-	if b, ok := bm.backends[address]; ok {
-		return b
-	} else {
-		return nil
-	}
+func (r *Registry) Get(address string) *Backend {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.backends[address]
 }
 
-func (bm *BackendsMap) GetList() BackendsList {
-	bm.lock.RLock()
-	defer bm.lock.RUnlock()
-
-	return slices.Collect(maps.Values(bm.backends))
+func (r *Registry) GetList() BackendsList {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return slices.Collect(maps.Values(r.backends))
 }
 
-func (bm *BackendsMap) GetSortedList() BackendsList {
-	backends := bm.GetList()
+func (r *Registry) GetSortedList() BackendsList {
+	backends := r.GetList()
 	sort.Slice(backends, func(i, j int) bool {
 		return backends[i].Address < backends[j].Address
 	})
 	return backends
 }
 
-func (bm *BackendsMap) Add(backend *Backend) {
-	bm.lock.Lock()
-	defer bm.lock.Unlock()
-
-	bm.backends[backend.Address] = backend
+func (r *Registry) Add(b *Backend) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.backends[b.Address] = b
 }
 
-func (bm *BackendsMap) Update(backend *Backend, exceptMeta ...string) {
-	bm.lock.Lock()
-	defer bm.lock.Unlock()
+func (r *Registry) Update(b *Backend, exceptMeta ...string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	if b, ok := bm.backends[backend.Address]; ok {
-		b.Meta.Update(backend.Meta, exceptMeta...)
+	if existing, ok := r.backends[b.Address]; ok {
+		if existing == b {
+			return
+		}
+		existing.Meta.Update(b.Meta, exceptMeta...)
 	} else {
-		bm.backends[backend.Address] = backend
+		r.backends[b.Address] = b
 	}
 }
 
-func (bm *BackendsMap) Remove(address string) {
-	bm.lock.Lock()
-	defer bm.lock.Unlock()
-
-	delete(bm.backends, address)
+func (r *Registry) Remove(address string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.backends, address)
 }
 
-func (bm *BackendsMap) Has(address string) bool {
-	bm.lock.RLock()
-	defer bm.lock.RUnlock()
-
-	_, ok := bm.backends[address]
+func (r *Registry) Has(address string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.backends[address]
 	return ok
 }
 
-func (bm *BackendsMap) Size() int {
-	bm.lock.RLock()
-	defer bm.lock.RUnlock()
+func (r *Registry) Size() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.backends)
+}
 
-	return len(bm.backends)
+func (r *Registry) Subscribe(s BackendUpdateSubscriber) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.subscribers = append(r.subscribers, s)
+}
+
+func (r *Registry) ProvideUpdates(s BackendUpdateSubscriber) {
+	r.mu.Lock()
+	r.subscribers = append(r.subscribers, s)
+	list := slices.Collect(maps.Values(r.backends))
+	r.mu.Unlock()
+
+	for _, b := range list {
+		s.ReceiveUpdate(BackendUpdate{
+			Kind:    UpdBackendAdded,
+			Address: b.Address,
+			Backend: b,
+		})
+	}
+}
+
+func (r *Registry) Publish(u BackendUpdate) {
+	r.mu.RLock()
+	subs := slices.Clone(r.subscribers)
+	r.mu.RUnlock()
+
+	for _, s := range subs {
+		s.ReceiveUpdate(u)
+	}
 }
 
 // List
@@ -173,28 +197,6 @@ type BackendUpdateSubscriber interface {
 	SubscribeTo(BackendUpdateProvider)
 	GetUpdateSource() string
 	ReceiveUpdate(BackendUpdate)
-}
-
-// Publisher implements a thread-safe Observer pattern for BackendUpdates.
-type Publisher struct {
-	subscribers []BackendUpdateSubscriber
-	mu          sync.RWMutex
-}
-
-func (p *Publisher) Subscribe(s BackendUpdateSubscriber) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.subscribers = append(p.subscribers, s)
-}
-
-func (p *Publisher) Publish(u BackendUpdate) {
-	p.mu.RLock()
-	subs := slices.Clone(p.subscribers)
-	p.mu.RUnlock()
-
-	for _, s := range subs {
-		s.ReceiveUpdate(u)
-	}
 }
 
 type BackendProvider interface {

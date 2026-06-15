@@ -16,6 +16,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/rs/zerolog/log"
+	"github.com/zclconf/go-cty/cty"
 )
 
 // TestConsulKV_Basic tests the main functionality of the ConsulKV processor,
@@ -94,7 +95,7 @@ backends_processor "consul_kv" "test" {
 		t.Errorf("Unexpected update source: %s", consulMod.GetUpdateSource())
 	}
 
-	dp := &dummyProvider{id: "foo"}
+	dp := &dummyProvider{id: "foo", backends: backend.NewRegistry()}
 	modules := module.NewModulesList()
 	modules.AddModule(dp)
 	consulMod.Bind(modules)
@@ -142,8 +143,22 @@ backends_processor "consul_kv" "test" {
 	// Test Update backend (should recreate watchers)
 	sub.wg.Add(1)
 	b1Updated := b1Mod.Clone()
+	// Add some other metadata to verify it's updated
+	b1Updated.Meta.Set("other", "foo", cty.StringVal("bar"))
+	// Set a value in consul_kv bucket to see if it's preserved
+	b1Mod.Meta.Set("consul_kv", "test", cty.StringVal("preserved"))
+
 	dp.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: b1Updated.Address, Backend: b1Updated})
 	waitSub(t, sub, "Wait for backend update to propagate")
+
+	val, ok = b1Mod.Meta.Get("other", "foo")
+	if !ok || val.AsString() != "bar" {
+		t.Errorf("Expected 'bar', got %v", val)
+	}
+	val, ok = b1Mod.Meta.Get("consul_kv", "test")
+	if !ok || val.AsString() != "preserved" {
+		t.Errorf("Expected 'preserved', got %v (metadata loss!)", val)
+	}
 
 	// Then watcher picks up again
 	sub.wg.Add(1)
@@ -202,7 +217,7 @@ backends_processor "consul_kv" "test" {
 	mod := New(cfg, wg, ctxBG)
 	consulMod := mod.(*ConsulKV)
 
-	dp := &dummyProvider{id: "foo"}
+	dp := &dummyProvider{id: "foo", backends: backend.NewRegistry()}
 	modules := module.NewModulesList()
 	modules.AddModule(dp)
 	consulMod.Bind(modules)

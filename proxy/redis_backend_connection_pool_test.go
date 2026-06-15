@@ -185,7 +185,7 @@ func TestRedisBackendConnectionPool_Update(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	backendsMap := backend.NewBackendsMap()
+	backendsMap := backend.NewRegistry()
 	backendsMap.Add(&backend.Backend{Address: listener.Addr().String()})
 
 	p := &RedisProxy{

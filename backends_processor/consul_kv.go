@@ -31,10 +31,8 @@ type ConsulKV struct {
 	defaultPeriod time.Duration
 	maxPeriod     time.Duration
 	backoffFactor float64
-	backends      *backend.BackendsMap
-	backendsMutex sync.RWMutex
+	backends      *backend.Registry
 	defaultValues map[string]cty.Value
-	publisher     backend.Publisher
 	ctx           context.Context
 	cancel        context.CancelFunc
 	log           zerolog.Logger
@@ -97,7 +95,7 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 		updChan:       make(chan backend.BackendUpdate, 100),
 		updChanStop:   make(chan struct{}),
 		source:        config.Source,
-		backends:      backend.NewBackendsMap(),
+		backends:      backend.NewRegistry(),
 		defaultValues: make(map[string]cty.Value),
 		evalCtx:       tc.ctx,
 		watchers:      make(map[string][]*consulKVWatcher),
@@ -136,21 +134,23 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 				msg.backend.Meta.Set("consul_kv", msg.id, cty.StringVal(msg.value))
 
 				// Send the update
-				c.publisher.Publish(backend.BackendUpdate{
+				c.backends.Publish(backend.BackendUpdate{
 					Kind:    backend.UpdBackendModified,
 					Address: msg.backend.Address,
 					Backend: msg.backend,
 				})
 			case upd := <-c.updChan: // Backends changed
-				c.backendsMutex.Lock()
 				switch upd.Kind {
 				case backend.UpdBackendAdded, backend.UpdBackendModified:
-					// Add/Update the backend
-					c.backends.Add(upd.Backend.Clone())
+					// Add/Update the backend while preserving the consul_kv bucket
+					c.backends.Update(upd.Backend, "consul_kv")
 
-					// Set default values
+					// Set default values if they are missing
+					b := c.backends.Get(upd.Address)
 					for _, v := range config.Values {
-						c.backends.Get(upd.Address).Meta.Set("consul_kv", v.ID, cty.StringVal(v.Default))
+						if _, ok := b.Meta.Get("consul_kv", v.ID); !ok {
+							b.Meta.Set("consul_kv", v.ID, cty.StringVal(v.Default))
+						}
 					}
 
 					// First, cancel every watcher we may have for the backend
@@ -178,7 +178,7 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 					}
 
 					// Send the update
-					c.publisher.Publish(backend.BackendUpdate{
+					c.backends.Publish(backend.BackendUpdate{
 						Kind:    upd.Kind,
 						Address: upd.Address,
 						Backend: c.backends.Get(upd.Address),
@@ -198,13 +198,12 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 						c.backends.Remove(upd.Address)
 
 						// Send the update
-						c.publisher.Publish(backend.BackendUpdate{
+						c.backends.Publish(backend.BackendUpdate{
 							Kind:    backend.UpdBackendRemoved,
 							Address: upd.Address,
 						})
 					}
 				}
-				c.backendsMutex.Unlock()
 			case <-c.ctx.Done(): // Context cancelled
 				break mainloop
 			}
@@ -215,19 +214,7 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 }
 
 func (c *ConsulKV) ProvideUpdates(s backend.BackendUpdateSubscriber) {
-	c.publisher.Subscribe(s)
-
-	c.backendsMutex.RLock()
-	backends := c.backends.GetList()
-	c.backendsMutex.RUnlock()
-
-	for _, b := range backends {
-		s.ReceiveUpdate(backend.BackendUpdate{
-			Kind:    backend.UpdBackendAdded,
-			Address: b.Address,
-			Backend: b,
-		})
-	}
+	c.backends.ProvideUpdates(s)
 }
 
 func (c *ConsulKV) ReceiveUpdate(upd backend.BackendUpdate) {

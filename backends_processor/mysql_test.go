@@ -186,7 +186,7 @@ func TestMySQL(t *testing.T) {
 	mysqlChecker.GetUpdateSource()
 	mysqlChecker.GetBackendList()
 
-	dp := &dummyProvider{id: "test"}
+	dp := &dummyProvider{id: "test", backends: backend.NewRegistry()}
 	modules := module.NewModulesList()
 	modules.AddModule(dp)
 	mysqlChecker.Bind(modules)
@@ -211,6 +211,12 @@ func TestMySQL(t *testing.T) {
 
 	// Modified backend
 	b.Meta.Set("test", "test", cty.StringVal("test"))
+	// Set a value in the mysql bucket to verify it's preserved
+	mysqlChecker.checksMtex.RLock()
+	check, _ := mysqlChecker.checks["127.0.0.1:3306"]
+	check.backend.Meta.Set("mysql", "status", cty.StringVal("preserved"))
+	mysqlChecker.checksMtex.RUnlock()
+
 	mysqlChecker.ReceiveUpdate(backend.BackendUpdate{
 		Kind:    backend.UpdBackendModified,
 		Address: "127.0.0.1:3306",
@@ -225,7 +231,11 @@ func TestMySQL(t *testing.T) {
 			return false
 		}
 		val, ok := check.backend.Meta.Get("test", "test")
-		return ok && val.AsString() == "test"
+		if !ok || val.AsString() != "test" {
+			return false
+		}
+		val, ok = check.backend.Meta.Get("mysql", "status")
+		return ok && val.AsString() == "preserved"
 	}, 1*time.Second, 10*time.Millisecond)
 
 	// Remove backend

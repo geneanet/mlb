@@ -46,17 +46,15 @@ type consulServicesMap map[string]consulService
 type consulServicesSlice []consulService
 
 type BackendsInventoryConsul struct {
-	id            string
-	url           string
-	service       string
-	index         string
-	ticker        *misc.ExponentialBackoffTicker
-	ctx           context.Context
-	cancel        context.CancelFunc
-	publisher     backend.Publisher
-	backends      *backend.BackendsMap
-	backendsMutex sync.RWMutex
-	log           zerolog.Logger
+	id       string
+	url      string
+	service  string
+	index    string
+	ticker   *misc.ExponentialBackoffTicker
+	ctx      context.Context
+	cancel   context.CancelFunc
+	backends *backend.Registry
+	log      zerolog.Logger
 }
 
 type ConsulBackendsInventoryConfig struct {
@@ -100,7 +98,7 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 		id:       config.ID,
 		url:      config.URL,
 		service:  config.Service,
-		backends: backend.NewBackendsMap(),
+		backends: backend.NewRegistry(),
 		log:      log.With().Str("id", config.ID).Logger(),
 	}
 
@@ -144,8 +142,6 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 
 				added, modified, removed := consulServicesDiff(old, services)
 
-				c.backendsMutex.Lock()
-
 				for address, service := range added {
 					log.Debug().Str("address", address).Msg("Service added")
 					c.backends.Add(&backend.Backend{
@@ -158,7 +154,7 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 							},
 						}),
 					})
-					c.publisher.Publish(backend.BackendUpdate{
+					c.backends.Publish(backend.BackendUpdate{
 						Kind:    backend.UpdBackendAdded,
 						Address: address,
 						Backend: c.backends.Get(address),
@@ -171,7 +167,7 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 					b.Meta.Set("consul", "tags", ctyTagSet(service.Service.Tags))
 					b.Meta.Set("consul", "weight", cty.NumberUIntVal(service.Service.Weights.Passing))
 					b.Meta.Set("consul", "node", cty.StringVal(service.Node.Node))
-					c.publisher.Publish(backend.BackendUpdate{
+					c.backends.Publish(backend.BackendUpdate{
 						Kind:    backend.UpdBackendModified,
 						Address: address,
 						Backend: b,
@@ -181,13 +177,11 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 				for address := range removed {
 					log.Debug().Str("address", address).Msg("Service removed")
 					c.backends.Remove(address)
-					c.publisher.Publish(backend.BackendUpdate{
+					c.backends.Publish(backend.BackendUpdate{
 						Kind:    backend.UpdBackendRemoved,
 						Address: address,
 					})
 				}
-
-				c.backendsMutex.Unlock()
 
 				old = services
 			}
@@ -204,19 +198,7 @@ func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 }
 
 func (c *BackendsInventoryConsul) ProvideUpdates(s backend.BackendUpdateSubscriber) {
-	c.publisher.Subscribe(s)
-
-	c.backendsMutex.RLock()
-	backends := c.backends.GetList()
-	c.backendsMutex.RUnlock()
-
-	for _, b := range backends {
-		s.ReceiveUpdate(backend.BackendUpdate{
-			Kind:    backend.UpdBackendAdded,
-			Address: b.Address,
-			Backend: b,
-		})
-	}
+	c.backends.ProvideUpdates(s)
 }
 
 func (c *BackendsInventoryConsul) fetch() (retServices consulServicesSlice, retError error) {

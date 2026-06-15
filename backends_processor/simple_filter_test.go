@@ -48,7 +48,7 @@ backends_processor "simple_filter" "test" {
 	}
 
 	// Create a dummy provider to feed updates
-	dp := &dummyProvider{id: "foo"}
+	dp := &dummyProvider{id: "foo", backends: backend.NewRegistry()}
 
 	// Create a subscriber
 	sub := &dummySubscriber{wg: sync.WaitGroup{}}
@@ -135,7 +135,7 @@ backends_processor "simple_filter" "test" {
 	filterMod := mod.(*SimpleFilter)
 
 	// Add an item directly to bypass wait issues, or via provider
-	dp := &dummyProvider{id: "foo"}
+	dp := &dummyProvider{id: "foo", backends: backend.NewRegistry()}
 	modules := module.NewModulesList()
 	modules.AddModule(dp)
 	filterMod.Bind(modules)
@@ -179,7 +179,7 @@ backends_processor "simple_filter" "test_meta" {
 	mod := New(cfg, wg, ctxBG)
 	filterMod := mod.(*SimpleFilter)
 
-	dp := &dummyProvider{id: "foo"}
+	dp := &dummyProvider{id: "foo", backends: backend.NewRegistry()}
 
 	sub := &dummySubscriber{wg: sync.WaitGroup{}}
 	filterMod.ProvideUpdates(sub)

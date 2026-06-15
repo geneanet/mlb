@@ -40,7 +40,7 @@ type RedisProxy struct {
 	wg                        *sync.WaitGroup
 	backendUpdatesChan        chan backend.BackendUpdate
 	backendUpdatesChanClosed  chan struct{}
-	backends                  *backend.BackendsMap
+	backends                  *backend.Registry
 	bufferSize                int
 	backendConnectionPool     *RedisBackendConnectionPool
 	clientQueueSize           int
@@ -128,7 +128,7 @@ func (f RedisProxyFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Conte
 		wg:                        wg,
 		backendUpdatesChan:        make(chan backend.BackendUpdate, 100),
 		backendUpdatesChanClosed:  make(chan struct{}),
-		backends:                  backend.NewBackendsMap(),
+		backends:                  backend.NewRegistry(),
 	}
 
 	var err error

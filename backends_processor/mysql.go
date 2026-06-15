@@ -35,7 +35,7 @@ type MySQLChecker struct {
 	defaultPeriod   time.Duration
 	maxPeriod       time.Duration
 	backoffFactor   float64
-	publisher       backend.Publisher
+	backends        *backend.Registry
 	ctx             context.Context
 	cancel          context.CancelFunc
 	log             zerolog.Logger
@@ -114,6 +114,7 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 		updChan:       make(chan backend.BackendUpdate, 100),
 		updChanStop:   make(chan struct{}),
 		source:        config.Source,
+		backends:      backend.NewRegistry(),
 		checkReplica:  config.CheckReplica,
 	}
 
@@ -149,21 +150,20 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 		for {
 			select {
 			case b := <-statusChan: // Backend status changed
-				c.checksMtex.Lock()
-				c.publisher.Publish(backend.BackendUpdate{
+				c.backends.Publish(backend.BackendUpdate{
 					Kind:    backend.UpdBackendModified,
 					Address: b.Address,
 					Backend: b,
 				})
-				c.checksMtex.Unlock()
 
 			case upd := <-c.updChan: // Backend changed
 				c.checksMtex.Lock()
 				switch upd.Kind {
 				case backend.UpdBackendAdded, backend.UpdBackendModified:
 					if check, ok := c.checks[upd.Address]; ok { // Modified
-						check.backend.Meta.Update(upd.Backend.Meta, "mysql")
-						c.publisher.Publish(backend.BackendUpdate{
+						// Update the existing backend in the registry with new data from inventory, while preserving the mysql bucket
+						c.backends.Update(upd.Backend, "mysql")
+						c.backends.Publish(backend.BackendUpdate{
 							Kind:    backend.UpdBackendModified,
 							Address: check.backend.Address,
 							Backend: check.backend,
@@ -195,7 +195,8 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 							c.log.Error().Str("address", upd.Address).Err(err).Msg("Error while adding MySQL check")
 						} else {
 							c.checks[upd.Address] = check
-							c.publisher.Publish(backend.BackendUpdate{
+							c.backends.Add(check.backend)
+							c.backends.Publish(backend.BackendUpdate{
 								Kind:    backend.UpdBackendAdded,
 								Address: check.backend.Address,
 								Backend: check.backend,
@@ -208,7 +209,8 @@ func (w MySQLCheckerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 						c.log.Info().Str("address", upd.Address).Msg("Removing MySQL check")
 						check.StopPolling()
 						delete(c.checks, upd.Address)
-						c.publisher.Publish(backend.BackendUpdate{
+						c.backends.Remove(upd.Address)
+						c.backends.Publish(backend.BackendUpdate{
 							Kind:    backend.UpdBackendRemoved,
 							Address: upd.Address,
 						})
@@ -236,22 +238,7 @@ func (c *MySQLChecker) stopChecks() {
 }
 
 func (c *MySQLChecker) ProvideUpdates(s backend.BackendUpdateSubscriber) {
-	c.publisher.Subscribe(s)
-
-	c.checksMtex.RLock()
-	backends := []*backend.Backend{}
-	for _, check := range c.checks {
-		backends = append(backends, check.backend)
-	}
-	c.checksMtex.RUnlock()
-
-	for _, b := range backends {
-		s.ReceiveUpdate(backend.BackendUpdate{
-			Kind:    backend.UpdBackendAdded,
-			Address: b.Address,
-			Backend: b,
-		})
-	}
+	c.backends.ProvideUpdates(s)
 }
 
 func (c *MySQLChecker) ReceiveUpdate(upd backend.BackendUpdate) {
@@ -274,16 +261,7 @@ func (c *MySQLChecker) GetID() string {
 }
 
 func (c *MySQLChecker) GetBackendList() []*backend.Backend {
-	c.checksMtex.RLock()
-	defer c.checksMtex.RUnlock()
-
-	backends := []*backend.Backend{}
-
-	for _, check := range c.checks {
-		backends = append(backends, check.backend)
-	}
-
-	return backends
+	return c.backends.GetList()
 }
 
 func (c *MySQLChecker) Bind(modules module.ModulesList) {

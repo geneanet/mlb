@@ -16,8 +16,8 @@ import (
 
 // mockProvider implements backend.BackendUpdateProvider for testing purposes.
 type mockProvider struct {
-	id        string
-	publisher backend.Publisher
+	id       string
+	backends *backend.Registry
 }
 
 // GetID returns the provider's identifier.
@@ -30,12 +30,12 @@ func (mp *mockProvider) Bind(modules module.ModulesList) {}
 
 // ProvideUpdates registers a subscriber to receive backend updates.
 func (mp *mockProvider) ProvideUpdates(sub backend.BackendUpdateSubscriber) {
-	mp.publisher.Subscribe(sub)
+	mp.backends.Subscribe(sub)
 }
 
 // sendUpdate broadcasts a backend update to all registered subscribers.
 func (mp *mockProvider) sendUpdate(upd backend.BackendUpdate) {
-	mp.publisher.Publish(upd)
+	mp.backends.Publish(upd)
 }
 
 // TestWRRBalancer_ValidateConfig verifies that a valid WRR balancer configuration
@@ -102,7 +102,7 @@ func TestWRRBalancer_InvalidTimeout(t *testing.T) {
 }
 
 // TestWRRBalancer_WaitBackend tests the blocking behavior of GetBackend(true)
-// when no backends are initially available.
+// when no reg are initially available.
 func TestWRRBalancer_WaitBackend(t *testing.T) {
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
@@ -120,7 +120,7 @@ func TestWRRBalancer_WaitBackend(t *testing.T) {
 	mod := factory.New(cfg, wg, ctx)
 	balancer := mod.(*WRRBalancer)
 
-	provider := &mockProvider{id: "src1"}
+	provider := &mockProvider{id: "src1", backends: backend.NewRegistry()}
 	balancer.SubscribeTo(provider)
 
 	backendChan := make(chan *backend.Backend)
@@ -178,15 +178,15 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 		t.Errorf("Unexpected source: %s", balancer.GetUpdateSource())
 	}
 	if len(balancer.GetBackendList()) != 0 {
-		t.Errorf("Expected 0 backends")
+		t.Errorf("Expected 0 reg")
 	}
 
-	provider := &mockProvider{id: "src1"}
+	provider := &mockProvider{id: "src1", backends: backend.NewRegistry()}
 	modules := module.NewModulesList()
 	modules.AddModule(provider)
 	balancer.Bind(modules)
 
-	// Test timeout when no backends are available
+	// Test timeout when no reg are available
 	start := time.Now()
 	timeoutBackend := balancer.GetBackend(true)
 	if timeoutBackend != nil {

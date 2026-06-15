@@ -25,7 +25,7 @@ func init() {
 
 type WRRBalancer struct {
 	id           string
-	backends     *backend.BackendsMap
+	backends     *backend.Registry
 	weightedList []string
 	mu           sync.RWMutex
 	log          zerolog.Logger
@@ -70,7 +70,7 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 
 	b := &WRRBalancer{
 		id:           config.ID,
-		backends:     backend.NewBackendsMap(),
+		backends:     backend.NewRegistry(),
 		weightedList: make([]string, 0),
 		log:          log.With().Str("id", config.ID).Logger(),
 		updChan:      make(chan backend.BackendUpdate, 100),

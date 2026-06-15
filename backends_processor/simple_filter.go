@@ -18,16 +18,14 @@ func init() {
 }
 
 type SimpleFilter struct {
-	id            string
-	publisher     backend.Publisher
-	backends      *backend.BackendsMap
-	backendsMutex sync.RWMutex
-	log           zerolog.Logger
-	updChan       chan backend.BackendUpdate
-	updChanStop   chan struct{}
-	source        string
-	condition     hcl.Expression
-	evalCtx       *hcl.EvalContext
+	id          string
+	backends    *backend.Registry
+	log         zerolog.Logger
+	updChan     chan backend.BackendUpdate
+	updChanStop chan struct{}
+	source      string
+	condition   hcl.Expression
+	evalCtx     *hcl.EvalContext
 }
 
 type SimpleFilterConfig struct {
@@ -57,7 +55,7 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 
 	f := &SimpleFilter{
 		id:          config.ID,
-		backends:    backend.NewBackendsMap(),
+		backends:    backend.NewRegistry(),
 		log:         log.With().Str("id", config.ID).Logger(),
 		updChan:     make(chan backend.BackendUpdate, 100),
 		updChanStop: make(chan struct{}),
@@ -81,20 +79,19 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 		for {
 			select {
 			case upd := <-f.updChan: // Backend changed
-				f.backendsMutex.Lock()
 				switch upd.Kind {
 				case backend.UpdBackendAdded, backend.UpdBackendModified:
 					if f.backends.Has(upd.Address) { // Modified
 						if f.matchFilter(upd.Backend) { // Still passes the filter
 							f.backends.Update(upd.Backend.Clone())
-							f.publisher.Publish(backend.BackendUpdate{
+							f.backends.Publish(backend.BackendUpdate{
 								Kind:    backend.UpdBackendModified,
 								Address: upd.Address,
 								Backend: f.backends.Get(upd.Address),
 							})
 						} else { // Do not pass the filter anymore
 							f.backends.Remove(upd.Address)
-							f.publisher.Publish(backend.BackendUpdate{
+							f.backends.Publish(backend.BackendUpdate{
 								Kind:    backend.UpdBackendRemoved,
 								Address: upd.Address,
 							})
@@ -102,7 +99,7 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 					} else { // Added
 						if f.matchFilter(upd.Backend) {
 							f.backends.Add(upd.Backend.Clone())
-							f.publisher.Publish(backend.BackendUpdate{
+							f.backends.Publish(backend.BackendUpdate{
 								Kind:    backend.UpdBackendAdded,
 								Address: upd.Address,
 								Backend: f.backends.Get(upd.Address),
@@ -113,13 +110,12 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 					// Removed
 					if f.backends.Has(upd.Address) {
 						f.backends.Remove(upd.Address)
-						f.publisher.Publish(backend.BackendUpdate{
+						f.backends.Publish(backend.BackendUpdate{
 							Kind:    backend.UpdBackendRemoved,
 							Address: upd.Address,
 						})
 					}
 				}
-				f.backendsMutex.Unlock()
 			case <-ctx.Done(): // Context cancelled
 				break mainloop
 			}
@@ -130,19 +126,7 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 }
 
 func (f *SimpleFilter) ProvideUpdates(s backend.BackendUpdateSubscriber) {
-	f.publisher.Subscribe(s)
-
-	f.backendsMutex.RLock()
-	backends := f.backends.GetList()
-	f.backendsMutex.RUnlock()
-
-	for _, b := range backends {
-		s.ReceiveUpdate(backend.BackendUpdate{
-			Kind:    backend.UpdBackendAdded,
-			Address: b.Address,
-			Backend: b,
-		})
-	}
+	f.backends.ProvideUpdates(s)
 }
 
 func (f *SimpleFilter) matchFilter(b *backend.Backend) bool {

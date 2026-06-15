@@ -19,13 +19,11 @@ func init() {
 }
 
 type BackendsInventoryStatic struct {
-	id            string
-	publisher     backend.Publisher
-	backends      *backend.BackendsMap
-	backendsMutex sync.RWMutex
-	log           zerolog.Logger
-	ctx           context.Context
-	cancel        context.CancelFunc
+	id       string
+	backends *backend.Registry
+	log      zerolog.Logger
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 type StaticBackendsInventoryConfig struct {
@@ -54,7 +52,7 @@ func (w StaticBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 
 	c := &BackendsInventoryStatic{
 		id:       config.ID,
-		backends: backend.NewBackendsMap(),
+		backends: backend.NewRegistry(),
 		log:      log.With().Str("id", config.ID).Logger(),
 	}
 
@@ -71,19 +69,7 @@ func (w StaticBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx 
 }
 
 func (c *BackendsInventoryStatic) ProvideUpdates(s backend.BackendUpdateSubscriber) {
-	c.publisher.Subscribe(s)
-
-	c.backendsMutex.RLock()
-	backends := c.backends.GetList()
-	c.backendsMutex.RUnlock()
-
-	for _, b := range backends {
-		s.ReceiveUpdate(backend.BackendUpdate{
-			Kind:    backend.UpdBackendAdded,
-			Address: b.Address,
-			Backend: b,
-		})
-	}
+	c.backends.ProvideUpdates(s)
 }
 
 func (c *BackendsInventoryStatic) GetID() string {

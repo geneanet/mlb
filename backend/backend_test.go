@@ -135,10 +135,10 @@ func TestBackend_ResolveExpression(t *testing.T) {
 	}
 }
 
-// TestBackendsMap_BasicOperations tests standard map-like operations for BackendsMap.
+// TestRegistry_BasicOperations tests standard map-like operations for Registry.
 // It covers adding, getting, existence checking, and removing backends.
-func TestBackendsMap_BasicOperations(t *testing.T) {
-	bm := NewBackendsMap()
+func TestRegistry_BasicOperations(t *testing.T) {
+	bm := NewRegistry()
 	if bm.Size() != 0 {
 		t.Errorf("expected empty map to have size 0, got %d", bm.Size())
 	}
@@ -182,10 +182,10 @@ func TestBackendsMap_BasicOperations(t *testing.T) {
 	}
 }
 
-// TestBackendsMap_Lists tests the retrieval of backend lists from BackendsMap.
+// TestRegistry_Lists tests the retrieval of backend lists from Registry.
 // It verifies that GetList returns all backends and GetSortedList returns them sorted by address.
-func TestBackendsMap_Lists(t *testing.T) {
-	bm := NewBackendsMap()
+func TestRegistry_Lists(t *testing.T) {
+	bm := NewRegistry()
 	b1 := &Backend{Address: "10.0.0.2", Meta: NewEmptyMetaMap(0)}
 	b2 := &Backend{Address: "10.0.0.1", Meta: NewEmptyMetaMap(0)}
 
@@ -208,10 +208,10 @@ func TestBackendsMap_Lists(t *testing.T) {
 	}
 }
 
-// TestBackendsMap_Update tests the conditional update of backends in the map.
+// TestRegistry_Update tests the conditional update of backends in the map.
 // it verifies that existing backends' metadata is merged and new backends are added.
-func TestBackendsMap_Update(t *testing.T) {
-	bm := NewBackendsMap()
+func TestRegistry_Update(t *testing.T) {
+	bm := NewRegistry()
 
 	m1 := NewEmptyMetaMap(0)
 	m1.Set("b1", "k1", cty.StringVal("v1"))
@@ -239,5 +239,69 @@ func TestBackendsMap_Update(t *testing.T) {
 	bm.Update(b3)
 	if !bm.Has("10.0.0.2") {
 		t.Errorf("expected b3 to be added via Update")
+	}
+
+	// Test updating from itself (should be a no-op and not deadlock)
+	bm.Update(b3)
+}
+
+type testSubscriber struct {
+	updates []BackendUpdate
+}
+
+func (s *testSubscriber) ReceiveUpdate(u BackendUpdate) {
+	s.updates = append(s.updates, u)
+}
+func (s *testSubscriber) SubscribeTo(p BackendUpdateProvider) { p.ProvideUpdates(s) }
+func (s *testSubscriber) GetUpdateSource() string              { return "test" }
+
+// TestRegistry_PublishSubscribe tests the Observer pattern implementation in Registry.
+func TestRegistry_PublishSubscribe(t *testing.T) {
+	reg := NewRegistry()
+	b1 := &Backend{Address: "10.0.0.1", Meta: NewEmptyMetaMap(0)}
+	reg.Add(b1)
+
+	sub := &testSubscriber{}
+
+	// Test ProvideUpdates: subscriber should receive current state
+	reg.ProvideUpdates(sub)
+	if len(sub.updates) != 1 {
+		t.Fatalf("expected 1 update, got %d", len(sub.updates))
+	}
+	if sub.updates[0].Kind != UpdBackendAdded || sub.updates[0].Address != "10.0.0.1" {
+		t.Errorf("unexpected initial update: %v", sub.updates[0])
+	}
+
+	// Test Publish: subscriber should receive new updates
+	sub.updates = nil
+	u := BackendUpdate{Kind: UpdBackendRemoved, Address: "10.0.0.1"}
+	reg.Publish(u)
+	if len(sub.updates) != 1 {
+		t.Fatalf("expected 1 update after publish, got %d", len(sub.updates))
+	}
+	if sub.updates[0].Kind != UpdBackendRemoved || sub.updates[0].Address != "10.0.0.1" {
+		t.Errorf("unexpected published update: %v", sub.updates[0])
+	}
+
+	// Test Subscribe (without initial state)
+	sub2 := &testSubscriber{}
+	reg.Subscribe(sub2)
+	reg.Publish(u)
+	if len(sub2.updates) != 1 {
+		t.Errorf("sub2 should have received 1 update")
+	}
+}
+
+// TestMetaMap_Deadlocks tests that MetaMap operations do not deadlock when called with same object.
+func TestMetaMap_Deadlocks(t *testing.T) {
+	m1 := NewEmptyMetaMap(0)
+	m1.Set("b1", "k1", cty.StringVal("v1"))
+
+	// Self-update
+	m1.Update(m1)
+
+	// Self-equality
+	if !m1.Equal(m1) {
+		t.Errorf("expected m1 to equal itself")
 	}
 }
