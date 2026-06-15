@@ -67,20 +67,33 @@ func (rbcp *RedisBackendConnectionPool) updateWaitState() {
 	}
 }
 
+func (rbcp *RedisBackendConnectionPool) Wait(ctx context.Context) error {
+	rbcp.mutex.RLock()
+	if !rbcp.isBlocked {
+		rbcp.mutex.RUnlock()
+		return nil
+	}
+	waitChan := rbcp.waitBackends
+	rbcp.mutex.RUnlock()
+
+	select {
+	case <-waitChan:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (rbcp *RedisBackendConnectionPool) GetRandom(wait bool) *RedisBackendConnection {
 	rbcp.mutex.RLock()
 	defer rbcp.mutex.RUnlock()
 
 	// Wait for a connection to be added to the pool or a timeout to occur
 	if len(rbcp.pool) == 0 && rbcp.waitBackendsTimeout > 0 && wait {
-		waitChan := rbcp.waitBackends
 		rbcp.mutex.RUnlock()
 		ctx, ctxCancel := context.WithDeadline(rbcp.ctx, time.Now().Add(rbcp.waitBackendsTimeout))
 		defer ctxCancel()
-		select {
-		case <-waitChan:
-		case <-ctx.Done():
-		}
+		_ = rbcp.Wait(ctx)
 		rbcp.mutex.RLock()
 	}
 
