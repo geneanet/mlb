@@ -241,7 +241,7 @@ func (c *ConsulKV) GetBackendList() []*backend.Backend {
 }
 
 func (c *ConsulKV) Bind(modules module.ModulesList) {
-	c.SubscribeTo(modules.GetBackendUpdateProvider(c.source))
+	c.SubscribeTo(module.Get[backend.BackendUpdateProvider](modules, c.source))
 }
 
 // Watcher

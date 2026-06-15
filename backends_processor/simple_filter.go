@@ -163,5 +163,5 @@ func (f *SimpleFilter) GetBackendList() []*backend.Backend {
 }
 
 func (f *SimpleFilter) Bind(modules module.ModulesList) {
-	f.SubscribeTo(modules.GetBackendUpdateProvider(f.source))
+	f.SubscribeTo(module.Get[backend.BackendUpdateProvider](modules, f.source))
 }

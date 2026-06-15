@@ -379,10 +379,10 @@ func (p *ProxyTCP) GetID() string {
 }
 
 func (p *ProxyTCP) Bind(modules module.ModulesList) {
-	p.backendProvider = modules.GetBackendProvider(p.source)
+	p.backendProvider = module.Get[backend.BackendProvider](modules, p.source)
 
 	if p.backupSource != "" {
-		p.backupBackendProvider = modules.GetBackendProvider(p.backupSource)
+		p.backupBackendProvider = module.Get[backend.BackendProvider](modules, p.backupSource)
 	}
 
 	// Listening to incoming connections only makes sense after backend providers are available
@@ -390,3 +390,4 @@ func (p *ProxyTCP) Bind(modules module.ModulesList) {
 		p.listen(v, p.wg)
 	}
 }
+

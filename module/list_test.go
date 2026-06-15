@@ -71,84 +71,30 @@ func TestAddModule(t *testing.T) {
 	}
 }
 
-// TestGetBackendUpdateProvider verifies the retrieval of modules implementing the BackendUpdateProvider interface.
-// It checks:
-// 1. Successful retrieval of a compatible module.
-// 2. Panic behavior when the module ID is missing.
-// 3. Panic behavior when the module does not implement the required interface.
-func TestGetBackendUpdateProvider(t *testing.T) {
+// TestGet verifies the retrieval of modules using the generic Get function.
+func TestGet(t *testing.T) {
 	ml := NewModulesList()
 	m := &dummyUpdateProvider{dummyModule: dummyModule{id: "m1"}}
 	ml.AddModule(m)
 
 	// Scenario 1: Correct retrieval
-	bup := ml.GetBackendUpdateProvider("m1")
+	bup := Get[backend.BackendUpdateProvider](ml, "m1")
 	if bup == nil {
 		t.Errorf("Expected to retrieve a valid BackendUpdateProvider for 'm1'")
 	}
 
 	// Scenario 2: Module ID not found (expects panic)
-	assertPanic(t, func() { ml.GetBackendUpdateProvider("missing") }, "Expected panic for missing module ID")
+	assertPanic(t, func() { Get[backend.BackendUpdateProvider](ml, "missing") }, "Expected panic for missing module ID")
 
 	// Scenario 3: Module found but interface not implemented (expects panic)
 	mWrong := &dummyModule{id: "m2"}
 	ml.AddModule(mWrong)
-	assertPanic(t, func() { ml.GetBackendUpdateProvider("m2") }, "Expected panic for module not implementing BackendUpdateProvider")
+	assertPanic(t, func() { Get[backend.BackendUpdateProvider](ml, "m2") }, "Expected panic for module not implementing BackendUpdateProvider")
 }
 
-// TestGetBackendProvider verifies the retrieval of modules implementing the BackendProvider interface.
-// It checks:
-// 1. Successful retrieval of a compatible module.
-// 2. Panic behavior when the module ID is missing.
-// 3. Panic behavior when the module does not implement the required interface.
-func TestGetBackendProvider(t *testing.T) {
-	ml := NewModulesList()
-	m := &dummyProvider{dummyModule: dummyModule{id: "m1"}}
-	ml.AddModule(m)
-
-	// Scenario 1: Correct retrieval
-	bp := ml.GetBackendProvider("m1")
-	if bp == nil {
-		t.Errorf("Expected to retrieve a valid BackendProvider for 'm1'")
-	}
-
-	// Scenario 2: Module ID not found (expects panic)
-	assertPanic(t, func() { ml.GetBackendProvider("missing") }, "Expected panic for missing module ID")
-
-	// Scenario 3: Module found but interface not implemented (expects panic)
-	mWrong := &dummyModule{id: "m2"}
-	ml.AddModule(mWrong)
-	assertPanic(t, func() { ml.GetBackendProvider("m2") }, "Expected panic for module not implementing BackendProvider")
-}
-
-// TestGetBackendListProvider verifies the retrieval of modules implementing the BackendListProvider interface.
-// It checks:
-// 1. Successful retrieval of a compatible module.
-// 2. Panic behavior when the module ID is missing.
-// 3. Panic behavior when the module does not implement the required interface.
-func TestGetBackendListProvider(t *testing.T) {
-	ml := NewModulesList()
-	m := &dummyListProvider{dummyModule: dummyModule{id: "m1"}}
-	ml.AddModule(m)
-
-	// Scenario 1: Correct retrieval
-	blp := ml.GetBackendListProvider("m1")
-	if blp == nil {
-		t.Errorf("Expected to retrieve a valid BackendListProvider for 'm1'")
-	}
-
-	// Scenario 2: Module ID not found (expects panic)
-	assertPanic(t, func() { ml.GetBackendListProvider("missing") }, "Expected panic for missing module ID")
-
-	// Scenario 3: Module found but interface not implemented (expects panic)
-	mWrong := &dummyModule{id: "m2"}
-	ml.AddModule(mWrong)
-	assertPanic(t, func() { ml.GetBackendListProvider("m2") }, "Expected panic for module not implementing BackendListProvider")
-}
-
-// TestGetBackendListProviders verifies that GetBackendListProviders correctly filters
-// and returns all modules in the list that implement the BackendListProvider interface.
-func TestGetBackendListProviders(t *testing.T) {
+// TestFilter verifies that Filter correctly filters
+// and returns all modules in the list that implement the requested interface.
+func TestFilter(t *testing.T) {
 	ml := NewModulesList()
 
 	m1 := &dummyListProvider{dummyModule: dummyModule{id: "m1"}}
@@ -159,7 +105,7 @@ func TestGetBackendListProviders(t *testing.T) {
 	ml.AddModule(m2)
 	ml.AddModule(m3)
 
-	providers := ml.GetBackendListProviders()
+	providers := Filter[backend.BackendListProvider](ml)
 
 	if len(providers) != 2 {
 		t.Fatalf("Expected exactly 2 BackendListProviders, got %d", len(providers))

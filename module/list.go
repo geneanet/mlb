@@ -1,7 +1,7 @@
 package module
 
 import (
-	"mlb/backend"
+	"fmt"
 
 	"github.com/rs/zerolog/log"
 )
@@ -21,63 +21,34 @@ func (ml ModulesList) AddModule(m Module) {
 	ml[m.GetID()] = m
 }
 
-func (ml ModulesList) GetBackendUpdateProvider(id string) backend.BackendUpdateProvider {
-	module, ok := ml[id]
+// TODO: Rewrite Get and Filter as methods of ModulesList when Go 1.27 (supporting generic methods) is released.
 
+func Get[T any](ml ModulesList, id string) T {
+	module, ok := ml[id]
 	if !ok {
 		log.Panic().Str("module", id).Msg("Module does not exist")
 	}
 
-	bup, ok := module.(backend.BackendUpdateProvider)
-
+	target, ok := module.(T)
 	if !ok {
-		log.Panic().Str("module", id).Msg("Module is not a BackendUpdateProvider")
+		log.Panic().
+			Str("module", id).
+			Str("expected", fmt.Sprintf("%T", *new(T))).
+			Str("actual", fmt.Sprintf("%T", module)).
+			Msg("Module is not of the expected type")
 	}
 
-	return bup
+	return target
 }
 
-func (ml ModulesList) GetBackendProvider(id string) backend.BackendProvider {
-	module, ok := ml[id]
+func Filter[T any](ml ModulesList) ModulesList {
+	result := NewModulesList()
 
-	if !ok {
-		log.Panic().Str("module", id).Msg("Module does not exist")
-	}
-
-	bp, ok := module.(backend.BackendProvider)
-
-	if !ok {
-		log.Panic().Str("module", id).Msg("Module is not a BackendProvider")
-	}
-
-	return bp
-}
-
-func (ml ModulesList) GetBackendListProvider(id string) backend.BackendListProvider {
-	module, ok := ml[id]
-
-	if !ok {
-		log.Panic().Str("module", id).Msg("Module does not exist")
-	}
-
-	blp, ok := module.(backend.BackendListProvider)
-
-	if !ok {
-		log.Panic().Str("module", id).Msg("Module is not a BackendListProvider")
-	}
-
-	return blp
-}
-
-func (ml ModulesList) GetBackendListProviders() ModulesList {
-	bpls := NewModulesList()
-
-	for _, module := range ml {
-		_, ok := module.(backend.BackendListProvider)
-		if ok {
-			bpls.AddModule(module)
+	for _, m := range ml {
+		if _, ok := m.(T); ok {
+			result.AddModule(m)
 		}
 	}
 
-	return bpls
+	return result
 }

@@ -364,7 +364,7 @@ func (p *RedisProxy) GetUpdateSource() string {
 }
 
 func (p *RedisProxy) Bind(modules module.ModulesList) {
-	p.SubscribeTo(modules.GetBackendUpdateProvider(p.source))
+	p.SubscribeTo(module.Get[backend.BackendUpdateProvider](modules, p.source))
 
 	// Listening to incoming connections only makes sense after backend providers are available
 	for _, v := range p.addresses {

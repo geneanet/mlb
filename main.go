@@ -98,10 +98,10 @@ func main() {
 		// HTTP Metrics
 		http.HandleFunc("/backends", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Add("Content-Type", "application/json")
-			backendListProviders := ml.GetBackendListProviders()
+			backendListProviders := module.Filter[backend.BackendListProvider](ml)
 			backendsByProvider := make(map[string]backend.BackendsList, len(backendListProviders))
 			for id := range backendListProviders {
-				backendsByProvider[id] = backendListProviders.GetBackendListProvider(id).GetBackendList()
+				backendsByProvider[id] = module.Get[backend.BackendListProvider](backendListProviders, id).GetBackendList()
 			}
 			out, err := json.Marshal(backendsByProvider)
 			if err != nil {

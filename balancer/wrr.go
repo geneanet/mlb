@@ -201,5 +201,6 @@ func (b *WRRBalancer) GetBackendList() []*backend.Backend {
 }
 
 func (b *WRRBalancer) Bind(modules module.ModulesList) {
-	b.SubscribeTo(modules.GetBackendUpdateProvider(b.source))
+	b.SubscribeTo(module.Get[backend.BackendUpdateProvider](modules, b.source))
 }
+
