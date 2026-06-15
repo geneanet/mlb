@@ -2,12 +2,8 @@ package config
 
 import (
 	"fmt"
-	"mlb/backends_inventory"
-	"mlb/backends_processor"
-	"mlb/balancer"
 	"mlb/metrics"
 	"mlb/module"
-	"mlb/proxy"
 	"mlb/system"
 	"os"
 
@@ -138,25 +134,25 @@ func LoadConfig(path string) (*Config, hcl.Diagnostics) {
 	for _, block := range content.Blocks {
 		switch block.Type {
 		case "backends_inventory":
-			config, diagsBackendsInventory := backends_inventory.DecodeConfigBlock(block, ctx)
+			config, diagsBackendsInventory := module.DecodeConfigBlock(block, ctx, "backends_inventory")
 			diags = append(diags, diagsBackendsInventory...)
 			if config != nil {
 				c.BackendsInventoryList = append(c.BackendsInventoryList, config)
 			}
 		case "backends_processor":
-			config, diagsBackendsProcessor := backends_processor.DecodeConfigBlock(block, ctx)
+			config, diagsBackendsProcessor := module.DecodeConfigBlock(block, ctx, "backends_processor")
 			diags = append(diags, diagsBackendsProcessor...)
 			if config != nil {
 				c.BackendsProcessorList = append(c.BackendsProcessorList, config)
 			}
 		case "balancer":
-			config, diagsBalancer := balancer.DecodeConfigBlock(block, ctx)
+			config, diagsBalancer := module.DecodeConfigBlock(block, ctx, "balancer")
 			diags = append(diags, diagsBalancer...)
 			if config != nil {
 				c.BalancerList = append(c.BalancerList, config)
 			}
 		case "proxy":
-			config, diagsProxy := proxy.DecodeConfigBlock(block, ctx)
+			config, diagsProxy := module.DecodeConfigBlock(block, ctx, "proxy")
 			diags = append(diags, diagsProxy...)
 			if config != nil {
 				c.ProxyList = append(c.ProxyList, config)

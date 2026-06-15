@@ -23,7 +23,7 @@ import (
 )
 
 func init() {
-	factories["consul"] = &ConsulBackendsInventoryFactory{}
+	module.Register("backends_inventory", "consul", &ConsulBackendsInventoryFactory{})
 }
 
 type consulService struct {
@@ -68,12 +68,12 @@ type ConsulBackendsInventoryConfig struct {
 
 type ConsulBackendsInventoryFactory struct{}
 
-func (w ConsulBackendsInventoryFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
+func (w ConsulBackendsInventoryFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
 	config := &ConsulBackendsInventoryConfig{}
 	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
 }
 
-func (w ConsulBackendsInventoryFactory) parseConfig(tc *Config) *ConsulBackendsInventoryConfig {
+func (w ConsulBackendsInventoryFactory) parseConfig(tc *module.Config) *ConsulBackendsInventoryConfig {
 	config := &ConsulBackendsInventoryConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode consul backend inventory config")
@@ -91,7 +91,7 @@ func (w ConsulBackendsInventoryFactory) parseConfig(tc *Config) *ConsulBackendsI
 	return config
 }
 
-func (w ConsulBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+func (w ConsulBackendsInventoryFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
 	config := w.parseConfig(tc)
 
 	c := &BackendsInventoryConsul{

@@ -71,12 +71,12 @@ backends_processor "consul_kv" "test" {
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
 
-	cfg, diags := DecodeConfigBlock(block, ctx)
+	cfg, diags := module.DecodeConfigBlock(block, ctx, "backends_processor")
 	if diags.HasErrors() {
 		t.Fatalf("Unexpected errors: %s", diags.Error())
 	}
 
-	diags = ValidateConfig(cfg)
+	diags = module.ValidateConfig(cfg, "backends_processor")
 	if diags.HasErrors() {
 		t.Fatalf("Unexpected errors: %s", diags.Error())
 	}
@@ -85,7 +85,7 @@ backends_processor "consul_kv" "test" {
 	ctxBG, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := New(cfg, wg, ctxBG)
+	mod := module.New(cfg, wg, ctxBG, "backends_processor")
 	consulMod := mod.(*ConsulKV)
 
 	if consulMod.GetID() != "backends_processor.consul_kv.test" {
@@ -208,13 +208,13 @@ backends_processor "consul_kv" "test" {
 `
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
-	cfg, _ := DecodeConfigBlock(block, ctx)
+	cfg, _ := module.DecodeConfigBlock(block, ctx, "backends_processor")
 
 	wg := &sync.WaitGroup{}
 	ctxBG, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := New(cfg, wg, ctxBG)
+	mod := module.New(cfg, wg, ctxBG, "backends_processor")
 	consulMod := mod.(*ConsulKV)
 
 	dp := &dummyProvider{id: "foo", backends: backend.NewRegistry()}
@@ -246,13 +246,13 @@ backends_processor "consul_kv" "test_defaults" {
 `
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
-	cfg, _ := DecodeConfigBlock(block, ctx)
+	cfg, _ := module.DecodeConfigBlock(block, ctx, "backends_processor")
 
 	wg := &sync.WaitGroup{}
 	ctxBG, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := New(cfg, wg, ctxBG)
+	mod := module.New(cfg, wg, ctxBG, "backends_processor")
 	consulMod := mod.(*ConsulKV)
 
 	if consulMod.defaultPeriod != 500*time.Millisecond {
@@ -282,9 +282,9 @@ backends_processor "consul_kv" "test" {
 `
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
-	cfg, _ := DecodeConfigBlock(block, ctx)
+	cfg, _ := module.DecodeConfigBlock(block, ctx, "backends_processor")
 	wg := &sync.WaitGroup{}
-	New(cfg, wg, context.Background())
+	module.New(cfg, wg, context.Background(), "backends_processor")
 }
 
 // TestConsulKV_InvalidMaxPeriod verifies that an invalid max_period configuration causes a panic.
@@ -304,9 +304,9 @@ backends_processor "consul_kv" "test" {
 `
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
-	cfg, _ := DecodeConfigBlock(block, ctx)
+	cfg, _ := module.DecodeConfigBlock(block, ctx, "backends_processor")
 	wg := &sync.WaitGroup{}
-	New(cfg, wg, context.Background())
+	module.New(cfg, wg, context.Background(), "backends_processor")
 }
 
 // TestConsulKV_ReceiveUpdateClosed verifies that the processor handles updates
@@ -320,12 +320,12 @@ backends_processor "consul_kv" "test" {
 `
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
-	cfg, _ := DecodeConfigBlock(block, ctx)
+	cfg, _ := module.DecodeConfigBlock(block, ctx, "backends_processor")
 
 	wg := &sync.WaitGroup{}
 	ctxBG, cancel := context.WithCancel(context.Background())
 
-	mod := New(cfg, wg, ctxBG)
+	mod := module.New(cfg, wg, ctxBG, "backends_processor")
 	consulMod := mod.(*ConsulKV)
 
 	cancel()
@@ -427,7 +427,7 @@ backends_processor "consul_kv" "test" {
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
 
-	cfg := &Config{
+	cfg := &module.Config{
 		Type:   "consul_kv",
 		Name:   "test",
 		Config: block.Body,

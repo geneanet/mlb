@@ -23,7 +23,7 @@ import (
 )
 
 func init() {
-	factories["redis"] = &RedisProxyFactory{}
+	module.Register("proxy", "redis", &RedisProxyFactory{})
 }
 
 type RedisProxy struct {
@@ -69,12 +69,12 @@ type RedisProxyConfig struct {
 
 type RedisProxyFactory struct{}
 
-func (f RedisProxyFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
+func (f RedisProxyFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
 	config := &RedisProxyConfig{}
 	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
 }
 
-func (f RedisProxyFactory) parseConfig(tc *Config) *RedisProxyConfig {
+func (f RedisProxyFactory) parseConfig(tc *module.Config) *RedisProxyConfig {
 	config := &RedisProxyConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode Redis proxy config")
@@ -113,7 +113,7 @@ func (f RedisProxyFactory) parseConfig(tc *Config) *RedisProxyConfig {
 	return config
 }
 
-func (f RedisProxyFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+func (f RedisProxyFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
 	config := f.parseConfig(tc)
 
 	p := &RedisProxy{

@@ -14,7 +14,7 @@ import (
 )
 
 func init() {
-	factories["simple_filter"] = &SimpleFilterFactory{}
+	module.Register("backends_processor", "simple_filter", &SimpleFilterFactory{})
 }
 
 type SimpleFilter struct {
@@ -36,12 +36,12 @@ type SimpleFilterConfig struct {
 
 type SimpleFilterFactory struct{}
 
-func (w SimpleFilterFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
+func (w SimpleFilterFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
 	config := &SimpleFilterConfig{}
 	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
 }
 
-func (w SimpleFilterFactory) parseConfig(tc *Config) *SimpleFilterConfig {
+func (w SimpleFilterFactory) parseConfig(tc *module.Config) *SimpleFilterConfig {
 	config := &SimpleFilterConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode simple filter backend processor config")
@@ -50,7 +50,7 @@ func (w SimpleFilterFactory) parseConfig(tc *Config) *SimpleFilterConfig {
 	return config
 }
 
-func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+func (w SimpleFilterFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
 	config := w.parseConfig(tc)
 
 	f := &SimpleFilter{

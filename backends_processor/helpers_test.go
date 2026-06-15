@@ -1,7 +1,6 @@
 package backends_processor
 
 import (
-	"context"
 	"mlb/backend"
 	"mlb/module"
 	"sync"
@@ -81,76 +80,4 @@ func parseHCL(t *testing.T, src string) *hcl.Block {
 	// Convert hclsyntax.Block to hcl.Block
 	b := body.Blocks[0]
 	return b.AsHCLBlock()
-}
-
-// TestBackendsProcessor_DecodeConfigBlock_Success verifies that a valid backends_processor
-// block is correctly decoded.
-func TestBackendsProcessor_DecodeConfigBlock_Success(t *testing.T) {
-	src := `
-backends_processor "simple_filter" "test" {
-	source = "foo"
-	condition = true
-}
-`
-	block := parseHCL(t, src)
-	ctx := &hcl.EvalContext{}
-
-	cfg, diags := DecodeConfigBlock(block, ctx)
-	if diags.HasErrors() {
-		t.Fatalf("Unexpected errors: %s", diags.Error())
-	}
-	if cfg.Type != "simple_filter" {
-		t.Errorf("Expected type simple_filter, got %s", cfg.Type)
-	}
-	if cfg.Name != "test" {
-		t.Errorf("Expected name test, got %s", cfg.Name)
-	}
-}
-
-// TestBackendsProcessor_DecodeConfigBlock_Unsupported verifies that an error is returned
-// when decoding an unsupported backends_processor type.
-func TestBackendsProcessor_DecodeConfigBlock_Unsupported(t *testing.T) {
-	src := `
-backends_processor "unsupported" "test" {
-}
-`
-	block := parseHCL(t, src)
-	ctx := &hcl.EvalContext{}
-
-	_, diags := DecodeConfigBlock(block, ctx)
-	if !diags.HasErrors() {
-		t.Fatalf("Expected errors but got none")
-	}
-	if diags[0].Summary != "Reference to unsupported backend processor type" {
-		t.Errorf("Unexpected diagnostic summary: %s", diags[0].Summary)
-	}
-}
-
-// TestBackendsProcessor_NewAndValidate verifies the validation and instantiation
-// of a backends_processor module.
-func TestBackendsProcessor_NewAndValidate(t *testing.T) {
-	src := `
-backends_processor "simple_filter" "test" {
-	source = "foo"
-	condition = true
-}
-`
-	block := parseHCL(t, src)
-	ctx := &hcl.EvalContext{}
-
-	cfg, diags := DecodeConfigBlock(block, ctx)
-	if diags.HasErrors() {
-		t.Fatalf("Unexpected errors: %s", diags.Error())
-	}
-
-	diags = ValidateConfig(cfg)
-	if diags.HasErrors() {
-		t.Fatalf("Unexpected errors: %s", diags.Error())
-	}
-
-	wg := &sync.WaitGroup{}
-	mod := New(cfg, wg, context.Background())
-	if mod == nil {
-		t.Fatalf("Expected module, got nil")
-	}
 }

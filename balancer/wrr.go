@@ -20,7 +20,7 @@ import (
 )
 
 func init() {
-	factories["wrr"] = &WRRBalancerFactory{}
+	module.Register("balancer", "wrr", &WRRBalancerFactory{})
 }
 
 type WRRBalancer struct {
@@ -47,12 +47,12 @@ type WRRBalancerConfig struct {
 
 type WRRBalancerFactory struct{}
 
-func (w WRRBalancerFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
+func (w WRRBalancerFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
 	config := &WRRBalancerConfig{}
 	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
 }
 
-func (w WRRBalancerFactory) parseConfig(tc *Config) *WRRBalancerConfig {
+func (w WRRBalancerFactory) parseConfig(tc *module.Config) *WRRBalancerConfig {
 	config := &WRRBalancerConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode WRR balancer config")
@@ -64,7 +64,7 @@ func (w WRRBalancerFactory) parseConfig(tc *Config) *WRRBalancerConfig {
 	return config
 }
 
-func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+func (w WRRBalancerFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
 	config := w.parseConfig(tc)
 
 	b := &WRRBalancer{

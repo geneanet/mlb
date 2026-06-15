@@ -22,14 +22,14 @@ backends_inventory "static" "test" {
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
 
-	cfg, diags := DecodeConfigBlock(block, ctx)
+	cfg, diags := module.DecodeConfigBlock(block, ctx, "backends_inventory")
 	if diags.HasErrors() {
 		t.Fatalf("Unexpected errors: %s", diags.Error())
 	}
 
 	wg := &sync.WaitGroup{}
 	ctxBG := context.Background()
-	mod := New(cfg, wg, ctxBG)
+	mod := module.New(cfg, wg, ctxBG, "backends_inventory")
 
 	staticMod, ok := mod.(*BackendsInventoryStatic)
 	if !ok {
@@ -42,7 +42,7 @@ backends_inventory "static" "test" {
 
 	backends := staticMod.GetBackendList()
 	if len(backends) != 2 {
-		t.Errorf("Expected 2 backends, got %d", len(backends))
+		t.Errorf("Expected 2 backends, got %d", len(backends) )
 	}
 
 	staticMod.Bind(module.ModulesList{}) // Should do nothing
@@ -91,7 +91,7 @@ backends_inventory "static" "test" {
 
 	// Test sendUpdate (even if it's currently unused in normal operation)
 	// We use a fresh inventory to avoid interference with previous tests and subscribers
-	mod2 := New(cfg, wg, ctxBG)
+	mod2 := module.New(cfg, wg, ctxBG, "backends_inventory")
 	staticMod2 := mod2.(*BackendsInventoryStatic)
 
 	sub2 := &dummySubscriber{
@@ -126,7 +126,7 @@ backends_inventory "static" "test" {
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
 
-	cfg := &Config{
+	cfg := &module.Config{
 		Type:   "static",
 		Name:   "test",
 		Config: block.Body,

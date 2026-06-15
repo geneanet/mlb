@@ -82,7 +82,7 @@ func startEchoServer(t *testing.T) net.Listener {
 
 // TestTCPProxyFactory verifies the parsing and validation of a complete HCL configuration block
 // for the TCP proxy. It tests that:
-// 1. The HCL parser correctly maps fields to the Config struct.
+// 1. The HCL parser correctly maps fields to the module.Config struct.
 // 2. The TCPProxyFactory.ValidateConfig method successfully validates a correct config.
 // 3. The TCPProxyFactory.New method creates a ProxyTCP instance with all fields properly initialized.
 // 4. The buffer pool is correctly initialized with the configured buffer size.
@@ -104,7 +104,7 @@ func TestTCPProxyFactory(t *testing.T) {
 		t.Fatal(diags)
 	}
 
-	tc := &Config{
+	tc := &module.Config{
 		Type:   "tcp",
 		Name:   "test_proxy",
 		Config: file.Body,
@@ -163,7 +163,7 @@ func TestTCPProxyFactory_Defaults(t *testing.T) {
 		t.Fatal(diags)
 	}
 
-	tc := &Config{
+	tc := &module.Config{
 		Type:   "tcp",
 		Name:   "test_proxy_def",
 		Config: file.Body,

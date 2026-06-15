@@ -24,7 +24,7 @@ import (
 )
 
 func init() {
-	factories["tcp"] = &TCPProxyFactory{}
+	module.Register("proxy", "tcp", &TCPProxyFactory{})
 }
 
 type ProxyTCP struct {
@@ -75,12 +75,12 @@ type TCPProxyConfig struct {
 
 type TCPProxyFactory struct{}
 
-func (w TCPProxyFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
+func (w TCPProxyFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
 	config := &TCPProxyConfig{}
 	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
 }
 
-func (w TCPProxyFactory) parseConfig(tc *Config) *TCPProxyConfig {
+func (w TCPProxyFactory) parseConfig(tc *module.Config) *TCPProxyConfig {
 	config := &TCPProxyConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode TCP proxy config")
@@ -107,7 +107,7 @@ func (w TCPProxyFactory) parseConfig(tc *Config) *TCPProxyConfig {
 	return config
 }
 
-func (w TCPProxyFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+func (w TCPProxyFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
 	config := w.parseConfig(tc)
 
 	p := &ProxyTCP{

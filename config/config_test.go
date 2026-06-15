@@ -3,6 +3,10 @@ package config
 
 import (
 	"io"
+	_ "mlb/backends_inventory"
+	_ "mlb/backends_processor"
+	_ "mlb/balancer"
+	_ "mlb/proxy"
 	"os"
 	"path/filepath"
 	"testing"

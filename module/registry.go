@@ -22,14 +22,58 @@ type FactoryInterface interface {
 	ValidateConfig(config *Config) hcl.Diagnostics
 }
 
+var registries = make(map[string]map[string]FactoryInterface)
+
+// Register adds a module factory to the central registry.
+func Register(category string, typeName string, factory FactoryInterface) {
+	if _, ok := registries[category]; !ok {
+		registries[category] = make(map[string]FactoryInterface)
+	}
+	registries[category][typeName] = factory
+}
+
+// Unregister removes a module factory from the central registry.
+func Unregister(category string, typeName string) {
+	if reg, ok := registries[category]; ok {
+		delete(reg, typeName)
+	}
+}
+
+// GetFactory returns a module factory from the central registry.
+func GetFactory(category string, typeName string) FactoryInterface {
+	if reg, ok := registries[category]; ok {
+		return reg[typeName]
+	}
+	return nil
+}
+
+// New creates a new module instance using the central registry.
+func New(config *Config, wg *sync.WaitGroup, ctx context.Context, category string) Module {
+	factory := GetFactory(category, config.Type)
+	if factory == nil {
+		panic(fmt.Sprintf("module type %q not found in category %q", config.Type, category))
+	}
+	return factory.New(config, wg, ctx)
+}
+
+// ValidateConfig validates a module configuration using the central registry.
+func ValidateConfig(config *Config, category string) hcl.Diagnostics {
+	factory := GetFactory(category, config.Type)
+	if factory == nil {
+		panic(fmt.Sprintf("module type %q not found in category %q", config.Type, category))
+	}
+	return factory.ValidateConfig(config)
+}
+
 // DecodeConfigBlock is a generic helper to decode an HCL block into a Config.
-func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext, factories map[string]FactoryInterface, moduleName string) (*Config, hcl.Diagnostics) {
-	if _, ok := factories[block.Labels[0]]; !ok {
+func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext, category string) (*Config, hcl.Diagnostics) {
+	factory := GetFactory(category, block.Labels[0])
+	if factory == nil {
 		return nil, hcl.Diagnostics{
 			{
 				Severity: hcl.DiagError,
-				Summary:  fmt.Sprintf("Reference to unsupported %s type", moduleName),
-				Detail:   fmt.Sprintf("%s type %q is not supported.", moduleName, block.Labels[0]),
+				Summary:  fmt.Sprintf("Reference to unsupported %s type", category),
+				Detail:   fmt.Sprintf("%s type %q is not supported.", category, block.Labels[0]),
 				Subject:  &block.LabelRanges[0],
 			},
 		}
@@ -40,6 +84,6 @@ func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext, factories map[str
 		Config: block.Body,
 		Ctx:    ctx,
 	}
-	diags := factories[tc.Type].ValidateConfig(tc)
+	diags := factory.ValidateConfig(tc)
 	return tc, diags
 }

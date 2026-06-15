@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"flag"
 	"mlb/backend"
-	"mlb/backends_inventory"
-	"mlb/backends_processor"
-	"mlb/balancer"
+	_ "mlb/backends_inventory"
+	_ "mlb/backends_processor"
+	_ "mlb/balancer"
 	"mlb/config"
 	"mlb/metrics"
 	"mlb/module"
-	"mlb/proxy"
+	_ "mlb/proxy"
 	"mlb/system"
 	"net/http"
 	"os"
@@ -78,16 +78,16 @@ func main() {
 		ml := module.NewModulesList()
 
 		for _, c := range conf.BackendsInventoryList {
-			ml.AddModule(backends_inventory.New(c, &wg, ctx))
+			ml.AddModule(module.New(c, &wg, ctx, "backends_inventory"))
 		}
 		for _, c := range conf.BackendsProcessorList {
-			ml.AddModule(backends_processor.New(c, &wg, ctx))
+			ml.AddModule(module.New(c, &wg, ctx, "backends_processor"))
 		}
 		for _, c := range conf.BalancerList {
-			ml.AddModule(balancer.New(c, &wg, ctx))
+			ml.AddModule(module.New(c, &wg, ctx, "balancer"))
 		}
 		for _, c := range conf.ProxyList {
-			ml.AddModule(proxy.New(c, &wg, ctx))
+			ml.AddModule(module.New(c, &wg, ctx, "proxy"))
 		}
 
 		// Bind modules together

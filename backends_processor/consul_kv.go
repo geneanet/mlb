@@ -22,7 +22,7 @@ import (
 )
 
 func init() {
-	factories["consul_kv"] = &ConsulKVFactory{}
+	module.Register("backends_processor", "consul_kv", &ConsulKVFactory{})
 }
 
 type ConsulKV struct {
@@ -61,12 +61,12 @@ type ConsulKVValueConfig struct {
 
 type ConsulKVFactory struct{}
 
-func (w ConsulKVFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
+func (w ConsulKVFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
 	config := &ConsulKVConfig{}
 	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
 }
 
-func (w ConsulKVFactory) parseConfig(tc *Config) *ConsulKVConfig {
+func (w ConsulKVFactory) parseConfig(tc *module.Config) *ConsulKVConfig {
 	config := &ConsulKVConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode consul kv backend processor config")
@@ -84,7 +84,7 @@ func (w ConsulKVFactory) parseConfig(tc *Config) *ConsulKVConfig {
 	return config
 }
 
-func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+func (w ConsulKVFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
 	config := w.parseConfig(tc)
 
 	c := &ConsulKV{

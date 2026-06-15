@@ -123,12 +123,12 @@ backends_inventory "consul" "test" {
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
 
-	cfg, diags := DecodeConfigBlock(block, ctx)
+	cfg, diags := module.DecodeConfigBlock(block, ctx, "backends_inventory")
 	if diags.HasErrors() {
 		t.Fatalf("Unexpected errors: %s", diags.Error())
 	}
 
-	diags = ValidateConfig(cfg)
+	diags = module.ValidateConfig(cfg, "backends_inventory")
 	if diags.HasErrors() {
 		t.Fatalf("Unexpected errors: %s", diags.Error())
 	}
@@ -137,7 +137,7 @@ backends_inventory "consul" "test" {
 	ctxBG, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := New(cfg, wg, ctxBG)
+	mod := module.New(cfg, wg, ctxBG, "backends_inventory")
 	consulMod, ok := mod.(*BackendsInventoryConsul)
 	if !ok {
 		t.Fatalf("Expected *BackendsInventoryConsul")
@@ -228,12 +228,12 @@ backends_inventory "consul" "test_err" {
 `
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
-	cfg, _ := DecodeConfigBlock(block, ctx)
+	cfg, _ := module.DecodeConfigBlock(block, ctx, "backends_inventory")
 
 	wg := &sync.WaitGroup{}
 	ctxBG, cancel := context.WithCancel(context.Background())
 
-	mod := New(cfg, wg, ctxBG)
+	mod := module.New(cfg, wg, ctxBG, "backends_inventory")
 
 	// Wait for at least one fetch attempt
 	testutil.Eventually(t, func() bool {
@@ -273,12 +273,12 @@ backends_inventory "consul" "test_rec" {
 `
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
-	cfg, _ := DecodeConfigBlock(block, ctx)
+	cfg, _ := module.DecodeConfigBlock(block, ctx, "backends_inventory")
 
 	wg := &sync.WaitGroup{}
 	ctxBG, cancel := context.WithCancel(context.Background())
 
-	New(cfg, wg, ctxBG)
+	module.New(cfg, wg, ctxBG, "backends_inventory")
 
 	// Let it fail and then succeed
 	testutil.Eventually(t, func() bool {
@@ -311,12 +311,12 @@ backends_inventory "consul" "test_cancel" {
 `
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
-	cfg, _ := DecodeConfigBlock(block, ctx)
+	cfg, _ := module.DecodeConfigBlock(block, ctx, "backends_inventory")
 
 	wg := &sync.WaitGroup{}
 	ctxBG, cancel := context.WithCancel(context.Background())
 
-	New(cfg, wg, ctxBG)
+	module.New(cfg, wg, ctxBG, "backends_inventory")
 
 	// Wait a bit so the fetch call begins and is blocked
 	testutil.Eventually(t, func() bool {
@@ -382,13 +382,13 @@ backends_inventory "consul" "test_pu" {
 `
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
-	cfg, _ := DecodeConfigBlock(block, ctx)
+	cfg, _ := module.DecodeConfigBlock(block, ctx, "backends_inventory")
 
 	wg := &sync.WaitGroup{}
 	ctxBG, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := New(cfg, wg, ctxBG)
+	mod := module.New(cfg, wg, ctxBG, "backends_inventory")
 	consulMod := mod.(*BackendsInventoryConsul)
 
 	// Wait for the first fetch so backend is populated
@@ -428,7 +428,7 @@ backends_inventory "consul" "test" {
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
 
-	cfg := &Config{
+	cfg := &module.Config{
 		Type:   "consul",
 		Name:   "test",
 		Config: block.Body,

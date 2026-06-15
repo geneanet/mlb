@@ -15,7 +15,7 @@ import (
 )
 
 func init() {
-	factories["static"] = &StaticBackendsInventoryFactory{}
+	module.Register("backends_inventory", "static", &StaticBackendsInventoryFactory{})
 }
 
 type BackendsInventoryStatic struct {
@@ -33,12 +33,12 @@ type StaticBackendsInventoryConfig struct {
 
 type StaticBackendsInventoryFactory struct{}
 
-func (w StaticBackendsInventoryFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
+func (w StaticBackendsInventoryFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
 	config := &StaticBackendsInventoryConfig{}
 	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
 }
 
-func (w StaticBackendsInventoryFactory) parseConfig(tc *Config) *StaticBackendsInventoryConfig {
+func (w StaticBackendsInventoryFactory) parseConfig(tc *module.Config) *StaticBackendsInventoryConfig {
 	config := &StaticBackendsInventoryConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode static backend inventory config")
@@ -47,7 +47,7 @@ func (w StaticBackendsInventoryFactory) parseConfig(tc *Config) *StaticBackendsI
 	return config
 }
 
-func (w StaticBackendsInventoryFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+func (w StaticBackendsInventoryFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
 	config := w.parseConfig(tc)
 
 	c := &BackendsInventoryStatic{

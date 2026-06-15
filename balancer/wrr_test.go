@@ -41,14 +41,14 @@ func (mp *mockProvider) sendUpdate(upd backend.BackendUpdate) {
 // TestWRRBalancer_ValidateConfig verifies that a valid WRR balancer configuration
 // passes the validation check.
 func TestWRRBalancer_ValidateConfig(t *testing.T) {
-	factory := factories["wrr"]
+	factory := module.GetFactory("balancer", "wrr")
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
 			"source": {Name: "source", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("src1")}},
 			"weight": {Name: "weight", Expr: &hclsyntax.LiteralValueExpr{Val: cty.NumberIntVal(2)}},
 		},
 	}
-	cfg := &Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
+	cfg := &module.Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
 	diags := factory.ValidateConfig(cfg)
 	if diags.HasErrors() {
 		t.Errorf("Unexpected diags: %s", diags.Error())
@@ -64,12 +64,12 @@ func TestWRRBalancer_DefaultTimeout(t *testing.T) {
 			"weight": {Name: "weight", Expr: &hclsyntax.LiteralValueExpr{Val: cty.NumberIntVal(2)}},
 		},
 	}
-	cfg := &Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
+	cfg := &module.Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	factory := factories["wrr"]
+	factory := module.GetFactory("balancer", "wrr")
 	mod := factory.New(cfg, wg, ctx)
 	balancer := mod.(*WRRBalancer)
 
@@ -86,7 +86,7 @@ func TestWRRBalancer_InvalidTimeout(t *testing.T) {
 			t.Errorf("Expected panic due to invalid timeout")
 		}
 	}()
-	factory := factories["wrr"]
+	factory := module.GetFactory("balancer", "wrr")
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
 			"source":  {Name: "source", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("src1")}},
@@ -94,7 +94,7 @@ func TestWRRBalancer_InvalidTimeout(t *testing.T) {
 			"timeout": {Name: "timeout", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("invalid")}},
 		},
 	}
-	cfg := &Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
+	cfg := &module.Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -111,12 +111,12 @@ func TestWRRBalancer_WaitBackend(t *testing.T) {
 			"timeout": {Name: "timeout", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("1s")}},
 		},
 	}
-	cfg := &Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
+	cfg := &module.Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	factory := factories["wrr"]
+	factory := module.GetFactory("balancer", "wrr")
 	mod := factory.New(cfg, wg, ctx)
 	balancer := mod.(*WRRBalancer)
 
@@ -162,12 +162,12 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 			"var_weight": cty.NumberIntVal(2),
 		},
 	}
-	cfg := &Config{Name: "test", Type: "wrr", Config: body, Ctx: evalCtx}
+	cfg := &module.Config{Name: "test", Type: "wrr", Config: body, Ctx: evalCtx}
 
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 
-	factory := factories["wrr"]
+	factory := module.GetFactory("balancer", "wrr")
 	mod := factory.New(cfg, wg, ctx)
 	balancer := mod.(*WRRBalancer)
 
@@ -306,6 +306,47 @@ func parseHCL(t *testing.T, src string) *hcl.Block {
 	return b.AsHCLBlock()
 }
 
+// TestWRRBalancer_RegistryIntegration verifies that the WRR balancer can be correctly
+// decoded, validated, and instantiated using the global module registry functions.
+func TestWRRBalancer_RegistryIntegration(t *testing.T) {
+	src := `
+balancer "wrr" "test" {
+	source = "src1"
+	weight = 2
+}
+`
+	block := parseHCL(t, src)
+	ctx := &hcl.EvalContext{}
+
+	// 1. Test DecodeConfigBlock
+	cfg, diags := module.DecodeConfigBlock(block, ctx, "balancer")
+	if diags.HasErrors() {
+		t.Fatalf("DecodeConfigBlock failed: %s", diags.Error())
+	}
+	if cfg.Type != "wrr" || cfg.Name != "test" {
+		t.Errorf("Unexpected config: %+v", cfg)
+	}
+
+	// 2. Test ValidateConfig
+	diags = module.ValidateConfig(cfg, "balancer")
+	if diags.HasErrors() {
+		t.Fatalf("ValidateConfig failed: %s", diags.Error())
+	}
+
+	// 3. Test New
+	wg := &sync.WaitGroup{}
+	bgCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mod := module.New(cfg, wg, bgCtx, "balancer")
+	if mod == nil {
+		t.Fatal("module.New returned nil")
+	}
+	if _, ok := mod.(*WRRBalancer); !ok {
+		t.Errorf("Expected *WRRBalancer, got %T", mod)
+	}
+}
+
 // TestWRRBalancer_ParseConfigError verifies that parseConfig handles HCL decoding errors.
 func TestWRRBalancer_ParseConfigError(t *testing.T) {
 	// Invalid config (source should be a string, not a list)
@@ -318,7 +359,7 @@ balancer "wrr" "test" {
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
 
-	cfg := &Config{
+	cfg := &module.Config{
 		Type:   "wrr",
 		Name:   "test",
 		Config: block.Body,

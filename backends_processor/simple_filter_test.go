@@ -25,7 +25,7 @@ backends_processor "simple_filter" "test" {
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
 
-	cfg, diags := DecodeConfigBlock(block, ctx)
+	cfg, diags := module.DecodeConfigBlock(block, ctx, "backends_processor")
 	if diags.HasErrors() {
 		t.Fatalf("Unexpected errors: %s", diags.Error())
 	}
@@ -34,7 +34,7 @@ backends_processor "simple_filter" "test" {
 	ctxBG, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := New(cfg, wg, ctxBG)
+	mod := module.New(cfg, wg, ctxBG, "backends_processor")
 	filterMod, ok := mod.(*SimpleFilter)
 	if !ok {
 		t.Fatalf("Expected *SimpleFilter")
@@ -122,7 +122,7 @@ backends_processor "simple_filter" "test" {
 `
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
-	cfg, diags := DecodeConfigBlock(block, ctx)
+	cfg, diags := module.DecodeConfigBlock(block, ctx, "backends_processor")
 	if diags.HasErrors() {
 		t.Fatalf("Unexpected errors: %s", diags.Error())
 	}
@@ -131,7 +131,7 @@ backends_processor "simple_filter" "test" {
 	ctxBG, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := New(cfg, wg, ctxBG)
+	mod := module.New(cfg, wg, ctxBG, "backends_processor")
 	filterMod := mod.(*SimpleFilter)
 
 	// Add an item directly to bypass wait issues, or via provider
@@ -167,7 +167,7 @@ backends_processor "simple_filter" "test_meta" {
 `
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
-	cfg, diags := DecodeConfigBlock(block, ctx)
+	cfg, diags := module.DecodeConfigBlock(block, ctx, "backends_processor")
 	if diags.HasErrors() {
 		t.Fatalf("Unexpected errors: %s", diags.Error())
 	}
@@ -176,7 +176,7 @@ backends_processor "simple_filter" "test_meta" {
 	ctxBG, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := New(cfg, wg, ctxBG)
+	mod := module.New(cfg, wg, ctxBG, "backends_processor")
 	filterMod := mod.(*SimpleFilter)
 
 	dp := &dummyProvider{id: "foo", backends: backend.NewRegistry()}
@@ -261,14 +261,14 @@ func waitSub(t *testing.T, sub *dummySubscriber, name string) {
 // TestSimpleFilter_ReceiveUpdateClosed verifies that the filter handles updates
 // gracefully after it has been shut down.
 func TestSimpleFilter_ReceiveUpdateClosed(t *testing.T) {
-	factory := factories["simple_filter"]
+	factory := module.GetFactory("backends_processor", "simple_filter")
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
 			"source":    {Name: "source", Expr: &hclsyntax.TemplateExpr{Parts: []hclsyntax.Expression{&hclsyntax.LiteralValueExpr{Val: cty.StringVal("test")}}}},
 			"condition": {Name: "condition", Expr: &hclsyntax.LiteralValueExpr{Val: cty.BoolVal(true)}},
 		},
 	}
-	config := &Config{Name: "test", Type: "simple_filter", Config: body, Ctx: &hcl.EvalContext{}}
+	config := &module.Config{Name: "test", Type: "simple_filter", Config: body, Ctx: &hcl.EvalContext{}}
 
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -293,7 +293,7 @@ backends_processor "simple_filter" "test" {
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
 
-	cfg := &Config{
+	cfg := &module.Config{
 		Type:   "simple_filter",
 		Name:   "test",
 		Config: block.Body,

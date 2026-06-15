@@ -147,7 +147,7 @@ func (m *mockSubscriber) GetUpdateSource() string                       { return
 func TestMySQL(t *testing.T) {
 	mysqlDriverName = "mysql_mock"
 
-	factory := factories["mysql"]
+	factory := module.GetFactory("backends_processor", "mysql")
 
 	// Create a mock config
 	body := &hclsyntax.Body{
@@ -164,7 +164,7 @@ func TestMySQL(t *testing.T) {
 		},
 	}
 
-	config := &Config{
+	config := &module.Config{
 		Name:   "test",
 		Type:   "mysql",
 		Config: body,
@@ -288,15 +288,15 @@ func TestMySQL(t *testing.T) {
 // including backoff logic, connection errors, and metadata update scenarios.
 func TestMySQL_Coverage(t *testing.T) {
 	mysqlDriverName = "mysql_mock"
-	factory := factories["mysql"]
+	factory := module.GetFactory("backends_processor", "mysql")
 
-	// 1. Defaults parsing in Config
+	// 1. Defaults parsing in module.Config
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
 			"source": {Name: "source", Expr: &hclsyntax.TemplateExpr{Parts: []hclsyntax.Expression{&hclsyntax.LiteralValueExpr{Val: cty.StringVal("test_cov")}}}},
 		},
 	}
-	config := &Config{Name: "test_cov", Type: "mysql", Config: body, Ctx: &hcl.EvalContext{}}
+	config := &module.Config{Name: "test_cov", Type: "mysql", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	mod := factory.New(config, wg, ctx)
@@ -416,7 +416,7 @@ backends_processor "mysql" "test" {
 	block := parseHCL(t, src)
 	ctx := &hcl.EvalContext{}
 
-	cfg := &Config{
+	cfg := &module.Config{
 		Type:   "mysql",
 		Name:   "test",
 		Config: block.Body,

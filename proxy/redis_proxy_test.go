@@ -32,7 +32,7 @@ func TestRedisProxyFactory_ValidateConfig(t *testing.T) {
 		t.Fatal(diags)
 	}
 
-	tc := &Config{
+	tc := &module.Config{
 		Type:   "redis_proxy",
 		Name:   "test",
 		Config: file.Body,
@@ -42,6 +42,59 @@ func TestRedisProxyFactory_ValidateConfig(t *testing.T) {
 	res := f.ValidateConfig(tc)
 	if res.HasErrors() {
 		t.Errorf("unexpected errors: %v", res)
+	}
+}
+
+// TestRedisProxy_RegistryIntegration verifies that the Redis proxy can be correctly
+// decoded, validated, and instantiated using the global module registry functions.
+func TestRedisProxy_RegistryIntegration(t *testing.T) {
+	configHCL := []byte(`
+		source = "test-source"
+		addresses = ["127.0.0.1:0"]
+	`)
+
+	file, diags := hclsyntax.ParseConfig(configHCL, "config.hcl", hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+
+	block := &hcl.Block{
+		Type:   "proxy",
+		Labels: []string{"redis", "test"},
+		Body:   file.Body,
+		LabelRanges: []hcl.Range{
+			{Start: hcl.Pos{Line: 1, Column: 1}, End: hcl.Pos{Line: 1, Column: 10}},
+			{Start: hcl.Pos{Line: 1, Column: 11}, End: hcl.Pos{Line: 1, Column: 20}},
+		},
+	}
+	ctx := &hcl.EvalContext{}
+
+	// 1. Test DecodeConfigBlock
+	cfg, diags := module.DecodeConfigBlock(block, ctx, "proxy")
+	if diags.HasErrors() {
+		t.Fatalf("DecodeConfigBlock failed: %v", diags)
+	}
+	if cfg.Type != "redis" || cfg.Name != "test" {
+		t.Errorf("Unexpected config: %+v", cfg)
+	}
+
+	// 2. Test ValidateConfig
+	diags = module.ValidateConfig(cfg, "proxy")
+	if diags.HasErrors() {
+		t.Fatalf("ValidateConfig failed: %v", diags)
+	}
+
+	// 3. Test New
+	wg := &sync.WaitGroup{}
+	bgCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mod := module.New(cfg, wg, bgCtx, "proxy")
+	if mod == nil {
+		t.Fatal("module.New returned nil")
+	}
+	if _, ok := mod.(*RedisProxy); !ok {
+		t.Errorf("Expected *RedisProxy, got %T", mod)
 	}
 }
 
@@ -59,7 +112,7 @@ func TestRedisProxyFactory_parseConfig(t *testing.T) {
 		t.Fatal(diags)
 	}
 
-	tc := &Config{
+	tc := &module.Config{
 		Type:   "redis_proxy",
 		Name:   "test",
 		Config: file.Body,
@@ -118,7 +171,7 @@ func TestRedisProxyFactory_New(t *testing.T) {
 		t.Fatal(diags)
 	}
 
-	tc := &Config{
+	tc := &module.Config{
 		Type:   "redis_proxy",
 		Name:   "test",
 		Config: file.Body,
@@ -223,7 +276,7 @@ func TestRedisProxy_ListenAndConnection(t *testing.T) {
 		t.Fatal(diags)
 	}
 
-	tc := &Config{
+	tc := &module.Config{
 		Type:   "redis_proxy",
 		Name:   "test",
 		Config: file.Body,

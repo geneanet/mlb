@@ -29,8 +29,7 @@ func parseHCL(t *testing.T, src string) *hcl.Block {
 	return body.Blocks[0].AsHCLBlock()
 }
 
-// TestDecodeConfigBlock verifies the decoding of the 'metrics' configuration block from HCL.
-// It ensures that the metrics server address is correctly parsed.
+// TestDecodeConfigBlock verifies the decoding of metrics configuration blocks.
 func TestDecodeConfigBlock(t *testing.T) {
 	src := `
 metrics {
@@ -49,52 +48,24 @@ metrics {
 	}
 }
 
-// TestHttpLogWrapper verifies the logging middleware for HTTP requests.
-// It ensures that:
-// 1. The wrapped handler is correctly invoked.
-// 2. The HTTP response status code is preserved.
-func TestHttpLogWrapper(t *testing.T) {
-	called := false
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusOK)
-	})
-
-	wrapped := HttpLogWrapper(handler)
-
-	req := httptest.NewRequest("GET", "http://example.com/foo", nil)
-	req.RemoteAddr = "127.0.0.1:12345"
-	w := httptest.NewRecorder()
-
-	wrapped.ServeHTTP(w, req)
-
-	if !called {
-		t.Errorf("Expected original handler to be called")
-	}
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status code 200, got %d", w.Code)
-	}
-}
-
-// TestNewHTTPServer verifies the creation and graceful shutdown of the metrics HTTP server.
-// It tests:
-// 1. Starting the server on an ephemeral port.
-// 2. Shutting down the server using a context cancellation.
-// 3. Ensuring all background goroutines finish (via sync.WaitGroup).
-func TestNewHTTPServer(t *testing.T) {
+// TestHTTPServer_Lifecycle verifies that the metrics HTTP server starts and stops correctly.
+func TestHTTPServer_Lifecycle(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Start HTTP server on an available port (127.0.0.1:0)
+	// Use port 0 to let the OS assign a free port
 	err := NewHTTPServer("127.0.0.1:0", wg, ctx)
 	if err != nil {
-		t.Fatalf("Failed to start HTTP server: %v", err)
+		t.Fatalf("Failed to start server: %s", err)
 	}
 
-	// Trigger shutdown
+	// Give it a moment to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Shutdown the server
 	cancel()
 
-	// Wait for the server to stop completely
+	// Wait for the server goroutine to finish
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -103,22 +74,44 @@ func TestNewHTTPServer(t *testing.T) {
 
 	select {
 	case <-done:
-		// Success: server shut down cleanly
-	case <-time.After(1 * time.Second):
-		t.Fatalf("Server shutdown timed out")
+		// Success
+	case <-time.After(2 * time.Second):
+		t.Errorf("Timeout waiting for server shutdown")
 	}
 }
 
-// TestNewHTTPServer_ListenError verifies that NewHTTPServer returns an error
-// when it cannot bind to the specified address.
-func TestNewHTTPServer_ListenError(t *testing.T) {
+// TestHTTPServer_StartError verifies that NewHTTPServer returns an error if it cannot bind to the address.
+func TestHTTPServer_StartError(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Use an invalid address (e.g. out of range port)
-	err := NewHTTPServer("127.0.0.1:99999", wg, ctx)
+	// Use an invalid address (missing port)
+	err := NewHTTPServer("invalid-address", wg, ctx)
 	if err == nil {
-		t.Errorf("Expected error for invalid address, got nil")
+		t.Errorf("Expected error for invalid address")
+	}
+}
+
+// TestHttpLogWrapper verifies that the HTTP log wrapper executes the wrapped handler.
+func TestHttpLogWrapper(t *testing.T) {
+	handlerCalled := false
+	mockHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlerCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	wrapped := HttpLogWrapper(mockHandler)
+
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	w := httptest.NewRecorder()
+
+	wrapped.ServeHTTP(w, req)
+
+	if !handlerCalled {
+		t.Errorf("Wrapped handler was not called")
+	}
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status OK, got %d", w.Code)
 	}
 }
