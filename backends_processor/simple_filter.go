@@ -38,12 +38,12 @@ type SimpleFilterFactory struct{}
 
 func (w SimpleFilterFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 	config := &SimpleFilterConfig{}
-	return gohcl.DecodeBody(tc.Config, tc.ctx, config)
+	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
 }
 
 func (w SimpleFilterFactory) parseConfig(tc *Config) *SimpleFilterConfig {
 	config := &SimpleFilterConfig{}
-	if diags := gohcl.DecodeBody(tc.Config, tc.ctx, config); diags.HasErrors() {
+	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode simple filter backend processor config")
 	}
 	config.ID = fmt.Sprintf("backends_processor.%s.%s", tc.Type, tc.Name)
@@ -61,7 +61,7 @@ func (w SimpleFilterFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Con
 		updChanStop: make(chan struct{}),
 		source:      config.Source,
 		condition:   config.Condition,
-		evalCtx:     tc.ctx,
+		evalCtx:     tc.Ctx,
 	}
 
 	ctx, cancel := context.WithCancel(ctx)

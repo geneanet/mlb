@@ -71,12 +71,12 @@ type RedisProxyFactory struct{}
 
 func (f RedisProxyFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 	config := &RedisProxyConfig{}
-	return gohcl.DecodeBody(tc.Config, tc.ctx, config)
+	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
 }
 
 func (f RedisProxyFactory) parseConfig(tc *Config) *RedisProxyConfig {
 	config := &RedisProxyConfig{}
-	if diags := gohcl.DecodeBody(tc.Config, tc.ctx, config); diags.HasErrors() {
+	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode Redis proxy config")
 	}
 	config.ID = fmt.Sprintf("proxy.%s.%s", tc.Type, tc.Name)

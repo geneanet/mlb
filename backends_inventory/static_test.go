@@ -130,7 +130,7 @@ backends_inventory "static" "test" {
 		Type:   "static",
 		Name:   "test",
 		Config: block.Body,
-		ctx:    ctx,
+		Ctx:    ctx,
 	}
 
 	factory := StaticBackendsInventoryFactory{}

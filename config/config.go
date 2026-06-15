@@ -6,6 +6,7 @@ import (
 	"mlb/backends_processor"
 	"mlb/balancer"
 	"mlb/metrics"
+	"mlb/module"
 	"mlb/proxy"
 	"mlb/system"
 	"os"
@@ -18,10 +19,10 @@ import (
 )
 
 type Config struct {
-	BackendsInventoryList []*backends_inventory.Config
-	BackendsProcessorList []*backends_processor.Config
-	BalancerList          []*balancer.Config
-	ProxyList             []*proxy.Config
+	BackendsInventoryList []*module.Config
+	BackendsProcessorList []*module.Config
+	BalancerList          []*module.Config
+	ProxyList             []*module.Config
 	Metrics               *metrics.MetricsConfig
 	System                *system.SystemConfig
 }
@@ -67,10 +68,10 @@ func LoadConfig(path string) (*Config, hcl.Diagnostics) {
 	diags := hcl.Diagnostics{}
 	p := hclparse.NewParser()
 	c := &Config{
-		BackendsInventoryList: []*backends_inventory.Config{},
-		BackendsProcessorList: []*backends_processor.Config{},
-		BalancerList:          []*balancer.Config{},
-		ProxyList:             []*proxy.Config{},
+		BackendsInventoryList: []*module.Config{},
+		BackendsProcessorList: []*module.Config{},
+		BalancerList:          []*module.Config{},
+		ProxyList:             []*module.Config{},
 	}
 
 	defer func() {

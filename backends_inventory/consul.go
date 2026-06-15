@@ -70,12 +70,12 @@ type ConsulBackendsInventoryFactory struct{}
 
 func (w ConsulBackendsInventoryFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 	config := &ConsulBackendsInventoryConfig{}
-	return gohcl.DecodeBody(tc.Config, tc.ctx, config)
+	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
 }
 
 func (w ConsulBackendsInventoryFactory) parseConfig(tc *Config) *ConsulBackendsInventoryConfig {
 	config := &ConsulBackendsInventoryConfig{}
-	if diags := gohcl.DecodeBody(tc.Config, tc.ctx, config); diags.HasErrors() {
+	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode consul backend inventory config")
 	}
 	config.ID = fmt.Sprintf("backends_inventory.%s.%s", tc.Type, tc.Name)

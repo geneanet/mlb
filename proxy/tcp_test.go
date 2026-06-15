@@ -108,7 +108,7 @@ func TestTCPProxyFactory(t *testing.T) {
 		Type:   "tcp",
 		Name:   "test_proxy",
 		Config: file.Body,
-		ctx:    &hcl.EvalContext{},
+		Ctx:    &hcl.EvalContext{},
 	}
 
 	factory := TCPProxyFactory{}
@@ -167,7 +167,7 @@ func TestTCPProxyFactory_Defaults(t *testing.T) {
 		Type:   "tcp",
 		Name:   "test_proxy_def",
 		Config: file.Body,
-		ctx:    &hcl.EvalContext{},
+		Ctx:    &hcl.EvalContext{},
 	}
 
 	factory := TCPProxyFactory{}

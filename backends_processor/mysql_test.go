@@ -168,7 +168,7 @@ func TestMySQL(t *testing.T) {
 		Name:   "test",
 		Type:   "mysql",
 		Config: body,
-		ctx:    &hcl.EvalContext{},
+		Ctx:    &hcl.EvalContext{},
 	}
 
 	diags := factory.ValidateConfig(config)
@@ -296,7 +296,7 @@ func TestMySQL_Coverage(t *testing.T) {
 			"source": {Name: "source", Expr: &hclsyntax.TemplateExpr{Parts: []hclsyntax.Expression{&hclsyntax.LiteralValueExpr{Val: cty.StringVal("test_cov")}}}},
 		},
 	}
-	config := &Config{Name: "test_cov", Type: "mysql", Config: body, ctx: &hcl.EvalContext{}}
+	config := &Config{Name: "test_cov", Type: "mysql", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	mod := factory.New(config, wg, ctx)
@@ -420,7 +420,7 @@ backends_processor "mysql" "test" {
 		Type:   "mysql",
 		Name:   "test",
 		Config: block.Body,
-		ctx:    ctx,
+		Ctx:    ctx,
 	}
 
 	factory := MySQLCheckerFactory{}

@@ -35,12 +35,12 @@ type StaticBackendsInventoryFactory struct{}
 
 func (w StaticBackendsInventoryFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 	config := &StaticBackendsInventoryConfig{}
-	return gohcl.DecodeBody(tc.Config, tc.ctx, config)
+	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
 }
 
 func (w StaticBackendsInventoryFactory) parseConfig(tc *Config) *StaticBackendsInventoryConfig {
 	config := &StaticBackendsInventoryConfig{}
-	if diags := gohcl.DecodeBody(tc.Config, tc.ctx, config); diags.HasErrors() {
+	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode static backend inventory config")
 	}
 	config.ID = fmt.Sprintf("backends_inventory.%s.%s", tc.Type, tc.Name)

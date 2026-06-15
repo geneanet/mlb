@@ -63,12 +63,12 @@ type ConsulKVFactory struct{}
 
 func (w ConsulKVFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 	config := &ConsulKVConfig{}
-	return gohcl.DecodeBody(tc.Config, tc.ctx, config)
+	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
 }
 
 func (w ConsulKVFactory) parseConfig(tc *Config) *ConsulKVConfig {
 	config := &ConsulKVConfig{}
-	if diags := gohcl.DecodeBody(tc.Config, tc.ctx, config); diags.HasErrors() {
+	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode consul kv backend processor config")
 	}
 	config.ID = fmt.Sprintf("backends_processor.%s.%s", tc.Type, tc.Name)
@@ -97,7 +97,7 @@ func (w ConsulKVFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Context
 		source:        config.Source,
 		backends:      backend.NewRegistry(),
 		defaultValues: make(map[string]cty.Value),
-		evalCtx:       tc.ctx,
+		evalCtx:       tc.Ctx,
 		watchers:      make(map[string][]*consulKVWatcher),
 	}
 

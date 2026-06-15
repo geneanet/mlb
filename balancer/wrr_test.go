@@ -48,7 +48,7 @@ func TestWRRBalancer_ValidateConfig(t *testing.T) {
 			"weight": {Name: "weight", Expr: &hclsyntax.LiteralValueExpr{Val: cty.NumberIntVal(2)}},
 		},
 	}
-	cfg := &Config{Name: "test", Type: "wrr", Config: body, ctx: &hcl.EvalContext{}}
+	cfg := &Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
 	diags := factory.ValidateConfig(cfg)
 	if diags.HasErrors() {
 		t.Errorf("Unexpected diags: %s", diags.Error())
@@ -64,7 +64,7 @@ func TestWRRBalancer_DefaultTimeout(t *testing.T) {
 			"weight": {Name: "weight", Expr: &hclsyntax.LiteralValueExpr{Val: cty.NumberIntVal(2)}},
 		},
 	}
-	cfg := &Config{Name: "test", Type: "wrr", Config: body, ctx: &hcl.EvalContext{}}
+	cfg := &Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -94,7 +94,7 @@ func TestWRRBalancer_InvalidTimeout(t *testing.T) {
 			"timeout": {Name: "timeout", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("invalid")}},
 		},
 	}
-	cfg := &Config{Name: "test", Type: "wrr", Config: body, ctx: &hcl.EvalContext{}}
+	cfg := &Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -111,7 +111,7 @@ func TestWRRBalancer_WaitBackend(t *testing.T) {
 			"timeout": {Name: "timeout", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("1s")}},
 		},
 	}
-	cfg := &Config{Name: "test", Type: "wrr", Config: body, ctx: &hcl.EvalContext{}}
+	cfg := &Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -162,7 +162,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 			"var_weight": cty.NumberIntVal(2),
 		},
 	}
-	cfg := &Config{Name: "test", Type: "wrr", Config: body, ctx: evalCtx}
+	cfg := &Config{Name: "test", Type: "wrr", Config: body, Ctx: evalCtx}
 
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -322,7 +322,7 @@ balancer "wrr" "test" {
 		Type:   "wrr",
 		Name:   "test",
 		Config: block.Body,
-		ctx:    ctx,
+		Ctx:    ctx,
 	}
 
 	factory := WRRBalancerFactory{}

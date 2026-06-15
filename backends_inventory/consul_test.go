@@ -432,7 +432,7 @@ backends_inventory "consul" "test" {
 		Type:   "consul",
 		Name:   "test",
 		Config: block.Body,
-		ctx:    ctx,
+		Ctx:    ctx,
 	}
 
 	factory := ConsulBackendsInventoryFactory{}

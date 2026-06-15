@@ -77,12 +77,12 @@ type TCPProxyFactory struct{}
 
 func (w TCPProxyFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 	config := &TCPProxyConfig{}
-	return gohcl.DecodeBody(tc.Config, tc.ctx, config)
+	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
 }
 
 func (w TCPProxyFactory) parseConfig(tc *Config) *TCPProxyConfig {
 	config := &TCPProxyConfig{}
-	if diags := gohcl.DecodeBody(tc.Config, tc.ctx, config); diags.HasErrors() {
+	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode TCP proxy config")
 	}
 	config.ID = fmt.Sprintf("proxy.%s.%s", tc.Type, tc.Name)

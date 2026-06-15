@@ -36,7 +36,7 @@ func TestRedisProxyFactory_ValidateConfig(t *testing.T) {
 		Type:   "redis_proxy",
 		Name:   "test",
 		Config: file.Body,
-		ctx:    &hcl.EvalContext{},
+		Ctx:    &hcl.EvalContext{},
 	}
 
 	res := f.ValidateConfig(tc)
@@ -63,7 +63,7 @@ func TestRedisProxyFactory_parseConfig(t *testing.T) {
 		Type:   "redis_proxy",
 		Name:   "test",
 		Config: file.Body,
-		ctx:    &hcl.EvalContext{},
+		Ctx:    &hcl.EvalContext{},
 	}
 
 	config := f.parseConfig(tc)
@@ -122,7 +122,7 @@ func TestRedisProxyFactory_New(t *testing.T) {
 		Type:   "redis_proxy",
 		Name:   "test",
 		Config: file.Body,
-		ctx:    &hcl.EvalContext{},
+		Ctx:    &hcl.EvalContext{},
 	}
 
 	var wg sync.WaitGroup
@@ -227,7 +227,7 @@ func TestRedisProxy_ListenAndConnection(t *testing.T) {
 		Type:   "redis_proxy",
 		Name:   "test",
 		Config: file.Body,
-		ctx:    &hcl.EvalContext{},
+		Ctx:    &hcl.EvalContext{},
 	}
 
 	var wg sync.WaitGroup

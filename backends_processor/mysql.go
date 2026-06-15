@@ -68,12 +68,12 @@ type MySQLCheckerFactory struct{}
 
 func (w MySQLCheckerFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 	config := &MySQLCheckerConfig{}
-	return gohcl.DecodeBody(tc.Config, tc.ctx, config)
+	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
 }
 
 func (w MySQLCheckerFactory) parseConfig(tc *Config) *MySQLCheckerConfig {
 	config := &MySQLCheckerConfig{}
-	if diags := gohcl.DecodeBody(tc.Config, tc.ctx, config); diags.HasErrors() {
+	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode mysql backend processor config")
 	}
 	config.ID = fmt.Sprintf("backends_processor.%s.%s", tc.Type, tc.Name)

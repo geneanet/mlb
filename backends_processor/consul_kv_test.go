@@ -431,7 +431,7 @@ backends_processor "consul_kv" "test" {
 		Type:   "consul_kv",
 		Name:   "test",
 		Config: block.Body,
-		ctx:    ctx,
+		Ctx:    ctx,
 	}
 
 	factory := ConsulKVFactory{}

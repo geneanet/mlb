@@ -111,7 +111,7 @@ func TestBackend_ResolveExpression(t *testing.T) {
 	var resultCtx bool
 	knownCtx, diagsCtx := b.ResolveExpression(expr, ctx, &resultCtx)
 	if diagsCtx.HasErrors() {
-		t.Fatalf("failed to resolve expression with ctx: %s", diagsCtx.Error())
+		t.Fatalf("failed to resolve expression with Ctx: %s", diagsCtx.Error())
 	}
 	if !knownCtx || !resultCtx {
 		t.Errorf("expected expression to resolve to true with ctx")

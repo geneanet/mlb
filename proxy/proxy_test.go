@@ -124,8 +124,8 @@ func TestDecodeConfigBlock_SupportedType(t *testing.T) {
 	if cfg.Name != "my_proxy" {
 		t.Errorf("expected name 'my_proxy', got '%s'", cfg.Name)
 	}
-	if cfg.ctx != ctx {
-		t.Errorf("expected ctx %v, got %v", ctx, cfg.ctx)
+	if cfg.Ctx != ctx {
+		t.Errorf("expected ctx %v, got %v", ctx, cfg.Ctx)
 	}
 	if !mockFactory.validateCalled {
 		t.Errorf("expected ValidateConfig to be called")

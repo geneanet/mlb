@@ -268,7 +268,7 @@ func TestSimpleFilter_ReceiveUpdateClosed(t *testing.T) {
 			"condition": {Name: "condition", Expr: &hclsyntax.LiteralValueExpr{Val: cty.BoolVal(true)}},
 		},
 	}
-	config := &Config{Name: "test", Type: "simple_filter", Config: body, ctx: &hcl.EvalContext{}}
+	config := &Config{Name: "test", Type: "simple_filter", Config: body, Ctx: &hcl.EvalContext{}}
 
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -297,7 +297,7 @@ backends_processor "simple_filter" "test" {
 		Type:   "simple_filter",
 		Name:   "test",
 		Config: block.Body,
-		ctx:    ctx,
+		Ctx:    ctx,
 	}
 
 	factory := SimpleFilterFactory{}

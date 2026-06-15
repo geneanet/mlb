@@ -49,12 +49,12 @@ type WRRBalancerFactory struct{}
 
 func (w WRRBalancerFactory) ValidateConfig(tc *Config) hcl.Diagnostics {
 	config := &WRRBalancerConfig{}
-	return gohcl.DecodeBody(tc.Config, tc.ctx, config)
+	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
 }
 
 func (w WRRBalancerFactory) parseConfig(tc *Config) *WRRBalancerConfig {
 	config := &WRRBalancerConfig{}
-	if diags := gohcl.DecodeBody(tc.Config, tc.ctx, config); diags.HasErrors() {
+	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode WRR balancer config")
 	}
 	config.ID = fmt.Sprintf("balancer.%s.%s", tc.Type, tc.Name)
@@ -75,7 +75,7 @@ func (w WRRBalancerFactory) New(tc *Config, wg *sync.WaitGroup, ctx context.Cont
 		updChan:      make(chan backend.BackendUpdate, 100),
 		updChanStop:  make(chan struct{}),
 		source:       config.Source,
-		evalCtx:      tc.ctx,
+		evalCtx:      tc.Ctx,
 	}
 
 	var err error
