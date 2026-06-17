@@ -15,6 +15,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"mlb/backend"
+	"mlb/config"
 	"mlb/module"
 )
 
@@ -47,8 +48,12 @@ type WRRBalancerConfig struct {
 type WRRBalancerFactory struct{}
 
 func (w WRRBalancerFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
-	config := &WRRBalancerConfig{}
-	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
+	configBody := &WRRBalancerConfig{}
+	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
+
+	config.CheckDuration(&diags, configBody.Timeout, "timeout")
+
+	return diags
 }
 
 func (w WRRBalancerFactory) parseConfig(tc *module.Config) *WRRBalancerConfig {

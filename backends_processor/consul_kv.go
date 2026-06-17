@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"mlb/backend"
+	"mlb/config"
 	"mlb/misc"
 	"mlb/module"
 	"net/http"
@@ -62,8 +63,13 @@ type ConsulKVValueConfig struct {
 type ConsulKVFactory struct{}
 
 func (w ConsulKVFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
-	config := &ConsulKVConfig{}
-	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
+	configBody := &ConsulKVConfig{}
+	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
+
+	config.CheckDuration(&diags, configBody.Period, "period")
+	config.CheckDuration(&diags, configBody.MaxPeriod, "max_period")
+
+	return diags
 }
 
 func (w ConsulKVFactory) parseConfig(tc *module.Config) *ConsulKVConfig {

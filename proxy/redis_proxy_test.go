@@ -824,3 +824,28 @@ func (c *errorConnRedis) Close() error {
 func (c *errorConnRedis) SetNoDelay(noDelay bool) error {
 	return nil
 }
+
+// TestRedisProxyFactory_InvalidDurations verifies that ValidateConfig catches invalid duration strings.
+func TestRedisProxyFactory_InvalidDurations(t *testing.T) {
+	hclText := `
+		source = "s1"
+		connect_timeout = "invalid"
+	`
+	file, diags := hclsyntax.ParseConfig([]byte(hclText), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+
+	tc := &module.Config{
+		Type:   "redis",
+		Name:   "test_proxy_invalid",
+		Config: file.Body,
+		Ctx:    &hcl.EvalContext{},
+	}
+
+	factory := RedisProxyFactory{}
+	vDiags := factory.ValidateConfig(tc)
+	if !vDiags.HasErrors() {
+		t.Error("expected diagnostics to have errors for invalid duration")
+	}
+}

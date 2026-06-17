@@ -860,3 +860,28 @@ func TestTCPProxy_CloseOnBackendRemoval(t *testing.T) {
 		t.Fatal("connection was not closed after backend removal")
 	}
 }
+
+// TestTCPProxyFactory_InvalidDurations verifies that ValidateConfig catches invalid duration strings.
+func TestTCPProxyFactory_InvalidDurations(t *testing.T) {
+	hclText := `
+		source = "s1"
+		connect_timeout = "invalid"
+	`
+	file, diags := hclsyntax.ParseConfig([]byte(hclText), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+
+	tc := &module.Config{
+		Type:   "tcp",
+		Name:   "test_proxy_invalid",
+		Config: file.Body,
+		Ctx:    &hcl.EvalContext{},
+	}
+
+	factory := TCPProxyFactory{}
+	vDiags := factory.ValidateConfig(tc)
+	if !vDiags.HasErrors() {
+		t.Error("expected diagnostics to have errors for invalid duration")
+	}
+}

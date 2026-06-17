@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"mlb/backend"
+	"mlb/config"
 	"mlb/misc"
 	"mlb/module"
 	"sync"
@@ -67,8 +68,17 @@ type MySQLCheckerConfig struct {
 type MySQLCheckerFactory struct{}
 
 func (w MySQLCheckerFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
-	config := &MySQLCheckerConfig{}
-	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
+	configBody := &MySQLCheckerConfig{}
+	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
+
+	config.CheckDuration(&diags, configBody.Period, "period")
+	config.CheckDuration(&diags, configBody.MaxPeriod, "max_period")
+	config.CheckDuration(&diags, configBody.ConnectTimeout, "connect_timeout")
+	config.CheckDuration(&diags, configBody.ReadTimeout, "read_timeout")
+	config.CheckDuration(&diags, configBody.WriteTimeout, "write_timeout")
+	config.CheckDuration(&diags, configBody.ConnMaxLifetime, "conn_max_lifetime")
+
+	return diags
 }
 
 func (w MySQLCheckerFactory) parseConfig(tc *module.Config) *MySQLCheckerConfig {

@@ -6,6 +6,7 @@ import (
 	"mlb/module"
 	"mlb/system"
 	"os"
+	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
@@ -169,4 +170,17 @@ func LoadConfig(path string) (*Config, hcl.Diagnostics) {
 	}
 
 	return c, diags
+}
+
+// CheckDuration validates that a string is a valid duration and appends a diagnostic error if not.
+func CheckDuration(diags *hcl.Diagnostics, val string, name string) {
+	if val != "" {
+		if _, err := time.ParseDuration(val); err != nil {
+			*diags = append(*diags, &hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  fmt.Sprintf("Invalid %s", name),
+				Detail:   err.Error(),
+			})
+		}
+	}
 }

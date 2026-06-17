@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"mlb/backend"
+	"mlb/config"
 	"mlb/misc"
 	"mlb/module"
 	"strings"
@@ -60,8 +61,16 @@ type RedisCheckerConfig struct {
 type RedisCheckerFactory struct{}
 
 func (w RedisCheckerFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
-	config := &RedisCheckerConfig{}
-	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
+	configBody := &RedisCheckerConfig{}
+	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
+
+	config.CheckDuration(&diags, configBody.Period, "period")
+	config.CheckDuration(&diags, configBody.MaxPeriod, "max_period")
+	config.CheckDuration(&diags, configBody.ConnectTimeout, "connect_timeout")
+	config.CheckDuration(&diags, configBody.ReadTimeout, "read_timeout")
+	config.CheckDuration(&diags, configBody.WriteTimeout, "write_timeout")
+
+	return diags
 }
 
 func (w RedisCheckerFactory) parseConfig(tc *module.Config) *RedisCheckerConfig {

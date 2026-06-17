@@ -192,6 +192,28 @@ func TestRedisCheck_Mock(t *testing.T) {
 	}, "unknown", false)
 }
 
+func TestRedisChecker_ValidateConfig(t *testing.T) {
+	factory := &RedisCheckerFactory{}
+	hclBlock := parseHCL(t, `
+		redis "test" {
+			source = "inventory.static.test"
+			period = "invalid"
+		}
+	`)
+
+	tc := &module.Config{
+		Type:   "redis",
+		Name:   "test",
+		Config: hclBlock.Body,
+		Ctx:    nil,
+	}
+
+	diags := factory.ValidateConfig(tc)
+	if !diags.HasErrors() {
+		t.Error("expected diagnostics to have errors for invalid period")
+	}
+}
+
 func TestRedis_Coverage(t *testing.T) {
 	factory := module.GetFactory("backends_processor", "redis")
 

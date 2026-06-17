@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"mlb/backend"
+	"mlb/config"
 	"mlb/metrics"
 	"mlb/module"
 	"net"
@@ -77,8 +78,16 @@ type TCPProxyConfig struct {
 type TCPProxyFactory struct{}
 
 func (w TCPProxyFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
-	config := &TCPProxyConfig{}
-	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
+	configBody := &TCPProxyConfig{}
+	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
+
+	config.CheckDuration(&diags, configBody.ConnectTimeout, "connect_timeout")
+	config.CheckDuration(&diags, configBody.ClientTimeout, "client_timeout")
+	config.CheckDuration(&diags, configBody.ServerTimeout, "server_timeout")
+	config.CheckDuration(&diags, configBody.CloseTimeout, "close_timeout")
+	config.CheckDuration(&diags, configBody.TimeoutMargin, "timeout_margin")
+
+	return diags
 }
 
 func (w TCPProxyFactory) parseConfig(tc *module.Config) *TCPProxyConfig {

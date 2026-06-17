@@ -1,8 +1,9 @@
-// Package config handles the loading and parsing of the MLB configuration file.
-package config
+// Package config_test handles the loading and parsing of the MLB configuration file.
+package config_test
 
 import (
 	"io"
+	"mlb/config"
 	_ "mlb/backends_inventory"
 	_ "mlb/backends_processor"
 	_ "mlb/balancer"
@@ -10,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/hashicorp/hcl/v2"
 )
 
 // TestLoadConfig verifies the end-to-end loading and parsing of HCL configuration files.
@@ -70,7 +73,7 @@ system {
 			t.Fatalf("Failed to write test config file: %v", err)
 		}
 
-		cfg, diags := LoadConfig(filePath)
+		cfg, diags := config.LoadConfig(filePath)
 		if diags.HasErrors() {
 			t.Errorf("Unexpected diagnostics errors: %s", diags.Error())
 		}
@@ -81,7 +84,7 @@ system {
 
 	// Subtest 2: Handling of non-existent configuration file.
 	t.Run("Invalid config missing file", func(t *testing.T) {
-		cfg, diags := LoadConfig("non_existent_file.hcl")
+		cfg, diags := config.LoadConfig("non_existent_file.hcl")
 		if !diags.HasErrors() {
 			t.Errorf("Expected errors for missing file, but got none")
 		}
@@ -118,9 +121,34 @@ system {
 			t.Fatalf("Failed to write invalid test config file: %v", err)
 		}
 
-		_, diags := LoadConfig(filePath)
+		_, diags := config.LoadConfig(filePath)
 		if !diags.HasErrors() {
 			t.Errorf("Expected diagnostics errors for unknown block types, but got none")
 		}
 	})
+}
+
+// TestCheckDuration verifies that the CheckDuration helper correctly identifies valid and invalid duration strings.
+func TestCheckDuration(t *testing.T) {
+	diags := hcl.Diagnostics{}
+
+	// Valid durations
+	config.CheckDuration(&diags, "1s", "test")
+	config.CheckDuration(&diags, "500ms", "test")
+	config.CheckDuration(&diags, "", "test") // Optional/empty should be valid
+	if diags.HasErrors() {
+		t.Errorf("Unexpected errors for valid durations: %s", diags.Error())
+	}
+
+	// Invalid durations
+	config.CheckDuration(&diags, "invalid", "test_invalid")
+	if !diags.HasErrors() {
+		t.Error("Expected error for invalid duration 'invalid'")
+	}
+
+	diags = hcl.Diagnostics{}
+	config.CheckDuration(&diags, "10", "test_no_unit") // Missing unit
+	if !diags.HasErrors() {
+		t.Error("Expected error for invalid duration '10'")
+	}
 }

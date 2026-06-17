@@ -96,6 +96,11 @@ func (s *mockStmt) Query(args []driver.Value) (driver.Rows, error) {
 				data:    [][]driver.Value{{1}},
 			}, nil
 		}
+		if s.conn.name == "columns_err_replica" {
+			return &mockRows{
+				columns: []string{"error"},
+			}, nil
+		}
 		if s.conn.name == "err_replica" {
 			return nil, errors.New("err replica")
 		}
@@ -114,6 +119,9 @@ type mockRows struct {
 }
 
 func (r *mockRows) Columns() []string {
+	if len(r.columns) == 1 && r.columns[0] == "error" {
+		panic(errors.New("columns error"))
+	}
 	return r.columns
 }
 
@@ -264,6 +272,7 @@ func TestMySQL(t *testing.T) {
 	runTestCheck("empty_replica")
 	runTestCheck("null_replica")
 	runTestCheck("no_sbs_replica")
+	runTestCheck("columns_err_replica")
 	runTestCheck("err_readonly")
 	runTestCheck("err_replica")
 

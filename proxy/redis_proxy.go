@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"mlb/backend"
+	"mlb/config"
 	"mlb/metrics"
 	"mlb/module"
 	"net"
@@ -69,8 +70,16 @@ type RedisProxyConfig struct {
 type RedisProxyFactory struct{}
 
 func (f RedisProxyFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
-	config := &RedisProxyConfig{}
-	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
+	configBody := &RedisProxyConfig{}
+	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
+
+	config.CheckDuration(&diags, configBody.ConnectTimeout, "connect_timeout")
+	config.CheckDuration(&diags, configBody.CloseTimeout, "close_timeout")
+	config.CheckDuration(&diags, configBody.BackendWaitTimeout, "backend_wait_timeout")
+	config.CheckDuration(&diags, configBody.RetryPeriod, "retry_period")
+	config.CheckDuration(&diags, configBody.RetryMaxPeriod, "retry_max_period")
+
+	return diags
 }
 
 func (f RedisProxyFactory) parseConfig(tc *module.Config) *RedisProxyConfig {

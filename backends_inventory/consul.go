@@ -18,6 +18,7 @@ import (
 	"github.com/zclconf/go-cty/cty/gocty"
 
 	"mlb/backend"
+	"mlb/config"
 	"mlb/misc"
 	"mlb/module"
 )
@@ -69,8 +70,13 @@ type ConsulBackendsInventoryConfig struct {
 type ConsulBackendsInventoryFactory struct{}
 
 func (w ConsulBackendsInventoryFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
-	config := &ConsulBackendsInventoryConfig{}
-	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
+	configBody := &ConsulBackendsInventoryConfig{}
+	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
+
+	config.CheckDuration(&diags, configBody.Period, "period")
+	config.CheckDuration(&diags, configBody.MaxPeriod, "max_period")
+
+	return diags
 }
 
 func (w ConsulBackendsInventoryFactory) parseConfig(tc *module.Config) *ConsulBackendsInventoryConfig {
