@@ -192,10 +192,14 @@ func (f *SimpleFilter) refreshBackends() {
 	// Sort based on the evaluated expression values
 	sort.Slice(list, func(i, j int) bool {
 		cmp := compareCtyValues(list[i].val, list[j].val)
-		if f.sortOrder == "desc" {
-			return cmp > 0
+		if cmp != 0 {
+			if f.sortOrder == "desc" {
+				return cmp > 0
+			}
+			return cmp < 0
 		}
-		return cmp < 0
+		// Tie-break with address for deterministic results
+		return list[i].backend.Address < list[j].backend.Address
 	})
 
 	// Apply limit if specified
