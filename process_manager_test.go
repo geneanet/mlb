@@ -40,10 +40,10 @@ func TestHelperProcess(t *testing.T) {
 // It simulates a scenario where the worker process exits with an error code,
 // ensuring the process manager correctly detects the exit and terminates.
 func TestProcessManager(t *testing.T) {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
+	oldArgs := getOsArgs()
+	defer func() { setOsArgs(oldArgs) }()
 	// Pass --process-manager and -process-manager to ensure they are correctly filtered out by startProcess
-	os.Args = []string{os.Args[0], "--process-manager", "-process-manager", "-test.run=TestHelperProcess"}
+	setOsArgs([]string{oldArgs[0], "--process-manager", "-process-manager", "-test.run=TestHelperProcess"})
 
 	os.Setenv("GO_WANT_HELPER_PROCESS", "1")
 	os.Setenv("GO_HELPER_ACTION", "exit_error") // Simulate a worker that fails
@@ -60,9 +60,9 @@ func TestProcessManager(t *testing.T) {
 // 2. SIGUSR1: Clearing the 'starting' state.
 // 3. SIGINT/SIGTERM: Graceful termination of all managed worker processes.
 func TestProcessManagerLoop_Signals(t *testing.T) {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-	os.Args = []string{os.Args[0], "-test.run=TestHelperProcess"}
+	oldArgs := getOsArgs()
+	defer func() { setOsArgs(oldArgs) }()
+	setOsArgs(append([]string{oldArgs[0]}, "-test.run=TestHelperProcess"))
 
 	os.Setenv("GO_WANT_HELPER_PROCESS", "1")
 	os.Setenv("GO_HELPER_ACTION", "sleep") // Ensure mock workers don't exit prematurely
@@ -101,9 +101,9 @@ func TestProcessManagerLoop_Signals(t *testing.T) {
 // TestProcessManagerLoop_StartProcessError verifies that the process manager loop
 // continues to function correctly even if a request to start a new process fails.
 func TestProcessManagerLoop_StartProcessError(t *testing.T) {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-	os.Args = []string{os.Args[0], "-test.run=TestHelperProcess"}
+	oldArgs := getOsArgs()
+	defer func() { setOsArgs(oldArgs) }()
+	setOsArgs(append([]string{oldArgs[0]}, "-test.run=TestHelperProcess"))
 
 	os.Setenv("GO_WANT_HELPER_PROCESS", "1")
 	os.Setenv("GO_HELPER_ACTION", "sleep")
@@ -121,7 +121,7 @@ func TestProcessManagerLoop_StartProcessError(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		// Corrupt os.Args to ensure the next startProcess call fails (executable not found)
-		os.Args = []string{"/nonexistent/path/to/executable"}
+		setOsArgs([]string{"/nonexistent/path/to/executable"})
 
 		// Trigger SIGHUP, which should encounter the start error and handle it gracefully
 		chanSignals <- syscall.SIGHUP
@@ -137,9 +137,9 @@ func TestProcessManagerLoop_StartProcessError(t *testing.T) {
 // TestProcessManager_FirstStartPanic verifies that if the initial process start fails,
 // the process manager correctly panics, as it cannot proceed without an initial worker.
 func TestProcessManager_FirstStartPanic(t *testing.T) {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"/nonexistent/executable/path"} // Cause initial startProcess to fail
+	oldArgs := getOsArgs()
+	defer func() { setOsArgs(oldArgs) }()
+	setOsArgs([]string{"/nonexistent/executable/path"}) // Cause initial startProcess to fail
 
 	defer func() {
 		// Verify that a panic occurred as expected

@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/rs/zerolog/log"
@@ -13,6 +14,23 @@ type Process struct {
 	FinalState *os.ProcessState
 }
 
+var (
+	osArgsMu sync.RWMutex
+	osArgs   = os.Args
+)
+
+func getOsArgs() []string {
+	osArgsMu.RLock()
+	defer osArgsMu.RUnlock()
+	return osArgs
+}
+
+func setOsArgs(args []string) {
+	osArgsMu.Lock()
+	defer osArgsMu.Unlock()
+	osArgs = args
+}
+
 func startProcess(chanProcess chan *Process) (*Process, error) {
 	log.Info().Msg("Starting new process")
 
@@ -21,8 +39,9 @@ func startProcess(chanProcess chan *Process) (*Process, error) {
 	}
 
 	// Ensure the children does not have the --process-manager switch
-	var args = make([]string, 0, len(os.Args))
-	for _, v := range os.Args {
+	currentArgs := getOsArgs()
+	var args = make([]string, 0, len(currentArgs))
+	for _, v := range currentArgs {
 		if v == "--process-manager" || v == "-process-manager" {
 			continue
 		}

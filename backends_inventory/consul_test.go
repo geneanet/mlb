@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,9 +40,9 @@ func (d *consulDummySubscriber) GetUpdateSource() string { return "consul_dummy"
 // including service discovery, reacting to changes in Consul, and service removal.
 func TestConsulBackendsInventory_All(t *testing.T) {
 	// Mock Consul server
-	callCount := 0
+	var callCount atomic.Int64
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
+		cnt := callCount.Add(1)
 		if r.URL.Path != "/v1/health/service/my-service" {
 			t.Errorf("Unexpected path: %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -51,7 +52,7 @@ func TestConsulBackendsInventory_All(t *testing.T) {
 		w.Header().Set("X-Consul-Index", "1")
 
 		var services consulServicesSlice
-		if callCount == 1 {
+		if cnt == 1 {
 			// First call: service node1 with tag1
 			services = consulServicesSlice{
 				{
@@ -77,7 +78,7 @@ func TestConsulBackendsInventory_All(t *testing.T) {
 					},
 				},
 			}
-		} else if callCount == 2 {
+		} else if cnt == 2 {
 			// Second call: service node1 with changed tag and index
 			services = consulServicesSlice{
 				{
@@ -214,9 +215,9 @@ backends_inventory "consul" "test" {
 // HTTP 500 errors from the Consul server gracefully.
 func TestConsulBackendsInventory_Error(t *testing.T) {
 	// Mock Consul server that returns 500
-	callCount := 0
+	var callCount atomic.Int64
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
+		callCount.Add(1)
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer ts.Close()
@@ -238,7 +239,7 @@ backends_inventory "consul" "test_err" {
 
 	// Wait for at least one fetch attempt
 	testutil.Eventually(t, func() bool {
-		return callCount > 0
+		return callCount.Load() > 0
 	}, 1*time.Second, 10*time.Millisecond)
 
 	cancel()
@@ -250,10 +251,10 @@ backends_inventory "consul" "test_err" {
 // can recover from temporary server errors.
 func TestConsulBackendsInventory_Recovery(t *testing.T) {
 	// Mock Consul server that fails first, then succeeds
-	callCount := 0
+	var callCount atomic.Int64
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
-		if callCount == 1 {
+		cnt := callCount.Add(1)
+		if cnt == 1 {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -283,7 +284,7 @@ backends_inventory "consul" "test_rec" {
 
 	// Let it fail and then succeed
 	testutil.Eventually(t, func() bool {
-		return callCount >= 2
+		return callCount.Load() >= 2
 	}, 1*time.Second, 10*time.Millisecond)
 
 	cancel()
@@ -295,9 +296,9 @@ backends_inventory "consul" "test_rec" {
 func TestConsulBackendsInventory_ContextCanceled(t *testing.T) {
 	// Mock Consul server that blocks until the context is closed,
 	// forcing the client to cancel the request.
-	callCount := 0
+	var callCount atomic.Int64
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
+		callCount.Add(1)
 		<-r.Context().Done()
 	}))
 	defer ts.Close()
@@ -319,12 +320,11 @@ backends_inventory "consul" "test_cancel" {
 
 	module.New(cfg, wg, ctxBG, "backends_inventory")
 
-	// Wait a bit so the fetch call begins and is blocked
+	// Wait for at least one attempt
 	testutil.Eventually(t, func() bool {
-		return callCount > 0
+		return callCount.Load() > 0
 	}, 1*time.Second, 10*time.Millisecond)
 
-	// Cancel the context to force fetch to return context.Canceled
 	cancel()
 	wg.Wait()
 }
@@ -341,9 +341,9 @@ func TestConsulServicesDiff(t *testing.T) {
 // TestConsulBackendsInventory_ProvideUpdates verifies that new subscribers
 // receive the current list of discovered backends upon registration.
 func TestConsulBackendsInventory_ProvideUpdates(t *testing.T) {
-	callCount := 0
+	var callCount atomic.Int64
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
+		callCount.Add(1)
 		w.Header().Set("X-Consul-Index", "1")
 		services := consulServicesSlice{
 			{
@@ -394,7 +394,7 @@ backends_inventory "consul" "test_pu" {
 
 	// Wait for the first fetch so backend is populated
 	testutil.Eventually(t, func() bool {
-		return callCount > 0
+		return callCount.Load() > 0
 	}, 1*time.Second, 10*time.Millisecond)
 
 	sub := &consulDummySubscriber{}

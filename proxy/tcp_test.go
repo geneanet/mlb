@@ -25,15 +25,24 @@ type mockBackendProvider struct {
 	id             string
 	backendAddress string
 	returnNil      bool
+	mu             sync.RWMutex
 }
 
 func (m *mockBackendProvider) GetBackend(wait bool) *backend.Backend {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if m.returnNil {
 		return nil
 	}
 	return &backend.Backend{
 		Address: m.backendAddress,
 	}
+}
+
+func (m *mockBackendProvider) setReturnNil(v bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.returnNil = v
 }
 
 func (m *mockBackendProvider) GetID() string {
@@ -285,7 +294,7 @@ func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 	conn1.Close()
 
 	// Scenario 2: Main backend fails, fallback to backup
-	primaryProvider.returnNil = true
+	primaryProvider.setReturnNil(true)
 	conn2, err := net.Dial("tcp", proxyAddr)
 	if err != nil {
 		t.Fatal(err)

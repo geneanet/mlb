@@ -153,7 +153,7 @@ func (m *mockSubscriber) GetUpdateSource() string                       { return
 // TestMySQL verifies the initialization, configuration validation, and backend update handling
 // for the MySQL checker. It also tests various error and panic scenarios during health checks.
 func TestMySQL(t *testing.T) {
-	mysqlDriverName = "mysql_mock"
+	setMySQLDriverName("mysql_mock")
 
 	factory := module.GetFactory("backends_processor", "mysql")
 
@@ -277,9 +277,9 @@ func TestMySQL(t *testing.T) {
 	runTestCheck("err_replica")
 
 	lifecycleCheck := NewMySQLCheck(b, "error", time.Millisecond, time.Millisecond, 1.0, time.Minute*5, make(chan *backend.Backend, 1), true)
-	mysqlDriverName = "invalid_driver"
+	setMySQLDriverName("invalid_driver")
 	lifecycleCheck.StartPolling() // Error opening db
-	mysqlDriverName = "mysql_mock"
+	setMySQLDriverName("mysql_mock")
 	lifecycleCheck.StopPolling()  // Try to stop not running
 	lifecycleCheck.running = true // Force running to true
 	lifecycleCheck.ticker = misc.NewExponentialBackoffTicker(time.Millisecond, time.Millisecond, 1.0)
@@ -296,7 +296,7 @@ func TestMySQL(t *testing.T) {
 // TestMySQL_Coverage performs exhaustive testing of edge cases in the MySQL checker,
 // including backoff logic, connection errors, and metadata update scenarios.
 func TestMySQL_Coverage(t *testing.T) {
-	mysqlDriverName = "mysql_mock"
+	setMySQLDriverName("mysql_mock")
 	factory := module.GetFactory("backends_processor", "mysql")
 
 	// 1. Defaults parsing in module.Config
@@ -353,9 +353,9 @@ func TestMySQL_Coverage(t *testing.T) {
 	// 5. fetchStatus reopen error handling branch inside recovery block
 	check.dsn = "error" // sql.Open("mysql_mock", "error") evaluates to an error mock
 	check.db, _ = sql.Open("mysql_mock", "panic_readonly")
-	mysqlDriverName = "invalid_driver"
+	setMySQLDriverName("invalid_driver")
 	check.fetchStatus()
-	mysqlDriverName = "mysql_mock"
+	setMySQLDriverName("mysql_mock")
 
 	// Hit Reset update == true in fetchStatus
 	check.dsn = "ok"
@@ -392,7 +392,7 @@ func TestMySQL_Coverage(t *testing.T) {
 	})
 
 	// 7. Add a backend that fails StartPolling due to sql.Open failing
-	mysqlDriverName = "invalid_driver"
+	setMySQLDriverName("invalid_driver")
 	mysqlChecker.ReceiveUpdate(backend.BackendUpdate{
 		Kind:    backend.UpdBackendAdded,
 		Address: "error_address",
@@ -400,7 +400,7 @@ func TestMySQL_Coverage(t *testing.T) {
 	})
 	// Small sleep to ensure the goroutine picks up the update while mysqlDriverName is still invalid.
 	time.Sleep(20 * time.Millisecond)
-	mysqlDriverName = "mysql_mock"
+	setMySQLDriverName("mysql_mock")
 
 	// Wait for background go routine to process everything and hit stopChecks
 	cancel()
