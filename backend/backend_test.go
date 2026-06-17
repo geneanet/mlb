@@ -347,11 +347,24 @@ func TestMetaMap_Deadlocks(t *testing.T) {
 	m1 := NewEmptyMetaMap(0)
 	m1.Set("b1", "k1", cty.StringVal("v1"))
 
-	// Self-update
+	// Test self-update
 	m1.Update(m1)
 
-	// Self-equality
+	// Test self-equality
 	if !m1.Equal(m1) {
 		t.Errorf("expected m1 to equal itself")
+	}
+}
+
+// TestBackendsList_Addresses tests the Addresses helper of BackendsList.
+func TestBackendsList_Addresses(t *testing.T) {
+	list := BackendsList{
+		{Address: "10.0.0.1"},
+		{Address: "10.0.0.2"},
+	}
+	addr := list.Addresses()
+	expected := []string{"10.0.0.1", "10.0.0.2"}
+	if !reflect.DeepEqual(addr, expected) {
+		t.Errorf("expected %v, got %v", expected, addr)
 	}
 }

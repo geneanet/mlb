@@ -212,6 +212,15 @@ func (r *Registry) Publish(u BackendUpdate) {
 // List
 type BackendsList []*Backend
 
+// Addresses returns a slice containing the addresses of all backends in the list.
+func (l BackendsList) Addresses() []string {
+	res := make([]string, len(l))
+	for i, b := range l {
+		res[i] = b.Address
+	}
+	return res
+}
+
 // Messages
 type BackendUpdate struct {
 	Kind    BackendUpdateKind
