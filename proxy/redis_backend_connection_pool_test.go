@@ -87,6 +87,77 @@ func TestRedisBackendConnectionPool_GetRandom(t *testing.T) {
 	}
 }
 
+// TestRedisBackendConnectionPool_Wait_Cancelled verifies that the Wait method returns an error
+// when the provided context is cancelled before any backends become available.
+func TestRedisBackendConnectionPool_Wait_Cancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel immediately or later, but before any backends are added
+	cancel()
+
+	p := &RedisProxy{
+		id:  "test-proxy-wait-cancel",
+		log: zerolog.Nop(),
+		ctx: context.Background(),
+	}
+
+	pool := NewRedisBackendConnectionPool(p)
+	pool.isBlocked = true
+	pool.waitBackends = make(chan struct{})
+
+	err := pool.Wait(ctx)
+	if err == nil {
+		t.Errorf("expected error, got nil")
+	}
+	if err != context.Canceled {
+		t.Errorf("expected context.Canceled, got %v", err)
+	}
+}
+
+// TestRedisBackendConnectionPool_Wait_Success verifies that Wait returns nil
+// when the waitBackends channel is closed.
+func TestRedisBackendConnectionPool_Wait_Success(t *testing.T) {
+	ctx := context.Background()
+	p := &RedisProxy{
+		id:  "test-proxy-wait-success",
+		log: zerolog.Nop(),
+		ctx: context.Background(),
+	}
+
+	pool := NewRedisBackendConnectionPool(p)
+	pool.isBlocked = true
+	waitChan := make(chan struct{})
+	pool.waitBackends = waitChan
+
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		close(waitChan)
+	}()
+
+	err := pool.Wait(ctx)
+	if err != nil {
+		t.Errorf("expected nil error, got %v", err)
+	}
+}
+
+// TestRedisBackendConnectionPool_Wait_NotBlocked verifies that Wait returns nil immediately
+// when the pool is not in a blocked state.
+func TestRedisBackendConnectionPool_Wait_NotBlocked(t *testing.T) {
+	ctx := context.Background()
+	p := &RedisProxy{
+		id:  "test-proxy-wait-not-blocked",
+		log: zerolog.Nop(),
+		ctx: context.Background(),
+	}
+
+	pool := NewRedisBackendConnectionPool(p)
+	pool.isBlocked = false
+
+	err := pool.Wait(ctx)
+	if err != nil {
+		t.Errorf("expected nil error, got %v", err)
+	}
+}
+
 // TestRedisBackendConnectionPool_GetRandom_SuccessWait verifies that GetRandom correctly blocks
 // and then returns a connection when one becomes available within the timeout period.
 func TestRedisBackendConnectionPool_GetRandom_SuccessWait(t *testing.T) {

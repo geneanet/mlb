@@ -334,3 +334,32 @@ func TestRedis_Coverage(t *testing.T) {
 	cancel()
 	wg.Wait()
 }
+
+func TestRedisChecker_ModuleMethods(t *testing.T) {
+	registry := backend.NewRegistry()
+	c := &RedisChecker{
+		id:       "test-id",
+		source:   "test-source",
+		backends: registry,
+		updChan:  make(chan backend.BackendUpdate, 1),
+	}
+
+	if c.GetID() != "test-id" {
+		t.Errorf("expected test-id, got %s", c.GetID())
+	}
+	if c.GetUpdateSource() != "test-source" {
+		t.Errorf("expected test-source, got %s", c.GetUpdateSource())
+	}
+	if len(c.GetBackendList()) != 0 {
+		t.Errorf("expected empty backend list")
+	}
+
+	prov := &dummyProvider{backends: registry}
+	c.SubscribeTo(prov)
+
+	modules := module.NewModulesRegistry()
+	provider := &dummyProvider{id: "test-source", backends: registry}
+	modules.AddModule(provider)
+
+	c.Bind(modules)
+}

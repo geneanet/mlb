@@ -133,6 +133,19 @@ func TestSetRlimitNOFILE(t *testing.T) {
 	// if it fails (using an explicit panic).
 }
 
+// TestSetRlimitNOFILE_Fail verifies that SetRlimitNOFILE panics when given an impossible limit.
+func TestSetRlimitNOFILE_Fail(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("Expected panic for impossible rlimit")
+		}
+	}()
+	// Setting rlimit to a very high value (or 0 in some cases) might fail
+	// depending on the system and user permissions.
+	// 1<<63 - 1 is almost certainly impossible to set as both Cur and Max.
+	SetRlimitNOFILE(1<<63 - 1)
+}
+
 // TestDecodeConfigBlock_InvalidBody ensures that decoding fails with errors for invalid HCL bodies.
 func TestDecodeConfigBlock_InvalidBody(t *testing.T) {
 	block := &hcl.Block{
