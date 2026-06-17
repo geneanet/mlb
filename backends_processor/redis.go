@@ -267,14 +267,6 @@ func (c *RedisChecker) Bind(modules module.ModulesRegistry) {
 	c.SubscribeTo(module.Get[backend.BackendUpdateProvider](modules, c.source))
 }
 
-// RedisClient defines the subset of redis.Client methods used by the health checker.
-// This interface enables easier mocking in unit tests.
-type RedisClient interface {
-	Do(ctx context.Context, args ...interface{}) *redis.Cmd
-	Info(ctx context.Context, sections ...string) *redis.StringCmd
-	Close() error
-}
-
 // RedisCheck represents a background health checker for a single Redis instance.
 type RedisCheck struct {
 	backend        *backend.Backend
@@ -290,7 +282,7 @@ type RedisCheck struct {
 	cancel         context.CancelFunc
 	running        bool
 	runningMu      sync.Mutex
-	client         RedisClient
+	client         *redis.Client
 	connectTimeout time.Duration
 	readTimeout    time.Duration
 	writeTimeout   time.Duration
@@ -317,6 +309,25 @@ func NewRedisCheck(backend *backend.Backend, password string, defaultPeriod time
 	backend.Meta.Set("redis", "role", cty.UnknownVal(cty.String))
 	backend.Meta.Set("redis", "readonly", cty.UnknownVal(cty.Bool))
 	return c
+}
+
+func parseRoleResponse(roleResult interface{}) (retRole cty.Value, retReadonly cty.Value, err error) {
+	// ROLE returns an array: [role, ...]
+	if roles, ok := roleResult.([]interface{}); ok && len(roles) > 0 {
+		if role, ok := roles[0].(string); ok {
+			return cty.StringVal(role), cty.BoolVal(role != "master"), nil
+		}
+	}
+	return cty.NilVal, cty.NilVal, fmt.Errorf("unexpected ROLE result format")
+}
+
+func parseInfoResponse(infoResult string) (retRole cty.Value, retReadonly cty.Value) {
+	if strings.Contains(infoResult, "role:master") || strings.Contains(infoResult, "role:primary") {
+		return cty.StringVal("master"), cty.BoolVal(false)
+	} else if strings.Contains(infoResult, "role:slave") || strings.Contains(infoResult, "role:replica") {
+		return cty.StringVal("slave"), cty.BoolVal(true)
+	}
+	return cty.StringVal("unknown"), cty.BoolVal(false)
 }
 
 // fetchStatus probes the Redis instance to determine its current status and role.
@@ -369,27 +380,11 @@ func (c *RedisCheck) fetchStatus() (retStatus cty.Value, retRole cty.Value, retR
 		if err != nil {
 			panic(err)
 		}
-		if strings.Contains(infoResult, "role:master") || strings.Contains(infoResult, "role:primary") {
-			retRole = cty.StringVal("master")
-			retReadonly = cty.BoolVal(false)
-		} else if strings.Contains(infoResult, "role:slave") || strings.Contains(infoResult, "role:replica") {
-			retRole = cty.StringVal("slave")
-			retReadonly = cty.BoolVal(true)
-		} else {
-			retRole = cty.StringVal("unknown")
-			retReadonly = cty.BoolVal(false)
-		}
+		retRole, retReadonly = parseInfoResponse(infoResult)
 	} else {
-		// ROLE returns an array: [role, ...]
-		if roles, ok := roleResult.([]interface{}); ok && len(roles) > 0 {
-			if role, ok := roles[0].(string); ok {
-				retRole = cty.StringVal(role)
-				retReadonly = cty.BoolVal(role != "master")
-			} else {
-				panic(fmt.Errorf("unexpected ROLE result format"))
-			}
-		} else {
-			panic(fmt.Errorf("unexpected ROLE result format"))
+		retRole, retReadonly, err = parseRoleResponse(roleResult)
+		if err != nil {
+			panic(err)
 		}
 	}
 

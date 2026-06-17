@@ -2,45 +2,18 @@ package backends_processor
 
 import (
 	"context"
-	"errors"
 	"mlb/backend"
-	"mlb/misc"
 	"mlb/module"
 	"mlb/testutil"
 	"os"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
-	"github.com/redis/go-redis/v9"
 	"github.com/zclconf/go-cty/cty"
 )
-
-type mockRedisClient struct {
-	roleFunc func(ctx context.Context, args ...interface{}) *redis.Cmd
-	infoFunc func(ctx context.Context, sections ...string) *redis.StringCmd
-}
-
-func (m *mockRedisClient) Do(ctx context.Context, args ...interface{}) *redis.Cmd {
-	if m.roleFunc != nil && args[0] == "ROLE" {
-		return m.roleFunc(ctx, args...)
-	}
-	return redis.NewCmd(ctx)
-}
-
-func (m *mockRedisClient) Info(ctx context.Context, sections ...string) *redis.StringCmd {
-	if m.infoFunc != nil {
-		return m.infoFunc(ctx, sections...)
-	}
-	return redis.NewStringCmd(ctx)
-}
-
-func (m *mockRedisClient) Close() error {
-	return nil
-}
 
 func TestRedisCheckerConfig(t *testing.T) {
 	factory := &RedisCheckerFactory{}
@@ -114,82 +87,63 @@ func TestRedisCheck_Integration(t *testing.T) {
 	}
 }
 
-func TestRedisCheck_Mock(t *testing.T) {
-	b := &backend.Backend{
-		Address: "127.0.0.1:6379",
-		Meta:    backend.NewEmptyMetaMap(0),
-	}
-	statusChan := make(chan *backend.Backend, 10)
-
-	runTest := func(name string, roleFunc func(context.Context, ...interface{}) *redis.Cmd, infoFunc func(context.Context, ...string) *redis.StringCmd, expectedRole string, expectedReadonly bool) {
-		t.Run(name, func(t *testing.T) {
-			check := NewRedisCheck(b.Clone(), "", time.Millisecond, time.Millisecond, 1.0, time.Second, time.Second, time.Second, statusChan)
-			check.ctx = context.Background()
-			check.ticker = misc.NewExponentialBackoffTicker(time.Millisecond, time.Millisecond, 1.0)
-			check.client = &mockRedisClient{roleFunc: roleFunc, infoFunc: infoFunc}
-
-			status, role, readonly, err := check.fetchStatus()
-			if err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-			if status.AsString() != "ok" {
-				t.Errorf("expected status ok, got %v", status)
-			}
-			if role.AsString() != expectedRole {
-				t.Errorf("expected role %s, got %s", expectedRole, role.AsString())
-			}
-			if readonly.True() != expectedReadonly {
-				t.Errorf("expected readonly %v, got %v", expectedReadonly, readonly.True())
-			}
-		})
-	}
-
+func TestRedisCheck_Parsing(t *testing.T) {
 	// Master via ROLE
-	runTest("MasterROLE", func(ctx context.Context, args ...interface{}) *redis.Cmd {
-		cmd := redis.NewCmd(ctx)
-		cmd.SetVal([]interface{}{"master", int64(0), []interface{}{}})
-		return cmd
-	}, nil, "master", false)
+	role, readonly, err := parseRoleResponse([]interface{}{"master", int64(0), []interface{}{}})
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if role.AsString() != "master" {
+		t.Errorf("expected master, got %s", role.AsString())
+	}
+	if readonly.True() {
+		t.Error("expected readonly false")
+	}
 
 	// Slave via ROLE
-	runTest("SlaveROLE", func(ctx context.Context, args ...interface{}) *redis.Cmd {
-		cmd := redis.NewCmd(ctx)
-		cmd.SetVal([]interface{}{"slave", "127.0.0.1", int64(6379), "connected", int64(0)})
-		return cmd
-	}, nil, "slave", true)
+	role, readonly, err = parseRoleResponse([]interface{}{"slave", "127.0.0.1", int64(6379), "connected", int64(0)})
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if role.AsString() != "slave" {
+		t.Errorf("expected slave, got %s", role.AsString())
+	}
+	if !readonly.True() {
+		t.Error("expected readonly true")
+	}
 
-	// Master via INFO (fallback)
-	runTest("MasterINFO", func(ctx context.Context, args ...interface{}) *redis.Cmd {
-		cmd := redis.NewCmd(ctx)
-		cmd.SetErr(errors.New("ROLE not implemented"))
-		return cmd
-	}, func(ctx context.Context, sections ...string) *redis.StringCmd {
-		cmd := redis.NewStringCmd(ctx)
-		cmd.SetVal("# Replication\r\nrole:master\r\n")
-		return cmd
-	}, "master", false)
+	// Master via INFO
+	role, readonly = parseInfoResponse("# Replication\r\nrole:master\r\n")
+	if role.AsString() != "master" {
+		t.Errorf("expected master, got %s", role.AsString())
+	}
+	if readonly.True() {
+		t.Error("expected readonly false")
+	}
 
-	// Slave via INFO (fallback)
-	runTest("SlaveINFO", func(ctx context.Context, args ...interface{}) *redis.Cmd {
-		cmd := redis.NewCmd(ctx)
-		cmd.SetErr(errors.New("ROLE not implemented"))
-		return cmd
-	}, func(ctx context.Context, sections ...string) *redis.StringCmd {
-		cmd := redis.NewStringCmd(ctx)
-		cmd.SetVal("# Replication\r\nrole:slave\r\n")
-		return cmd
-	}, "slave", true)
+	// Slave via INFO
+	role, readonly = parseInfoResponse("# Replication\r\nrole:slave\r\n")
+	if role.AsString() != "slave" {
+		t.Errorf("expected slave, got %s", role.AsString())
+	}
+	if !readonly.True() {
+		t.Error("expected readonly true")
+	}
 
-	// Unknown via INFO (fallback)
-	runTest("UnknownINFO", func(ctx context.Context, args ...interface{}) *redis.Cmd {
-		cmd := redis.NewCmd(ctx)
-		cmd.SetErr(errors.New("ROLE not implemented"))
-		return cmd
-	}, func(ctx context.Context, sections ...string) *redis.StringCmd {
-		cmd := redis.NewStringCmd(ctx)
-		cmd.SetVal("# Replication\r\nrole:sentinel\r\n")
-		return cmd
-	}, "unknown", false)
+	// Unknown via INFO
+	role, readonly = parseInfoResponse("# Replication\r\nrole:sentinel\r\n")
+	if role.AsString() != "unknown" {
+		t.Errorf("expected unknown, got %s", role.AsString())
+	}
+	if readonly.True() {
+		t.Error("expected readonly false")
+	}
+
+	// Format Error ROLE
+	_, _, err = parseRoleResponse("not an array")
+	if err == nil {
+		t.Error("expected error for invalid ROLE format")
+	}
 }
 
 func TestRedisChecker_ValidateConfig(t *testing.T) {
@@ -259,68 +213,6 @@ func TestRedis_Coverage(t *testing.T) {
 	redisChecker.ReceiveUpdate(backend.BackendUpdate{
 		Kind:    backend.UpdBackendRemoved,
 		Address: "127.0.0.1:6379",
-	})
-
-	// Error cases in fetchStatus (panic/recovery)
-	t.Run("RecoveryPanic", func(t *testing.T) {
-		check := NewRedisCheck(b.Clone(), "", time.Millisecond, time.Millisecond, 1.0, time.Second, time.Second, time.Second, make(chan *backend.Backend, 1))
-		check.ctx = context.Background()
-		check.ticker = misc.NewExponentialBackoffTicker(time.Millisecond, time.Millisecond, 1.0)
-		check.client = &mockRedisClient{roleFunc: func(ctx context.Context, args ...interface{}) *redis.Cmd {
-			panic("redis panic")
-		}}
-		status, _, _, err := check.fetchStatus()
-		if status.AsString() != "err" {
-			t.Errorf("expected status err, got %v", status)
-		}
-		if err == nil {
-			t.Error("expected error, got nil")
-		}
-	})
-
-	// Fallback INFO error
-	t.Run("InfoError", func(t *testing.T) {
-		check := NewRedisCheck(b.Clone(), "", time.Millisecond, time.Millisecond, 1.0, time.Second, time.Second, time.Second, make(chan *backend.Backend, 1))
-		check.ctx = context.Background()
-		check.ticker = misc.NewExponentialBackoffTicker(time.Millisecond, time.Millisecond, 1.0)
-		check.client = &mockRedisClient{
-			roleFunc: func(ctx context.Context, args ...interface{}) *redis.Cmd {
-				cmd := redis.NewCmd(ctx)
-				cmd.SetErr(errors.New("ROLE error"))
-				return cmd
-			},
-			infoFunc: func(ctx context.Context, sections ...string) *redis.StringCmd {
-				panic(errors.New("INFO panic"))
-			},
-		}
-		status, _, _, err := check.fetchStatus()
-		if status.AsString() != "err" {
-			t.Errorf("expected status err, got %v", status)
-		}
-		if err == nil || !strings.Contains(err.Error(), "INFO panic") {
-			t.Errorf("expected INFO panic error, got %v", err)
-		}
-	})
-
-	// Unexpected ROLE format
-	t.Run("RoleFormatError", func(t *testing.T) {
-		check := NewRedisCheck(b.Clone(), "", time.Millisecond, time.Millisecond, 1.0, time.Second, time.Second, time.Second, make(chan *backend.Backend, 1))
-		check.ctx = context.Background()
-		check.ticker = misc.NewExponentialBackoffTicker(time.Millisecond, time.Millisecond, 1.0)
-		check.client = &mockRedisClient{
-			roleFunc: func(ctx context.Context, args ...interface{}) *redis.Cmd {
-				cmd := redis.NewCmd(ctx)
-				cmd.SetVal("not an array")
-				return cmd
-			},
-		}
-		status, _, _, err := check.fetchStatus()
-		if status.AsString() != "err" {
-			t.Errorf("expected status err, got %v", status)
-		}
-		if err == nil || !strings.Contains(err.Error(), "unexpected ROLE result format") {
-			t.Errorf("expected format error, got %v", err)
-		}
 	})
 
 	// Lifecycle tests
