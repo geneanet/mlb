@@ -112,8 +112,10 @@ func main() {
 		})
 		http.Handle("/metrics", metrics.HttpLogWrapper(promhttp.Handler()))
 
-		if err := metrics.NewHTTPServer(conf.Metrics.Address, &wg, ctx); err != nil {
-			log.Fatal().Err(err).Msg("Failed to start metrics HTTP server")
+		if conf.Metrics != nil {
+			if err := metrics.NewHTTPServer(conf.Metrics.Address, &wg, ctx); err != nil {
+				log.Fatal().Err(err).Msg("Failed to start metrics HTTP server")
+			}
 		}
 
 		// Termination signals
