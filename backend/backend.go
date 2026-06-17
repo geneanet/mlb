@@ -78,38 +78,35 @@ type Registry struct {
 	subscribers []BackendUpdateSubscriber
 	mu          sync.RWMutex
 	waitChan    chan struct{}
-	isBlocked   bool
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
-		backends:  make(map[string]*Backend),
-		waitChan:  make(chan struct{}),
-		isBlocked: true,
+		backends: make(map[string]*Backend),
+		waitChan: make(chan struct{}),
 	}
 }
 
 func (r *Registry) updateWaitState() {
-	if len(r.backends) > 0 && r.isBlocked {
-		close(r.waitChan)
-		r.isBlocked = false
-	} else if len(r.backends) == 0 && !r.isBlocked {
-		r.waitChan = make(chan struct{})
-		r.isBlocked = true
+	if (len(r.backends) > 0) == (r.waitChan != nil) {
+		if r.waitChan != nil {
+			close(r.waitChan)
+			r.waitChan = nil
+		} else {
+			r.waitChan = make(chan struct{})
+		}
 	}
 }
 
 func (r *Registry) Wait(ctx context.Context) error {
 	r.mu.RLock()
-	if !r.isBlocked {
-		r.mu.RUnlock()
+	ch := r.waitChan
+	r.mu.RUnlock()
+	if ch == nil {
 		return nil
 	}
-	waitChan := r.waitChan
-	r.mu.RUnlock()
-
 	select {
-	case <-waitChan:
+	case <-ch:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()

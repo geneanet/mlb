@@ -101,7 +101,6 @@ func TestRedisBackendConnectionPool_Wait_Cancelled(t *testing.T) {
 	}
 
 	pool := NewRedisBackendConnectionPool(p)
-	pool.isBlocked = true
 	pool.waitBackends = make(chan struct{})
 
 	err := pool.Wait(ctx)
@@ -124,7 +123,6 @@ func TestRedisBackendConnectionPool_Wait_Success(t *testing.T) {
 	}
 
 	pool := NewRedisBackendConnectionPool(p)
-	pool.isBlocked = true
 	waitChan := make(chan struct{})
 	pool.waitBackends = waitChan
 
@@ -150,7 +148,7 @@ func TestRedisBackendConnectionPool_Wait_NotBlocked(t *testing.T) {
 	}
 
 	pool := NewRedisBackendConnectionPool(p)
-	pool.isBlocked = false
+	pool.waitBackends = nil
 
 	err := pool.Wait(ctx)
 	if err != nil {

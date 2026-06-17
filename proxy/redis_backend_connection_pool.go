@@ -22,7 +22,6 @@ type RedisBackendConnectionPool struct {
 	proxy               *RedisProxy
 	waitBackendsTimeout time.Duration
 	waitBackends        chan struct{}
-	isBlocked           bool
 }
 
 func NewRedisBackendConnectionPool(proxy *RedisProxy) *RedisBackendConnectionPool {
@@ -32,7 +31,6 @@ func NewRedisBackendConnectionPool(proxy *RedisProxy) *RedisBackendConnectionPoo
 		chanFailure:         make(chan *RedisBackendConnection),
 		waitBackendsTimeout: proxy.backendWaitTimeout,
 		waitBackends:        make(chan struct{}),
-		isBlocked:           true,
 	}
 	rbcp.ctx, rbcp.cancel = context.WithCancel(proxy.ctx)
 
@@ -56,28 +54,28 @@ func NewRedisBackendConnectionPool(proxy *RedisProxy) *RedisBackendConnectionPoo
 }
 
 func (rbcp *RedisBackendConnectionPool) updateWaitState() {
-	if len(rbcp.pool) > 0 && rbcp.isBlocked {
-		rbcp.proxy.log.Debug().Msg("At least one connection has been added to the pool, unblocking GetRandom")
-		close(rbcp.waitBackends)
-		rbcp.isBlocked = false
-	} else if len(rbcp.pool) == 0 && !rbcp.isBlocked {
-		rbcp.proxy.log.Debug().Msg("There are no more connections in the pool, blocking GetRandom")
-		rbcp.waitBackends = make(chan struct{})
-		rbcp.isBlocked = true
+	if (len(rbcp.pool) > 0) == (rbcp.waitBackends != nil) {
+		if rbcp.waitBackends != nil {
+			rbcp.proxy.log.Debug().Msg("At least one connection has been added to the pool, unblocking GetRandom")
+			close(rbcp.waitBackends)
+			rbcp.waitBackends = nil
+		} else {
+			rbcp.proxy.log.Debug().Msg("There are no more connections in the pool, blocking GetRandom")
+			rbcp.waitBackends = make(chan struct{})
+		}
 	}
 }
 
 func (rbcp *RedisBackendConnectionPool) Wait(ctx context.Context) error {
 	rbcp.mutex.RLock()
-	if !rbcp.isBlocked {
-		rbcp.mutex.RUnlock()
+	ch := rbcp.waitBackends
+	rbcp.mutex.RUnlock()
+	if ch == nil {
 		return nil
 	}
-	waitChan := rbcp.waitBackends
-	rbcp.mutex.RUnlock()
 
 	select {
-	case <-waitChan:
+	case <-ch:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
