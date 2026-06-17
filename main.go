@@ -45,7 +45,7 @@ func main() {
 
 	// CLI args validation
 	if *argProcessManager && *argNotifyParent {
-		log.Fatal().Msg("Parameters process-manager and notify-parent are mutually exclusives")
+		log.Fatal().Msg("Parameters process-manager and notify-parent are mutually exclusive")
 	}
 
 	if *argProcessManager { // Process manager mode
