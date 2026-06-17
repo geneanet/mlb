@@ -7,7 +7,7 @@ It is designed to be easily extensible through its modular architecture and prov
 
 - **Modular Architecture:** Build your load-balancing stack by composing Inventories, Processors, Balancers, and Proxies.
 - **Service Discovery:** Native support for Consul (health checks and KV) and static configurations.
-- **Deep Health Probing:** Built-in MySQL health checker with replication latency awareness and read-only detection.
+- **Deep Health Probing:** Built-in MySQL and Redis health checkers with replication awareness and role detection.
 - **Zero-Downtime Restarts:** Integrated process manager allows for configuration reloads without dropping connections.
 - **Redis Protocol Support:** Specialized Redis proxy with command filtering and backend connection pooling.
 - **Observability:** Prometheus metrics and structured logging (zerolog).
@@ -18,7 +18,7 @@ It is designed to be easily extensible through its modular architecture and prov
 MLB uses a pipeline architecture where backends flow through several stages:
 
 1.  **Backends Inventory:** Sources of backend addresses (e.g., `consul`, `static`).
-2.  **Backends Processor:** Enhances or filters backends based on metadata or health checks (e.g., `mysql`, `consul_kv`, `simple_filter`).
+2.  **Backends Processor:** Enhances or filters backends based on metadata or health checks (e.g., `mysql`, `redis`, `consul_kv`, `simple_filter`).
 3.  **Balancer:** Selects a backend from a processed list using a specific algorithm (e.g., `wrr` - Weighted Round Robin).
 4.  **Proxy:** Accepts incoming connections and forwards traffic to the backend selected by the balancer (e.g., `tcp`, `redis`).
 

@@ -55,6 +55,17 @@ backends_processor "mysql" "mysql" {
   // check_replica = false
 }
 
+backends_processor "redis" "redis" {
+  source = backends_inventory.consul.redis
+  // password = "redis_password"
+  // period = "1s"
+  // max_period = "5s"
+  // backoff_factor = 1.5
+  // connect_timeout = "1s"
+  // read_timeout = "1s"
+  // write_timeout = "1s"
+}
+
 backends_processor "simple_filter" "mysql_main_ro" {
   source = backends_processor.mysql.mysql
   condition = (
@@ -65,9 +76,22 @@ backends_processor "simple_filter" "mysql_main_ro" {
   )
 }
 
+backends_processor "simple_filter" "redis_master" {
+  source = backends_processor.redis.redis
+  condition = (
+    backend.meta.redis.status == "ok"
+    && backend.meta.redis.role == "master"
+  )
+}
+
 balancer "wrr" "mysql_main_ro" {
   source = backends_processor.simple_filter.mysql_main_ro
   weight = backend.meta.consul.weight
+  // timeout = "0s"
+}
+
+balancer "wrr" "redis_master" {
+  source = backends_processor.simple_filter.redis_master
   // timeout = "0s"
 }
 
@@ -85,7 +109,7 @@ proxy "tcp" "mysql_main_ro" {
 }
 
 proxy "redis" "redis" {
-  source = backends_inventory.consul.redis
+  source = balancer.wrr.redis_master
   addresses = [":6379"]
   // connect_timeout = "0s"
   // close_timeout = "0s"
