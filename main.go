@@ -45,7 +45,7 @@ func main() {
 
 	// CLI args validation
 	if *argProcessManager && *argNotifyParent {
-		log.Fatal().Msg("Parameters process-manager and notify-parent are mutually exclusives")
+		log.Fatal().Msg("Parameters process-manager and notify-parent are mutually exclusive")
 	}
 
 	if *argProcessManager { // Process manager mode
@@ -74,7 +74,7 @@ func main() {
 			}
 		}
 
-		// Instanciate modules
+		// Instantiate modules
 		ml := module.NewModulesRegistry()
 
 		for _, c := range conf.BackendsInventoryList {
@@ -108,7 +108,9 @@ func main() {
 				http.Error(w, "serialization error", http.StatusInternalServerError)
 				return
 			}
-			w.Write(out)
+			if _, err := w.Write(out); err != nil {
+				log.Warn().Err(err).Msg("Failed to write /backends response")
+			}
 		})
 		http.Handle("/metrics", metrics.HttpLogWrapper(promhttp.Handler()))
 
