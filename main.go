@@ -74,7 +74,7 @@ func main() {
 			}
 		}
 
-		// Instanciate modules
+		// Instantiate modules
 		ml := module.NewModulesRegistry()
 
 		for _, c := range conf.BackendsInventoryList {
