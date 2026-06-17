@@ -160,7 +160,7 @@ func (w TCPProxyFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx context.
 
 	p.bufferPool = sync.Pool{
 		New: func() any {
-			return make([]byte, p.bufferSize)
+			return &bufferWrapper{buf: make([]byte, p.bufferSize)}
 		},
 	}
 
@@ -228,6 +228,10 @@ func (p *ProxyTCP) listen(address string, wg *sync.WaitGroup) {
 	}()
 }
 
+type bufferWrapper struct {
+	buf []byte
+}
+
 func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inputTimeout time.Duration, outputTimeout time.Duration, inCounter prometheus.Counter, outCounter prometheus.Counter) {
 	// Signal completion
 	defer close(done)
@@ -239,8 +243,9 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inp
 		}
 	}()
 
-	buffer := p.bufferPool.Get().([]byte)
-	defer p.bufferPool.Put(buffer)
+	wrapper := p.bufferPool.Get().(*bufferWrapper)
+	buffer := wrapper.buf
+	defer p.bufferPool.Put(wrapper)
 
 	var nextReadDeadline, nextWriteDeadline time.Time
 

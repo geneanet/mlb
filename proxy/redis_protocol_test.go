@@ -441,8 +441,7 @@ func TestReadMessage_Errors(t *testing.T) {
 			err error
 		}
 		cr := &customReader{err: expectedErr}
-		var readerFn func(p []byte) (n int, err error)
-		readerFn = func(p []byte) (n int, err error) {
+		readerFn := func(p []byte) (n int, err error) {
 			n = copy(p, []byte("+OK"))
 			return n, cr.err
 		}

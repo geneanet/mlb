@@ -125,15 +125,6 @@ type dummyUpdateProvider struct {
 
 func (d *dummyUpdateProvider) ProvideUpdates(sub backend.BackendUpdateSubscriber) {}
 
-// dummyProvider implements backend.BackendProvider.
-type dummyProvider struct {
-	dummyModule
-}
-
-func (d *dummyProvider) GetBackend(wait bool) *backend.Backend {
-	return nil
-}
-
 // dummyListProvider implements backend.BackendListProvider.
 type dummyListProvider struct {
 	dummyModule

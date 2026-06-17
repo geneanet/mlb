@@ -133,9 +133,7 @@ func (r *mockRows) Next(dest []driver.Value) error {
 	if r.pos >= len(r.data) {
 		return io.EOF
 	}
-	for i, v := range r.data[r.pos] {
-		dest[i] = v
-	}
+	copy(dest, r.data[r.pos])
 	r.pos++
 	return nil
 }
@@ -221,7 +219,7 @@ func TestMySQL(t *testing.T) {
 	b.Meta.Set("test", "test", cty.StringVal("test"))
 	// Set a value in the mysql bucket to verify it's preserved
 	mysqlChecker.checksMtex.RLock()
-	check, _ := mysqlChecker.checks["127.0.0.1:3306"]
+	check := mysqlChecker.checks["127.0.0.1:3306"]
 	check.backend.Meta.Set("mysql", "status", cty.StringVal("preserved"))
 	mysqlChecker.checksMtex.RUnlock()
 

@@ -152,7 +152,8 @@ func TestTCPProxyFactory(t *testing.T) {
 	}
 
 	// Ensure the buffer pool initializes correctly
-	b := p.bufferPool.Get().([]byte)
+	wrapper := p.bufferPool.Get().(*bufferWrapper)
+	b := wrapper.buf
 	if len(b) != 1024 {
 		t.Errorf("expected buffer length 1024, got %d", len(b))
 	}
@@ -248,7 +249,7 @@ func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 		closeTimeout:   5 * time.Second,
 		timeoutMargin:  1 * time.Second,
 		bufferPool: sync.Pool{
-			New: func() any { return make([]byte, 32768) },
+			New: func() any { return &bufferWrapper{buf: make([]byte, 32768)} },
 		},
 		beMetricsCache: make(map[string]*Metrics),
 	}
@@ -350,7 +351,7 @@ func TestTCPProxy_NoBackendPanic(t *testing.T) {
 		closeTimeout:   5 * time.Second,
 		timeoutMargin:  1 * time.Second,
 		bufferPool: sync.Pool{
-			New: func() any { return make([]byte, 32768) },
+			New: func() any { return &bufferWrapper{buf: make([]byte, 32768)} },
 		},
 		beMetricsCache: make(map[string]*Metrics),
 	}
@@ -419,7 +420,7 @@ func TestTCPProxy_TimeoutAndContextCancel(t *testing.T) {
 		closeTimeout:   50 * time.Millisecond,
 		timeoutMargin:  10 * time.Millisecond,
 		bufferPool: sync.Pool{
-			New: func() any { return make([]byte, 32768) },
+			New: func() any { return &bufferWrapper{buf: make([]byte, 32768)} },
 		},
 		beMetricsCache: make(map[string]*Metrics),
 	}
@@ -513,7 +514,7 @@ func TestTCPProxy_PipeErrors(t *testing.T) {
 		closeTimeout:   5 * time.Second,
 		timeoutMargin:  1 * time.Second,
 		bufferPool: sync.Pool{
-			New: func() any { return make([]byte, 32768) },
+			New: func() any { return &bufferWrapper{buf: make([]byte, 32768)} },
 		},
 		beMetricsCache: make(map[string]*Metrics),
 	}
@@ -571,7 +572,7 @@ func TestTCPProxy_PipeClosedErr(t *testing.T) {
 		ctx:        ctx,
 		cancel:     cancel,
 		bufferPool: sync.Pool{
-			New: func() any { return make([]byte, 32768) },
+			New: func() any { return &bufferWrapper{buf: make([]byte, 32768)} },
 		},
 		beMetricsCache: make(map[string]*Metrics),
 	}
@@ -616,7 +617,7 @@ func TestTCPProxy_PipeReadError(t *testing.T) {
 		log:        zerolog.Nop(),
 		bufferSize: 1024,
 		bufferPool: sync.Pool{
-			New: func() any { return make([]byte, 1024) },
+			New: func() any { return &bufferWrapper{buf: make([]byte, 1024)} },
 		},
 	}
 
@@ -642,7 +643,7 @@ func TestTCPProxy_PipeWriteError(t *testing.T) {
 		log:        zerolog.Nop(),
 		bufferSize: 1024,
 		bufferPool: sync.Pool{
-			New: func() any { return make([]byte, 1024) },
+			New: func() any { return &bufferWrapper{buf: make([]byte, 1024)} },
 		},
 	}
 
@@ -739,7 +740,7 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 		closeTimeout:   5 * time.Second,
 		timeoutMargin:  1 * time.Second,
 		bufferPool: sync.Pool{
-			New: func() any { return make([]byte, 32768) },
+			New: func() any { return &bufferWrapper{buf: make([]byte, 32768)} },
 		},
 		beMetricsCache: make(map[string]*Metrics),
 	}
@@ -819,7 +820,7 @@ func TestTCPProxy_CloseOnBackendRemoval(t *testing.T) {
 		timeoutMargin:         1 * time.Second,
 		closeOnBackendRemoval: true,
 		bufferPool: sync.Pool{
-			New: func() any { return make([]byte, 32768) },
+			New: func() any { return &bufferWrapper{buf: make([]byte, 32768)} },
 		},
 		beMetricsCache: make(map[string]*Metrics),
 	}
