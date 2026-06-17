@@ -2,3 +2,4 @@
 config.hcl
 mlb
 coverage.out
+coverage.html
