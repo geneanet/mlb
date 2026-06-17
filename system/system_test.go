@@ -14,6 +14,26 @@ import (
 func TestDecodeConfigBlock(t *testing.T) {
 	ctx := &hcl.EvalContext{}
 
+	mustParseSystemBlock := func(src string) *hcl.Block {
+		file, diags := hclsyntax.ParseConfig([]byte(src), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+		if diags.HasErrors() {
+			t.Fatalf("Unexpected parse errors: %s", diags.Error())
+		}
+		if file == nil {
+			t.Fatalf("ParseConfig returned nil file without diagnostics")
+		}
+
+		body, ok := file.Body.(*hclsyntax.Body)
+		if !ok || body == nil {
+			t.Fatalf("Expected *hclsyntax.Body, got %T", file.Body)
+		}
+		if len(body.Blocks) == 0 {
+			t.Fatalf("Expected at least one block in parsed config")
+		}
+
+		return body.Blocks[0].AsHCLBlock()
+	}
+
 	// Case 1: RLimit NOFile
 	src := `
 system {
@@ -22,9 +42,7 @@ system {
 	}
 }
 `
-	file, _ := hclsyntax.ParseConfig([]byte(src), "test.hcl", hcl.Pos{Line: 1, Column: 1})
-	body, _ := file.Body.(*hclsyntax.Body)
-	block := body.Blocks[0].AsHCLBlock()
+	block := mustParseSystemBlock(src)
 
 	cfg, diags := DecodeConfigBlock(block, ctx)
 	if diags.HasErrors() {
@@ -40,9 +58,7 @@ system {
 	gomaxprocs = 4
 }
 `
-	file, _ = hclsyntax.ParseConfig([]byte(src), "test.hcl", hcl.Pos{Line: 1, Column: 1})
-	body, _ = file.Body.(*hclsyntax.Body)
-	block = body.Blocks[0].AsHCLBlock()
+	block = mustParseSystemBlock(src)
 
 	cfg, diags = DecodeConfigBlock(block, ctx)
 	if diags.HasErrors() {
@@ -56,9 +72,7 @@ system {
 	src = `
 system {}
 `
-	file, _ = hclsyntax.ParseConfig([]byte(src), "test.hcl", hcl.Pos{Line: 1, Column: 1})
-	body, _ = file.Body.(*hclsyntax.Body)
-	block = body.Blocks[0].AsHCLBlock()
+	block = mustParseSystemBlock(src)
 
 	cfg, diags = DecodeConfigBlock(block, ctx)
 	if diags.HasErrors() {
@@ -77,9 +91,7 @@ system {
 	rlimit {}
 }
 `
-	file, _ = hclsyntax.ParseConfig([]byte(src), "test.hcl", hcl.Pos{Line: 1, Column: 1})
-	body, _ = file.Body.(*hclsyntax.Body)
-	block = body.Blocks[0].AsHCLBlock()
+	block = mustParseSystemBlock(src)
 
 	cfg, diags = DecodeConfigBlock(block, ctx)
 	if diags.HasErrors() {
