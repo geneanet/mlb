@@ -18,7 +18,10 @@ It is designed to be easily extensible through its modular architecture and prov
 MLB uses a pipeline architecture where backends flow through several stages:
 
 1.  **Backends Inventory:** Sources of backend addresses (e.g., `consul`, `static`).
-2.  **Backends Processor:** Enhances or filters backends based on metadata or health checks (e.g., `mysql`, `redis`, `consul_kv`, `simple_filter`).
+2.  **Backends Processor:** Enhances or filters backends based on metadata or health checks.
+    - `mysql`, `redis`: Deep health probing with replication awareness and role detection.
+    - `consul_kv`: Dynamic metadata enrichment from Consul KV.
+    - `simple_filter`: Powerful filtering, sorting, and limiting using HCL expressions.
 3.  **Balancer:** Selects a backend from a processed list using a specific algorithm (e.g., `wrr` - Weighted Round Robin).
 4.  **Proxy:** Accepts incoming connections and forwards traffic to the backend selected by the balancer (e.g., `tcp`, `redis`).
 
@@ -78,6 +81,23 @@ balancer "wrr" "my_balancer" {
 proxy "tcp" "my_proxy" {
   source = balancer.wrr.my_balancer
   addresses = [":3300"]
+}
+```
+
+### Advanced Filtering and Sorting
+
+The `simple_filter` processor allows for complex logic to select the best backends:
+
+```hcl
+backends_processor "simple_filter" "healthy_slaves" {
+  source = backends_processor.mysql.my_db
+  condition = (
+    backend.meta.mysql.status == "ok"
+    && backend.meta.mysql.readonly == true
+  )
+  sort_by = backend.meta.mysql.replica_latency
+  sort_order = "asc"
+  limit = 5
 }
 ```
 

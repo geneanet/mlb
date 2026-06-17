@@ -74,6 +74,10 @@ backends_processor "simple_filter" "mysql_main_ro" {
     && contains(backend.meta.consul.tags, "main")
     && !contains(backend.meta.consul.tags, "backup")
   )
+  // Optional sorting and limiting
+  // sort_by = backend.meta.mysql.replica_latency
+  // sort_order = "asc" // "asc" (default) or "desc"
+  // limit = 10
 }
 
 backends_processor "simple_filter" "redis_master" {
