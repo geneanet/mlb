@@ -26,7 +26,6 @@ func TestRegistry(t *testing.T) {
 	factory := &mockFactory{}
 
 	RegisterFactory(category, typeName, factory)
-	defer UnregisterFactory(category, typeName)
 
 	if GetFactory(category, typeName) != factory {
 		t.Error("Expected factory to be registered")
@@ -87,9 +86,6 @@ func TestRegistry(t *testing.T) {
 		}()
 		ValidateConfig(&Config{Type: "unknown"}, category)
 	}()
-
-	// Test Unregister with non-existent category
-	UnregisterFactory("non_existent_category", "mock")
 
 	// Test Unsupported type
 	blockUnsupported := &hcl.Block{

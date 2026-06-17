@@ -172,12 +172,6 @@ func (r *Registry) Has(address string) bool {
 	return ok
 }
 
-func (r *Registry) Size() int {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return len(r.backends)
-}
-
 func (r *Registry) Subscribe(s BackendUpdateSubscriber) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

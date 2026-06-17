@@ -33,13 +33,6 @@ func RegisterFactory(category string, typeName string, factory FactoryInterface)
 	factories[category][typeName] = factory
 }
 
-// UnregisterFactory removes a module factory from the central registry.
-func UnregisterFactory(category string, typeName string) {
-	if reg, ok := factories[category]; ok {
-		delete(reg, typeName)
-	}
-}
-
 // GetFactory returns a module factory from the central registry.
 func GetFactory(category string, typeName string) FactoryInterface {
 	if reg, ok := factories[category]; ok {

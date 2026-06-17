@@ -141,8 +141,8 @@ func TestBackend_ResolveExpression(t *testing.T) {
 // It covers adding, getting, existence checking, and removing backends.
 func TestRegistry_BasicOperations(t *testing.T) {
 	bm := NewRegistry()
-	if bm.Size() != 0 {
-		t.Errorf("expected empty map to have size 0, got %d", bm.Size())
+	if len(bm.GetList()) != 0 {
+		t.Errorf("expected empty map to have size 0, got %d", len(bm.GetList()))
 	}
 
 	b1 := &Backend{Address: "10.0.0.1", Meta: NewEmptyMetaMap(0)}
@@ -153,13 +153,13 @@ func TestRegistry_BasicOperations(t *testing.T) {
 	if !bm.Has("10.0.0.1") {
 		t.Errorf("expected map to have 10.0.0.1")
 	}
-	if bm.Size() != 1 {
-		t.Errorf("expected map to have size 1, got %d", bm.Size())
+	if len(bm.GetList()) != 1 {
+		t.Errorf("expected map to have size 1, got %d", len(bm.GetList()))
 	}
 
 	bm.Add(b2)
-	if bm.Size() != 2 {
-		t.Errorf("expected map to have size 2, got %d", bm.Size())
+	if len(bm.GetList()) != 2 {
+		t.Errorf("expected map to have size 2, got %d", len(bm.GetList()))
 	}
 
 	// Test Get
@@ -179,8 +179,8 @@ func TestRegistry_BasicOperations(t *testing.T) {
 	if bm.Has("10.0.0.1") {
 		t.Errorf("expected map not to have 10.0.0.1 after remove")
 	}
-	if bm.Size() != 1 {
-		t.Errorf("expected map to have size 1 after remove, got %d", bm.Size())
+	if len(bm.GetList()) != 1 {
+		t.Errorf("expected map to have size 1 after remove, got %d", len(bm.GetList()))
 	}
 }
 
