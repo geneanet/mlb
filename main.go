@@ -108,7 +108,9 @@ func main() {
 				http.Error(w, "serialization error", http.StatusInternalServerError)
 				return
 			}
-			w.Write(out)
+			if _, err := w.Write(out); err != nil {
+				log.Warn().Err(err).Msg("Failed to write /backends response")
+			}
 		})
 		http.Handle("/metrics", metrics.HttpLogWrapper(promhttp.Handler()))
 
