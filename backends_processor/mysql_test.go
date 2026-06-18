@@ -167,10 +167,11 @@ func TestMySQL(t *testing.T) {
 	}
 
 	config := &module.Config{
-		Name:   "test",
-		Type:   "mysql",
-		Config: body,
-		Ctx:    &hcl.EvalContext{},
+		Category: "backends_processor",
+		Name:     "test",
+		Type:     "mysql",
+		Config:   body,
+		Ctx:      &hcl.EvalContext{},
 	}
 
 	diags := module.ValidateConfig(config, "backends_processor")
@@ -296,7 +297,7 @@ func TestMySQL_Coverage(t *testing.T) {
 			"source": {Name: "source", Expr: &hclsyntax.TemplateExpr{Parts: []hclsyntax.Expression{&hclsyntax.LiteralValueExpr{Val: cty.StringVal("test_cov")}}}},
 		},
 	}
-	config := &module.Config{Name: "test_cov", Type: "mysql", Config: body, Ctx: &hcl.EvalContext{}}
+	config := &module.Config{Category: "backends_processor", Name: "test_cov", Type: "mysql", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	mod := module.New(config, wg, ctx, "backends_processor")
@@ -418,10 +419,11 @@ backends_processor "mysql" "test" {
 	ctx := &hcl.EvalContext{}
 
 	cfg := &module.Config{
-		Type:   "mysql",
-		Name:   "test",
-		Config: block.Body,
-		Ctx:    ctx,
+		Category: "backends_processor",
+		Type:     "mysql",
+		Name:     "test",
+		Config:   block.Body,
+		Ctx:      ctx,
 	}
 
 	// This will trigger log.Error() and still return a config object

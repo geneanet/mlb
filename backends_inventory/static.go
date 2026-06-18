@@ -2,7 +2,6 @@ package backends_inventory
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/hashicorp/hcl/v2"
@@ -45,7 +44,7 @@ func parseStaticBackendsInventoryConfig(tc *module.Config) *StaticBackendsInvent
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode static backend inventory config")
 	}
-	config.ID = fmt.Sprintf("backends_inventory.%s.%s", tc.Type, tc.Name)
+	config.ID = tc.FullID()
 	return config
 }
 

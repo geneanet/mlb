@@ -3,7 +3,6 @@ package proxy
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"mlb/backend"
 	"mlb/config"
@@ -89,7 +88,7 @@ func parseRedisProxyConfig(tc *module.Config) *RedisProxyConfig {
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode Redis proxy config")
 	}
-	config.ID = fmt.Sprintf("proxy.%s.%s", tc.Type, tc.Name)
+	config.ID = tc.FullID()
 	if config.ConnectTimeout == "" {
 		config.ConnectTimeout = "0s"
 	}

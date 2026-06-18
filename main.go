@@ -79,16 +79,16 @@ func main() {
 		ml := make(module.ModulesRegistry)
 
 		for _, c := range conf.BackendsInventoryList {
-			ml.AddModule(c.Name, module.New(c, &wg, ctx, "backends_inventory"))
+			ml.AddModule(c.FullID(), module.New(c, &wg, ctx, "backends_inventory"))
 		}
 		for _, c := range conf.BackendsProcessorList {
-			ml.AddModule(c.Name, module.New(c, &wg, ctx, "backends_processor"))
+			ml.AddModule(c.FullID(), module.New(c, &wg, ctx, "backends_processor"))
 		}
 		for _, c := range conf.BalancerList {
-			ml.AddModule(c.Name, module.New(c, &wg, ctx, "balancer"))
+			ml.AddModule(c.FullID(), module.New(c, &wg, ctx, "balancer"))
 		}
 		for _, c := range conf.ProxyList {
-			ml.AddModule(c.Name, module.New(c, &wg, ctx, "proxy"))
+			ml.AddModule(c.FullID(), module.New(c, &wg, ctx, "proxy"))
 		}
 
 		// Bind modules together

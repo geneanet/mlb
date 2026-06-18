@@ -418,10 +418,11 @@ backends_inventory "consul" "test" {
 	ctx := &hcl.EvalContext{}
 
 	cfg := &module.Config{
-		Type:   "consul",
-		Name:   "test",
-		Config: block.Body,
-		Ctx:    ctx,
+		Category: "backends_inventory",
+		Type:     "consul",
+		Name:     "test",
+		Config:   block.Body,
+		Ctx:      ctx,
 	}
 
 	// This will trigger log.Error() and still return a config object

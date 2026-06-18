@@ -2,7 +2,6 @@ package balancer
 
 import (
 	"context"
-	"fmt"
 	"math/rand"
 	"slices"
 	"sync"
@@ -63,7 +62,7 @@ func parseWRRBalancerConfig(tc *module.Config) *WRRBalancerConfig {
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode WRR balancer config")
 	}
-	config.ID = fmt.Sprintf("balancer.%s.%s", tc.Type, tc.Name)
+	config.ID = tc.FullID()
 	if config.Timeout == "" {
 		config.Timeout = "0s"
 	}

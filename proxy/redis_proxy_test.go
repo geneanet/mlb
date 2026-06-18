@@ -33,10 +33,11 @@ func TestRedisProxyFactory_ValidateConfig(t *testing.T) {
 	}
 
 	tc := &module.Config{
-		Type:   "redis_proxy",
-		Name:   "test",
-		Config: file.Body,
-		Ctx:    &hcl.EvalContext{},
+		Category: "proxy",
+		Type:     "redis_proxy",
+		Name:     "test",
+		Config:   file.Body,
+		Ctx:      &hcl.EvalContext{},
 	}
 
 	res := validateRedisProxyConfig(tc)
@@ -112,10 +113,11 @@ func TestRedisProxyFactory_parseConfig(t *testing.T) {
 	}
 
 	tc := &module.Config{
-		Type:   "redis_proxy",
-		Name:   "test",
-		Config: file.Body,
-		Ctx:    &hcl.EvalContext{},
+		Category: "proxy",
+		Type:     "redis_proxy",
+		Name:     "test",
+		Config:   file.Body,
+		Ctx:      &hcl.EvalContext{},
 	}
 
 	config := parseRedisProxyConfig(tc)
@@ -170,10 +172,11 @@ func TestRedisProxyFactory_New(t *testing.T) {
 	}
 
 	tc := &module.Config{
-		Type:   "redis_proxy",
-		Name:   "test",
-		Config: file.Body,
-		Ctx:    &hcl.EvalContext{},
+		Category: "proxy",
+		Type:     "redis_proxy",
+		Name:     "test",
+		Config:   file.Body,
+		Ctx:      &hcl.EvalContext{},
 	}
 
 	var wg sync.WaitGroup
@@ -267,10 +270,11 @@ func TestRedisProxy_ListenAndConnection(t *testing.T) {
 	}
 
 	tc := &module.Config{
-		Type:   "redis_proxy",
-		Name:   "test",
-		Config: file.Body,
-		Ctx:    &hcl.EvalContext{},
+		Category: "proxy",
+		Type:     "redis_proxy",
+		Name:     "test",
+		Config:   file.Body,
+		Ctx:      &hcl.EvalContext{},
 	}
 
 	var wg sync.WaitGroup
@@ -826,9 +830,10 @@ func TestRedisProxyFactory_InvalidDurations(t *testing.T) {
 	}
 
 	tc := &module.Config{
-		Type:   "redis",
-		Name:   "test_proxy_invalid",
-		Config: file.Body,
+		Category: "proxy",
+		Type:     "redis",
+		Name:     "test_proxy_invalid",
+		Config:   file.Body,
 		Ctx:    &hcl.EvalContext{},
 	}
 

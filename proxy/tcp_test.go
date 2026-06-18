@@ -111,9 +111,10 @@ func TestTCPProxyFactory(t *testing.T) {
 	}
 
 	tc := &module.Config{
-		Type:   "tcp",
-		Name:   "test_proxy",
-		Config: file.Body,
+		Category: "proxy",
+		Type:     "tcp",
+		Name:     "test_proxy",
+		Config:   file.Body,
 		Ctx:    &hcl.EvalContext{},
 	}
 

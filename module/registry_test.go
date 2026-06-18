@@ -127,17 +127,34 @@ func (d *dummyListProvider) GetBackendList() []*backend.Backend {
 
 // Tests
 
+func TestConfigFullID(t *testing.T) {
+	cfg := &Config{
+		Category: "cat",
+		Type:     "typ",
+		Name:     "nam",
+	}
+	expected := "cat.typ.nam"
+	if cfg.FullID() != expected {
+		t.Errorf("Expected FullID %q, got %q", expected, cfg.FullID())
+	}
+}
+
 // TestModulesRegistryAdd verifies that modules can be added to and retrieved from the ModulesRegistry by their ID.
 func TestModulesRegistryAdd(t *testing.T) {
 	ml := make(ModulesRegistry)
-	m := &dummyModule{id: "m1"}
-	ml.AddModule("m1", m)
+	cfg := &Config{
+		Category: "cat",
+		Type:     "typ",
+		Name:     "m1",
+	}
+	m := &dummyModule{id: cfg.Name}
+	ml.AddModule(cfg.FullID(), m)
 
 	if len(ml) != 1 {
 		t.Fatalf("Expected ModulesRegistry size 1, got %d", len(ml))
 	}
 
-	if ml["m1"] != m {
+	if ml[cfg.FullID()] != m {
 		t.Errorf("Retrieved module does not match the added module")
 	}
 }

@@ -260,7 +260,7 @@ func TestSimpleFilter_ReceiveUpdateClosed(t *testing.T) {
 			"condition": {Name: "condition", Expr: &hclsyntax.LiteralValueExpr{Val: cty.BoolVal(true)}},
 		},
 	}
-	config := &module.Config{Name: "test", Type: "simple_filter", Config: body, Ctx: &hcl.EvalContext{}}
+	config := &module.Config{Category: "backends_processor", Name: "test", Type: "simple_filter", Config: body, Ctx: &hcl.EvalContext{}}
 
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -286,10 +286,11 @@ backends_processor "simple_filter" "test" {
 	ctx := &hcl.EvalContext{}
 
 	cfg := &module.Config{
-		Type:   "simple_filter",
-		Name:   "test",
-		Config: block.Body,
-		Ctx:    ctx,
+		Category: "backends_processor",
+		Type:     "simple_filter",
+		Name:     "test",
+		Config:   block.Body,
+		Ctx:      ctx,
 	}
 
 	// This will trigger log.Error() and still return a config object

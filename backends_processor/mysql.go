@@ -102,7 +102,7 @@ func parseMySQLCheckerConfig(tc *module.Config) *MySQLCheckerConfig {
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode mysql backend processor config")
 	}
-	config.ID = fmt.Sprintf("backends_processor.%s.%s", tc.Type, tc.Name)
+	config.ID = tc.FullID()
 	if config.Period == "" {
 		config.Period = "1s"
 	}

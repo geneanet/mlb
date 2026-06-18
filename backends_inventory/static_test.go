@@ -121,10 +121,11 @@ backends_inventory "static" "test" {
 	ctx := &hcl.EvalContext{}
 
 	cfg := &module.Config{
-		Type:   "static",
-		Name:   "test",
-		Config: block.Body,
-		Ctx:    ctx,
+		Category: "backends_inventory",
+		Type:     "static",
+		Name:     "test",
+		Config:   block.Body,
+		Ctx:      ctx,
 	}
 
 	// This will trigger log.Error() and still return a config object

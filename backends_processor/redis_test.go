@@ -26,10 +26,11 @@ func TestRedisCheckerConfig(t *testing.T) {
 	`)
 
 	tc := &module.Config{
-		Type:   "redis",
-		Name:   "test",
-		Config: hclBlock.Body,
-		Ctx:    nil,
+		Category: "backends_processor",
+		Type:     "redis",
+		Name:     "test",
+		Config:   hclBlock.Body,
+		Ctx:      nil,
 	}
 
 	config := parseRedisCheckerConfig(tc)
@@ -154,10 +155,11 @@ func TestRedisChecker_ValidateConfig(t *testing.T) {
 	`)
 
 	tc := &module.Config{
-		Type:   "redis",
-		Name:   "test",
-		Config: hclBlock.Body,
-		Ctx:    &hcl.EvalContext{},
+		Category: "backends_processor",
+		Type:     "redis",
+		Name:     "test",
+		Config:   hclBlock.Body,
+		Ctx:      &hcl.EvalContext{},
 	}
 
 	diags := validateRedisCheckerConfig(tc)
@@ -172,7 +174,7 @@ func TestRedis_Coverage(t *testing.T) {
 			"source": {Name: "source", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("test_cov")}},
 		},
 	}
-	config := &module.Config{Name: "test_cov", Type: "redis", Config: body, Ctx: &hcl.EvalContext{}}
+	config := &module.Config{Category: "backends_processor", Name: "test_cov", Type: "redis", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	mod := module.New(config, wg, ctx, "backends_processor")

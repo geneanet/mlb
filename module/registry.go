@@ -11,10 +11,16 @@ import (
 
 // Config represents a module's HCL configuration.
 type Config struct {
-	Type   string
-	Name   string
-	Config hcl.Body
-	Ctx    *hcl.EvalContext
+	Category string
+	Type     string
+	Name     string
+	Config   hcl.Body
+	Ctx      *hcl.EvalContext
+}
+
+// FullID returns the canonical identifier for the module, prefixed by its category.
+func (c *Config) FullID() string {
+	return fmt.Sprintf("%s.%s.%s", c.Category, c.Type, c.Name)
 }
 
 // NewFunc is a function type for creating a new module instance.
@@ -90,10 +96,11 @@ func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext, category string) 
 		}
 	}
 	tc := &Config{
-		Type:   block.Labels[0],
-		Name:   block.Labels[1],
-		Config: block.Body,
-		Ctx:    ctx,
+		Category: category,
+		Type:     block.Labels[0],
+		Name:     block.Labels[1],
+		Config:   block.Body,
+		Ctx:      ctx,
 	}
 	diags := f.validate(tc)
 	return tc, diags

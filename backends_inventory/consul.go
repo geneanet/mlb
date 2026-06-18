@@ -85,7 +85,7 @@ func parseConsulBackendsInventoryConfig(tc *module.Config) *ConsulBackendsInvent
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode consul backend inventory config")
 	}
-	config.ID = fmt.Sprintf("backends_inventory.%s.%s", tc.Type, tc.Name)
+	config.ID = tc.FullID()
 	if config.Period == "" {
 		config.Period = "1s"
 	}

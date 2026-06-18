@@ -41,7 +41,7 @@ func TestWRRBalancer_ValidateConfig(t *testing.T) {
 			"weight": {Name: "weight", Expr: &hclsyntax.LiteralValueExpr{Val: cty.NumberIntVal(2)}},
 		},
 	}
-	cfg := &module.Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
+	cfg := &module.Config{Category: "balancer", Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
 	diags := validateWRRBalancerConfig(cfg)
 	if diags.HasErrors() {
 		t.Errorf("Unexpected diags: %s", diags.Error())
@@ -57,7 +57,7 @@ func TestWRRBalancer_DefaultTimeout(t *testing.T) {
 			"weight": {Name: "weight", Expr: &hclsyntax.LiteralValueExpr{Val: cty.NumberIntVal(2)}},
 		},
 	}
-	cfg := &module.Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
+	cfg := &module.Config{Category: "balancer", Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -85,7 +85,7 @@ func TestWRRBalancer_InvalidTimeout(t *testing.T) {
 			"timeout": {Name: "timeout", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("invalid")}},
 		},
 	}
-	cfg := &module.Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
+	cfg := &module.Config{Category: "balancer", Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -102,7 +102,7 @@ func TestWRRBalancer_WaitBackend(t *testing.T) {
 			"timeout": {Name: "timeout", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("1s")}},
 		},
 	}
-	cfg := &module.Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
+	cfg := &module.Config{Category: "balancer", Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -152,7 +152,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 			"var_weight": cty.NumberIntVal(2),
 		},
 	}
-	cfg := &module.Config{Name: "test", Type: "wrr", Config: body, Ctx: evalCtx}
+	cfg := &module.Config{Category: "balancer", Name: "test", Type: "wrr", Config: body, Ctx: evalCtx}
 
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -343,10 +343,11 @@ balancer "wrr" "test" {
 	ctx := &hcl.EvalContext{}
 
 	cfg := &module.Config{
-		Type:   "wrr",
-		Name:   "test",
-		Config: block.Body,
-		Ctx:    ctx,
+		Category: "balancer",
+		Type:     "wrr",
+		Name:     "test",
+		Config:   block.Body,
+		Ctx:      ctx,
 	}
 
 	// This will trigger log.Error() and still return a config object
@@ -365,7 +366,7 @@ func TestWRRBalancer_ContextCancellation(t *testing.T) {
 			"weight": {Name: "weight", Expr: &hclsyntax.LiteralValueExpr{Val: cty.NumberIntVal(1)}},
 		},
 	}
-	cfg := &module.Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
+	cfg := &module.Config{Category: "balancer", Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

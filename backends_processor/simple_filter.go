@@ -2,7 +2,6 @@ package backends_processor
 
 import (
 	"context"
-	"fmt"
 	"mlb/backend"
 	"mlb/module"
 	"sort"
@@ -59,7 +58,7 @@ func parseSimpleFilterConfig(tc *module.Config) *SimpleFilterConfig {
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode simple filter backend processor config")
 	}
-	config.ID = fmt.Sprintf("backends_processor.%s.%s", tc.Type, tc.Name)
+	config.ID = tc.FullID()
 	return config
 }
 
