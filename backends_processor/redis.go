@@ -20,7 +20,10 @@ import (
 )
 
 func init() {
-	module.RegisterFactory("backends_processor", "redis", &RedisCheckerFactory{})
+	module.RegisterFactory("backends_processor", "redis", module.Factory{
+		ValidateConfig: validateRedisCheckerConfig,
+		New:            newRedisChecker,
+	})
 }
 
 // RedisChecker manages multiple health checks for Redis backends.
@@ -58,9 +61,7 @@ type RedisCheckerConfig struct {
 	WriteTimeout   string  `hcl:"write_timeout,optional"`
 }
 
-type RedisCheckerFactory struct{}
-
-func (w RedisCheckerFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
+func validateRedisCheckerConfig(tc *module.Config) hcl.Diagnostics {
 	configBody := &RedisCheckerConfig{}
 	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
 
@@ -73,7 +74,7 @@ func (w RedisCheckerFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
 	return diags
 }
 
-func (w RedisCheckerFactory) parseConfig(tc *module.Config) *RedisCheckerConfig {
+func parseRedisCheckerConfig(tc *module.Config) *RedisCheckerConfig {
 	config := &RedisCheckerConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode redis backend processor config")
@@ -101,8 +102,8 @@ func (w RedisCheckerFactory) parseConfig(tc *module.Config) *RedisCheckerConfig 
 }
 
 // New creates a new instance of the RedisChecker module.
-func (w RedisCheckerFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
-	config := w.parseConfig(tc)
+func newRedisChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+	config := parseRedisCheckerConfig(tc)
 
 	c := &RedisChecker{
 		id:            config.ID,

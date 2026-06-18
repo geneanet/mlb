@@ -9,25 +9,22 @@ import (
 	"github.com/hashicorp/hcl/v2"
 )
 
-type mockFactory struct{}
-
-func (f *mockFactory) New(config *Config, wg *sync.WaitGroup, ctx context.Context) Module {
-	return &dummyModule{id: config.Name}
-}
-
-func (f *mockFactory) ValidateConfig(config *Config) hcl.Diagnostics {
-	return nil
-}
-
 // TestRegistry verifies the central module registry functionality.
 func TestRegistry(t *testing.T) {
 	category := "test_category"
 	typeName := "mock"
-	factory := &mockFactory{}
+	factory := Factory{
+		New: func(config *Config, wg *sync.WaitGroup, ctx context.Context) Module {
+			return &dummyModule{id: config.Name}
+		},
+		ValidateConfig: func(config *Config) hcl.Diagnostics {
+			return nil
+		},
+	}
 
 	RegisterFactory(category, typeName, factory)
 
-	if GetFactory(category, typeName) != factory {
+	if GetFactory(category, typeName).New == nil {
 		t.Error("Expected factory to be registered")
 	}
 

@@ -24,7 +24,10 @@ import (
 )
 
 func init() {
-	module.RegisterFactory("proxy", "tcp", &TCPProxyFactory{})
+	module.RegisterFactory("proxy", "tcp", module.Factory{
+		ValidateConfig: validateTCPProxyConfig,
+		New:            newTCPProxy,
+	})
 }
 
 type ProxyTCP struct {
@@ -75,9 +78,7 @@ type TCPProxyConfig struct {
 	CloseOnBackendRemoval bool     `hcl:"close_on_backend_removal,optional"`
 }
 
-type TCPProxyFactory struct{}
-
-func (w TCPProxyFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
+func validateTCPProxyConfig(tc *module.Config) hcl.Diagnostics {
 	configBody := &TCPProxyConfig{}
 	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
 
@@ -90,7 +91,7 @@ func (w TCPProxyFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
 	return diags
 }
 
-func (w TCPProxyFactory) parseConfig(tc *module.Config) *TCPProxyConfig {
+func parseTCPProxyConfig(tc *module.Config) *TCPProxyConfig {
 	config := &TCPProxyConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode TCP proxy config")
@@ -117,8 +118,8 @@ func (w TCPProxyFactory) parseConfig(tc *module.Config) *TCPProxyConfig {
 	return config
 }
 
-func (w TCPProxyFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
-	config := w.parseConfig(tc)
+func newTCPProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+	config := parseTCPProxyConfig(tc)
 
 	p := &ProxyTCP{
 		id:                    config.ID,

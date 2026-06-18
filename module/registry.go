@@ -17,26 +17,28 @@ type Config struct {
 	Ctx    *hcl.EvalContext
 }
 
-// FactoryInterface is the interface that all module factories must implement.
-type FactoryInterface interface {
-	New(config *Config, wg *sync.WaitGroup, ctx context.Context) Module
-	ValidateConfig(config *Config) hcl.Diagnostics
+// Factory is a struct that all module factories must provide.
+type Factory struct {
+	New            func(config *Config, wg *sync.WaitGroup, ctx context.Context) Module
+	ValidateConfig func(config *Config) hcl.Diagnostics
 }
 
-var factories = make(map[string]map[string]FactoryInterface)
+var factories = make(map[string]map[string]Factory)
 
 // RegisterFactory adds a module factory to the central registry.
-func RegisterFactory(category string, typeName string, factory FactoryInterface) {
+func RegisterFactory(category string, typeName string, factory Factory) {
 	if _, ok := factories[category]; !ok {
-		factories[category] = make(map[string]FactoryInterface)
+		factories[category] = make(map[string]Factory)
 	}
 	factories[category][typeName] = factory
 }
 
 // GetFactory returns a module factory from the central registry.
-func GetFactory(category string, typeName string) FactoryInterface {
+func GetFactory(category string, typeName string) *Factory {
 	if reg, ok := factories[category]; ok {
-		return reg[typeName]
+		if factory, ok := reg[typeName]; ok {
+			return &factory
+		}
 	}
 	return nil
 }

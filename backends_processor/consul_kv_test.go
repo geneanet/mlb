@@ -462,9 +462,8 @@ backends_processor "consul_kv" "test" {
 		Ctx:    ctx,
 	}
 
-	factory := ConsulKVFactory{}
 	// This will trigger log.Error() and still return a config object
-	config := factory.parseConfig(cfg)
+	config := parseConsulKVConfig(cfg)
 	if config == nil {
 		t.Fatal("expected config not to be nil even on error")
 	}

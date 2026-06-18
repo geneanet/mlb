@@ -23,7 +23,10 @@ import (
 )
 
 func init() {
-	module.RegisterFactory("backends_processor", "consul_kv", &ConsulKVFactory{})
+	module.RegisterFactory("backends_processor", "consul_kv", module.Factory{
+		ValidateConfig: validateConsulKVConfig,
+		New:            newConsulKV,
+	})
 }
 
 type ConsulKV struct {
@@ -60,9 +63,7 @@ type ConsulKVValueConfig struct {
 	Default   string         `hcl:"default"`
 }
 
-type ConsulKVFactory struct{}
-
-func (w ConsulKVFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
+func validateConsulKVConfig(tc *module.Config) hcl.Diagnostics {
 	configBody := &ConsulKVConfig{}
 	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
 
@@ -72,7 +73,7 @@ func (w ConsulKVFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
 	return diags
 }
 
-func (w ConsulKVFactory) parseConfig(tc *module.Config) *ConsulKVConfig {
+func parseConsulKVConfig(tc *module.Config) *ConsulKVConfig {
 	config := &ConsulKVConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode consul kv backend processor config")
@@ -90,8 +91,8 @@ func (w ConsulKVFactory) parseConfig(tc *module.Config) *ConsulKVConfig {
 	return config
 }
 
-func (w ConsulKVFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
-	config := w.parseConfig(tc)
+func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+	config := parseConsulKVConfig(tc)
 
 	c := &ConsulKV{
 		id:            config.ID,

@@ -21,7 +21,6 @@ import (
 // a valid HCL configuration block. It checks that mandatory fields (like source) and
 // optional fields (like addresses and connect_timeout) are accepted.
 func TestRedisProxyFactory_ValidateConfig(t *testing.T) {
-	f := &RedisProxyFactory{}
 	configHCL := []byte(`
 		source = "test-source"
 		addresses = ["127.0.0.1:0"]
@@ -40,7 +39,7 @@ func TestRedisProxyFactory_ValidateConfig(t *testing.T) {
 		Ctx:    &hcl.EvalContext{},
 	}
 
-	res := f.ValidateConfig(tc)
+	res := validateRedisProxyConfig(tc)
 	if res.HasErrors() {
 		t.Errorf("unexpected errors: %v", res)
 	}
@@ -103,7 +102,6 @@ func TestRedisProxy_RegistryIntegration(t *testing.T) {
 // of configuration values from HCL into the internal ConfigRedis struct.
 // It checks defaults for: timeouts, buffer sizes, queue sizes, and retry parameters.
 func TestRedisProxyFactory_parseConfig(t *testing.T) {
-	f := &RedisProxyFactory{}
 	configHCL := []byte(`
 		source = "test-source"
 	`)
@@ -120,7 +118,7 @@ func TestRedisProxyFactory_parseConfig(t *testing.T) {
 		Ctx:    &hcl.EvalContext{},
 	}
 
-	config := f.parseConfig(tc)
+	config := parseRedisProxyConfig(tc)
 	if config.ID != "proxy.redis_proxy.test" {
 		t.Errorf("expected ID proxy.redis_proxy.test, got %s", config.ID)
 	}
@@ -162,7 +160,6 @@ func TestRedisProxyFactory_parseConfig(t *testing.T) {
 // TestRedisProxyFactory_New verifies the creation of a RedisProxy instance and its
 // ability to handle backend updates (add, modify, remove) through ReceiveUpdate.
 func TestRedisProxyFactory_New(t *testing.T) {
-	f := &RedisProxyFactory{}
 	configHCL := []byte(`
 		source = "test-source"
 	`)
@@ -183,7 +180,7 @@ func TestRedisProxyFactory_New(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := f.New(tc, &wg, ctx)
+	mod := newRedisProxy(tc, &wg, ctx)
 	p, ok := mod.(*RedisProxy)
 	if !ok {
 		t.Fatal("expected mod to be *RedisProxy")
@@ -264,7 +261,6 @@ func TestRedisProxy_ListenAndConnection(t *testing.T) {
 		}
 	}()
 
-	f := &RedisProxyFactory{}
 	configHCL := []byte(`
 		source = "test-source"
 		addresses = ["127.0.0.1:0"]
@@ -288,7 +284,7 @@ func TestRedisProxy_ListenAndConnection(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := f.New(tc, &wg, ctx)
+	mod := newRedisProxy(tc, &wg, ctx)
 	p := mod.(*RedisProxy)
 
 	// Set dynamic address so listen picks a random available port
@@ -843,8 +839,7 @@ func TestRedisProxyFactory_InvalidDurations(t *testing.T) {
 		Ctx:    &hcl.EvalContext{},
 	}
 
-	factory := RedisProxyFactory{}
-	vDiags := factory.ValidateConfig(tc)
+	vDiags := validateRedisProxyConfig(tc)
 	if !vDiags.HasErrors() {
 		t.Error("expected diagnostics to have errors for invalid duration")
 	}

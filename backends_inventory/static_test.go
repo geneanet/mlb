@@ -133,9 +133,8 @@ backends_inventory "static" "test" {
 		Ctx:    ctx,
 	}
 
-	factory := StaticBackendsInventoryFactory{}
 	// This will trigger log.Error() and still return a config object
-	config := factory.parseConfig(cfg)
+	config := parseStaticBackendsInventoryConfig(cfg)
 	if config == nil {
 		t.Fatal("expected config not to be nil even on error")
 	}

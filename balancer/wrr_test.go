@@ -41,7 +41,6 @@ func (mp *mockProvider) sendUpdate(upd backend.BackendUpdate) {
 // TestWRRBalancer_ValidateConfig verifies that a valid WRR balancer configuration
 // passes the validation check.
 func TestWRRBalancer_ValidateConfig(t *testing.T) {
-	factory := module.GetFactory("balancer", "wrr")
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
 			"source": {Name: "source", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("src1")}},
@@ -49,7 +48,7 @@ func TestWRRBalancer_ValidateConfig(t *testing.T) {
 		},
 	}
 	cfg := &module.Config{Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
-	diags := factory.ValidateConfig(cfg)
+	diags := validateWRRBalancerConfig(cfg)
 	if diags.HasErrors() {
 		t.Errorf("Unexpected diags: %s", diags.Error())
 	}
@@ -69,8 +68,7 @@ func TestWRRBalancer_DefaultTimeout(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	factory := module.GetFactory("balancer", "wrr")
-	mod := factory.New(cfg, wg, ctx)
+	mod := newWRRBalancer(cfg, wg, ctx)
 	balancer := mod.(*WRRBalancer)
 
 	if balancer.timeout != 0 {
@@ -86,7 +84,6 @@ func TestWRRBalancer_InvalidTimeout(t *testing.T) {
 			t.Errorf("Expected panic due to invalid timeout")
 		}
 	}()
-	factory := module.GetFactory("balancer", "wrr")
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
 			"source":  {Name: "source", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("src1")}},
@@ -98,7 +95,7 @@ func TestWRRBalancer_InvalidTimeout(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	factory.New(cfg, wg, ctx)
+	newWRRBalancer(cfg, wg, ctx)
 }
 
 // TestWRRBalancer_WaitBackend tests the blocking behavior of GetBackend(true)
@@ -116,8 +113,7 @@ func TestWRRBalancer_WaitBackend(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	factory := module.GetFactory("balancer", "wrr")
-	mod := factory.New(cfg, wg, ctx)
+	mod := newWRRBalancer(cfg, wg, ctx)
 	balancer := mod.(*WRRBalancer)
 
 	provider := &mockProvider{id: "src1", backends: backend.NewRegistry()}
@@ -167,8 +163,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 
-	factory := module.GetFactory("balancer", "wrr")
-	mod := factory.New(cfg, wg, ctx)
+	mod := newWRRBalancer(cfg, wg, ctx)
 	balancer := mod.(*WRRBalancer)
 
 	if balancer.GetID() != "balancer.wrr.test" {
@@ -366,9 +361,8 @@ balancer "wrr" "test" {
 		Ctx:    ctx,
 	}
 
-	factory := WRRBalancerFactory{}
 	// This will trigger log.Error() and still return a config object
-	config := factory.parseConfig(cfg)
+	config := parseWRRBalancerConfig(cfg)
 	if config == nil {
 		t.Fatal("expected config not to be nil even on error")
 	}
@@ -388,8 +382,7 @@ func TestWRRBalancer_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	factory := module.GetFactory("balancer", "wrr")
-	mod := factory.New(cfg, wg, ctx)
+	mod := newWRRBalancer(cfg, wg, ctx)
 	balancer := mod.(*WRRBalancer)
 
 	provider := &mockProvider{id: "src1", backends: backend.NewRegistry()}

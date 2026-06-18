@@ -24,7 +24,10 @@ import (
 )
 
 func init() {
-	module.RegisterFactory("backends_inventory", "consul", &ConsulBackendsInventoryFactory{})
+	module.RegisterFactory("backends_inventory", "consul", module.Factory{
+		ValidateConfig: validateConsulBackendsInventoryConfig,
+		New:            newConsulBackendsInventory,
+	})
 }
 
 type consulService struct {
@@ -67,9 +70,7 @@ type ConsulBackendsInventoryConfig struct {
 	BackoffFactor float64 `hcl:"backoff_factor,optional"`
 }
 
-type ConsulBackendsInventoryFactory struct{}
-
-func (w ConsulBackendsInventoryFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
+func validateConsulBackendsInventoryConfig(tc *module.Config) hcl.Diagnostics {
 	configBody := &ConsulBackendsInventoryConfig{}
 	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
 
@@ -79,7 +80,7 @@ func (w ConsulBackendsInventoryFactory) ValidateConfig(tc *module.Config) hcl.Di
 	return diags
 }
 
-func (w ConsulBackendsInventoryFactory) parseConfig(tc *module.Config) *ConsulBackendsInventoryConfig {
+func parseConsulBackendsInventoryConfig(tc *module.Config) *ConsulBackendsInventoryConfig {
 	config := &ConsulBackendsInventoryConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode consul backend inventory config")
@@ -97,8 +98,8 @@ func (w ConsulBackendsInventoryFactory) parseConfig(tc *module.Config) *ConsulBa
 	return config
 }
 
-func (w ConsulBackendsInventoryFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
-	config := w.parseConfig(tc)
+func newConsulBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+	config := parseConsulBackendsInventoryConfig(tc)
 
 	c := &BackendsInventoryConsul{
 		id:       config.ID,

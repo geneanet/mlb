@@ -17,7 +17,10 @@ import (
 )
 
 func init() {
-	module.RegisterFactory("backends_processor", "simple_filter", &SimpleFilterFactory{})
+	module.RegisterFactory("backends_processor", "simple_filter", module.Factory{
+		ValidateConfig: validateSimpleFilterConfig,
+		New:            newSimpleFilter,
+	})
 }
 
 // SimpleFilter implements a backend processor that filters backends based on a condition,
@@ -49,14 +52,12 @@ type SimpleFilterConfig struct {
 	Limit     *int           `hcl:"limit,optional"`      // Optional limit on the number of backends
 }
 
-type SimpleFilterFactory struct{}
-
-func (w SimpleFilterFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
+func validateSimpleFilterConfig(tc *module.Config) hcl.Diagnostics {
 	config := &SimpleFilterConfig{}
 	return gohcl.DecodeBody(tc.Config, tc.Ctx, config)
 }
 
-func (w SimpleFilterFactory) parseConfig(tc *module.Config) *SimpleFilterConfig {
+func parseSimpleFilterConfig(tc *module.Config) *SimpleFilterConfig {
 	config := &SimpleFilterConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode simple filter backend processor config")
@@ -65,8 +66,8 @@ func (w SimpleFilterFactory) parseConfig(tc *module.Config) *SimpleFilterConfig 
 	return config
 }
 
-func (w SimpleFilterFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
-	config := w.parseConfig(tc)
+func newSimpleFilter(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+	config := parseSimpleFilterConfig(tc)
 
 	sortOrder := "asc"
 	if config.SortOrder != nil {

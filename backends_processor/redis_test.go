@@ -16,7 +16,6 @@ import (
 )
 
 func TestRedisCheckerConfig(t *testing.T) {
-	factory := &RedisCheckerFactory{}
 	hclBlock := parseHCL(t, `
 		redis "test" {
 			source = "inventory.static.test"
@@ -33,7 +32,7 @@ func TestRedisCheckerConfig(t *testing.T) {
 		Ctx:    nil,
 	}
 
-	config := factory.parseConfig(tc)
+	config := parseRedisCheckerConfig(tc)
 	if config.Source != "inventory.static.test" {
 		t.Errorf("expected source inventory.static.test, got %s", config.Source)
 	}
@@ -147,7 +146,6 @@ func TestRedisCheck_Parsing(t *testing.T) {
 }
 
 func TestRedisChecker_ValidateConfig(t *testing.T) {
-	factory := &RedisCheckerFactory{}
 	hclBlock := parseHCL(t, `
 		redis "test" {
 			source = "inventory.static.test"
@@ -159,12 +157,12 @@ func TestRedisChecker_ValidateConfig(t *testing.T) {
 		Type:   "redis",
 		Name:   "test",
 		Config: hclBlock.Body,
-		Ctx:    nil,
+		Ctx:    &hcl.EvalContext{},
 	}
 
-	diags := factory.ValidateConfig(tc)
+	diags := validateRedisCheckerConfig(tc)
 	if !diags.HasErrors() {
-		t.Error("expected diagnostics to have errors for invalid period")
+		t.Error("expected errors for invalid duration")
 	}
 }
 

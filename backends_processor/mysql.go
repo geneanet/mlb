@@ -39,7 +39,10 @@ func setMySQLDriverName(name string) {
 }
 
 func init() {
-	module.RegisterFactory("backends_processor", "mysql", &MySQLCheckerFactory{})
+	module.RegisterFactory("backends_processor", "mysql", module.Factory{
+		ValidateConfig: validateMySQLCheckerConfig,
+		New:            newMySQLChecker,
+	})
 }
 
 type MySQLChecker struct {
@@ -80,9 +83,7 @@ type MySQLCheckerConfig struct {
 	CheckReplica    bool    `hcl:"check_replica,optional"`
 }
 
-type MySQLCheckerFactory struct{}
-
-func (w MySQLCheckerFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
+func validateMySQLCheckerConfig(tc *module.Config) hcl.Diagnostics {
 	configBody := &MySQLCheckerConfig{}
 	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
 
@@ -96,7 +97,7 @@ func (w MySQLCheckerFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
 	return diags
 }
 
-func (w MySQLCheckerFactory) parseConfig(tc *module.Config) *MySQLCheckerConfig {
+func parseMySQLCheckerConfig(tc *module.Config) *MySQLCheckerConfig {
 	config := &MySQLCheckerConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode mysql backend processor config")
@@ -126,8 +127,8 @@ func (w MySQLCheckerFactory) parseConfig(tc *module.Config) *MySQLCheckerConfig 
 	return config
 }
 
-func (w MySQLCheckerFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
-	config := w.parseConfig(tc)
+func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+	config := parseMySQLCheckerConfig(tc)
 
 	c := &MySQLChecker{
 		id:            config.ID,

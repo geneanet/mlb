@@ -185,7 +185,7 @@ func TestMySQL(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 
-	mod := factory.New(config, wg, ctx)
+	mod := newMySQLChecker(config, wg, ctx)
 	mysqlChecker := mod.(*MySQLChecker)
 
 	mysqlChecker.GetID()
@@ -295,7 +295,6 @@ func TestMySQL(t *testing.T) {
 // including backoff logic, connection errors, and metadata update scenarios.
 func TestMySQL_Coverage(t *testing.T) {
 	setMySQLDriverName("mysql_mock")
-	factory := module.GetFactory("backends_processor", "mysql")
 
 	// 1. Defaults parsing in module.Config
 	body := &hclsyntax.Body{
@@ -306,7 +305,7 @@ func TestMySQL_Coverage(t *testing.T) {
 	config := &module.Config{Name: "test_cov", Type: "mysql", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
-	mod := factory.New(config, wg, ctx)
+	mod := newMySQLChecker(config, wg, ctx)
 	mysqlChecker := mod.(*MySQLChecker)
 
 	// 2. Add an item directly to cover loop execution in GetBackendList, ProvideUpdates, and stopChecks
@@ -430,9 +429,8 @@ backends_processor "mysql" "test" {
 		Ctx:    ctx,
 	}
 
-	factory := MySQLCheckerFactory{}
 	// This will trigger log.Error() and still return a config object
-	config := factory.parseConfig(cfg)
+	config := parseMySQLCheckerConfig(cfg)
 	if config == nil {
 		t.Fatal("expected config not to be nil even on error")
 	}

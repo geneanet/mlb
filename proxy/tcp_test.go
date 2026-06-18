@@ -120,8 +120,7 @@ func TestTCPProxyFactory(t *testing.T) {
 		Ctx:    &hcl.EvalContext{},
 	}
 
-	factory := TCPProxyFactory{}
-	vDiags := factory.ValidateConfig(tc)
+	vDiags := validateTCPProxyConfig(tc)
 	if vDiags.HasErrors() {
 		t.Fatal(vDiags)
 	}
@@ -129,7 +128,7 @@ func TestTCPProxyFactory(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	ctx := context.Background()
 
-	mod := factory.New(tc, wg, ctx)
+	mod := newTCPProxy(tc, wg, ctx)
 	if mod == nil {
 		t.Fatal("expected mod not to be nil")
 	}
@@ -180,8 +179,7 @@ func TestTCPProxyFactory_Defaults(t *testing.T) {
 		Ctx:    &hcl.EvalContext{},
 	}
 
-	factory := TCPProxyFactory{}
-	mod := factory.New(tc, &sync.WaitGroup{}, context.Background())
+	mod := newTCPProxy(tc, &sync.WaitGroup{}, context.Background())
 	p := mod.(*ProxyTCP)
 
 	// Validate correct default configuration values
@@ -889,8 +887,7 @@ func TestTCPProxyFactory_InvalidDurations(t *testing.T) {
 		Ctx:    &hcl.EvalContext{},
 	}
 
-	factory := TCPProxyFactory{}
-	vDiags := factory.ValidateConfig(tc)
+	vDiags := validateTCPProxyConfig(tc)
 	if !vDiags.HasErrors() {
 		t.Error("expected diagnostics to have errors for invalid duration")
 	}

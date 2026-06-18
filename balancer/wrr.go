@@ -20,7 +20,10 @@ import (
 )
 
 func init() {
-	module.RegisterFactory("balancer", "wrr", &WRRBalancerFactory{})
+	module.RegisterFactory("balancer", "wrr", module.Factory{
+		ValidateConfig: validateWRRBalancerConfig,
+		New:            newWRRBalancer,
+	})
 }
 
 type WRRBalancer struct {
@@ -45,9 +48,7 @@ type WRRBalancerConfig struct {
 	Timeout string         `hcl:"timeout,optional"`
 }
 
-type WRRBalancerFactory struct{}
-
-func (w WRRBalancerFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
+func validateWRRBalancerConfig(tc *module.Config) hcl.Diagnostics {
 	configBody := &WRRBalancerConfig{}
 	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
 
@@ -56,7 +57,7 @@ func (w WRRBalancerFactory) ValidateConfig(tc *module.Config) hcl.Diagnostics {
 	return diags
 }
 
-func (w WRRBalancerFactory) parseConfig(tc *module.Config) *WRRBalancerConfig {
+func parseWRRBalancerConfig(tc *module.Config) *WRRBalancerConfig {
 	config := &WRRBalancerConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
 		log.Error().Err(diags).Msg("failed to decode WRR balancer config")
@@ -68,8 +69,8 @@ func (w WRRBalancerFactory) parseConfig(tc *module.Config) *WRRBalancerConfig {
 	return config
 }
 
-func (w WRRBalancerFactory) New(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
-	config := w.parseConfig(tc)
+func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+	config := parseWRRBalancerConfig(tc)
 
 	b := &WRRBalancer{
 		id:           config.ID,

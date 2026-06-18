@@ -300,9 +300,8 @@ backends_processor "simple_filter" "test" {
 		Ctx:    ctx,
 	}
 
-	factory := SimpleFilterFactory{}
 	// This will trigger log.Error() and still return a config object
-	config := factory.parseConfig(cfg)
+	config := parseSimpleFilterConfig(cfg)
 	if config == nil {
 		t.Fatal("expected config not to be nil even on error")
 	}

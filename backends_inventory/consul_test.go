@@ -436,9 +436,8 @@ backends_inventory "consul" "test" {
 		Ctx:    ctx,
 	}
 
-	factory := ConsulBackendsInventoryFactory{}
 	// This will trigger log.Error() and still return a config object
-	config := factory.parseConfig(cfg)
+	config := parseConsulBackendsInventoryConfig(cfg)
 	if config == nil {
 		t.Fatal("expected config not to be nil even on error")
 	}
