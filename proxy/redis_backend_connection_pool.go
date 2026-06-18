@@ -54,15 +54,17 @@ func NewRedisBackendConnectionPool(proxy *RedisProxy) *RedisBackendConnectionPoo
 }
 
 func (rbcp *RedisBackendConnectionPool) updateWaitState() {
-	if (len(rbcp.pool) > 0) == (rbcp.waitBackends != nil) {
-		if rbcp.waitBackends != nil {
-			rbcp.proxy.log.Debug().Msg("At least one connection has been added to the pool, unblocking GetRandom")
-			close(rbcp.waitBackends)
-			rbcp.waitBackends = nil
-		} else {
-			rbcp.proxy.log.Debug().Msg("There are no more connections in the pool, blocking GetRandom")
-			rbcp.waitBackends = make(chan struct{})
-		}
+	needsWait := len(rbcp.pool) == 0
+	if needsWait == (rbcp.waitBackends != nil) {
+		return
+	}
+	if needsWait {
+		rbcp.proxy.log.Debug().Msg("There are no more connections in the pool, blocking GetRandom")
+		rbcp.waitBackends = make(chan struct{})
+	} else {
+		rbcp.proxy.log.Debug().Msg("At least one connection has been added to the pool, unblocking GetRandom")
+		close(rbcp.waitBackends)
+		rbcp.waitBackends = nil
 	}
 }
 
@@ -73,7 +75,6 @@ func (rbcp *RedisBackendConnectionPool) Wait(ctx context.Context) error {
 	if ch == nil {
 		return nil
 	}
-
 	select {
 	case <-ch:
 		return nil

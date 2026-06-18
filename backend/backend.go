@@ -88,13 +88,15 @@ func NewRegistry() *Registry {
 }
 
 func (r *Registry) updateWaitState() {
-	if (len(r.backends) > 0) == (r.waitChan != nil) {
-		if r.waitChan != nil {
-			close(r.waitChan)
-			r.waitChan = nil
-		} else {
-			r.waitChan = make(chan struct{})
-		}
+	needsWait := len(r.backends) == 0
+	if needsWait == (r.waitChan != nil) {
+		return
+	}
+	if needsWait {
+		r.waitChan = make(chan struct{})
+	} else {
+		close(r.waitChan)
+		r.waitChan = nil
 	}
 }
 
