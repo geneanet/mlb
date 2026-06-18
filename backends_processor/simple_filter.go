@@ -255,9 +255,11 @@ func (f *SimpleFilter) refreshBackends() {
 // compareCtyValues returns -1 if a < b, 1 if a > b, and 0 if a == b.
 // It supports strings, numbers, and booleans.
 func compareCtyValues(a, b cty.Value) int {
+	if a.RawEquals(b) {
+		return 0
+	}
 	if a.Type() != b.Type() {
-		// ponytail: unstable sort if types differ, but ResolveExpression usually returns same type for same expression
-		return strings.Compare(a.Type().FriendlyName(), b.Type().FriendlyName())
+		return strings.Compare(valToString(a), valToString(b))
 	}
 
 	switch a.Type() {
@@ -267,22 +269,36 @@ func compareCtyValues(a, b cty.Value) int {
 		if a.LessThan(b).True() {
 			return -1
 		}
-		if a.GreaterThan(b).True() {
-			return 1
-		}
-		return 0
+		return 1
 	case cty.Bool:
-		av := a.True()
-		bv := b.True()
-		if av == bv {
-			return 0
-		}
-		if !av && bv {
+		if b.True() {
 			return -1
 		}
 		return 1
 	default:
 		return 0
+	}
+}
+
+func valToString(v cty.Value) string {
+	if v.IsNull() {
+		return ""
+	}
+	if !v.IsKnown() {
+		return ""
+	}
+	switch v.Type() {
+	case cty.String:
+		return v.AsString()
+	case cty.Number:
+		return v.AsBigFloat().Text('f', -1)
+	case cty.Bool:
+		if v.True() {
+			return "true"
+		}
+		return "false"
+	default:
+		return v.GoString()
 	}
 }
 
