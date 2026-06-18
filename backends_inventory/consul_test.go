@@ -139,8 +139,6 @@ backends_inventory "consul" "test" {
 		t.Fatalf("Expected *BackendsInventoryConsul")
 	}
 
-	consulMod.Bind(module.ModulesRegistry{})
-
 	sub := &consulDummySubscriber{}
 	consulMod.ProvideUpdates(sub)
 

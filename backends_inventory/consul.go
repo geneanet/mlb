@@ -266,10 +266,6 @@ func (c *BackendsInventoryConsul) GetBackendList() backend.BackendsList {
 	return c.backends.GetList()
 }
 
-func (c *BackendsInventoryConsul) Bind(modules module.ModulesRegistry) {
-	_ = modules
-}
-
 func consulServicesSliceToMap(services consulServicesSlice) consulServicesMap {
 	index := consulServicesMap{}
 

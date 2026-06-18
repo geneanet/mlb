@@ -80,8 +80,3 @@ func (c *BackendsInventoryStatic) ProvideUpdates(s backend.BackendUpdateSubscrib
 func (c *BackendsInventoryStatic) GetBackendList() []*backend.Backend {
 	return c.backends.GetList()
 }
-
-// Bind implements the module.Binder interface.
-func (c *BackendsInventoryStatic) Bind(modules module.ModulesRegistry) {
-	_ = modules
-}

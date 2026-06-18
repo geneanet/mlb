@@ -41,8 +41,6 @@ backends_inventory "static" "test" {
 		t.Errorf("Expected 2 backends, got %d", len(backends))
 	}
 
-	staticMod.Bind(module.ModulesRegistry{}) // Should do nothing
-
 	// Test ProvideUpdates functionality: new subscribers should receive current backends.
 	sub := &dummySubscriber{
 		wg: sync.WaitGroup{},
