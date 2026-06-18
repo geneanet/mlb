@@ -117,7 +117,7 @@ func TestWRRBalancer_WaitBackend(t *testing.T) {
 	balancer := mod.(*WRRBalancer)
 
 	provider := &mockProvider{id: "src1", backends: backend.NewRegistry()}
-	balancer.SubscribeTo(provider)
+	provider.ProvideUpdates(balancer)
 
 	backendChan := make(chan *backend.Backend)
 	go func() {
@@ -383,7 +383,7 @@ func TestWRRBalancer_ContextCancellation(t *testing.T) {
 	balancer := mod.(*WRRBalancer)
 
 	provider := &mockProvider{id: "src1", backends: backend.NewRegistry()}
-	balancer.SubscribeTo(provider)
+	provider.ProvideUpdates(balancer)
 
 	backend1 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
 	provider.sendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend1.Address, Backend: backend1})

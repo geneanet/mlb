@@ -254,7 +254,6 @@ type testSubscriber struct {
 func (s *testSubscriber) ReceiveUpdate(u BackendUpdate) {
 	s.updates = append(s.updates, u)
 }
-func (s *testSubscriber) SubscribeTo(p BackendUpdateProvider) { p.ProvideUpdates(s) }
 
 // TestRegistry_PublishSubscribe tests the Observer pattern implementation in Registry.
 func TestRegistry_PublishSubscribe(t *testing.T) {

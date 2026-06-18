@@ -233,7 +233,6 @@ type BackendUpdateProvider interface {
 }
 
 type BackendUpdateSubscriber interface {
-	SubscribeTo(BackendUpdateProvider)
 	ReceiveUpdate(BackendUpdate)
 }
 

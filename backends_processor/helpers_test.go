@@ -23,11 +23,6 @@ func (d *dummySubscriber) ReceiveUpdate(u backend.BackendUpdate) {
 	d.wg.Done()
 }
 
-// SubscribeTo registers this subscriber with a provider.
-func (d *dummySubscriber) SubscribeTo(p backend.BackendUpdateProvider) {
-	p.ProvideUpdates(d)
-}
-
 // dummyProvider implements backend.BackendUpdateProvider for testing.
 type dummyProvider struct {
 	id       string

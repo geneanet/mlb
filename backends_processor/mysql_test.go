@@ -144,8 +144,7 @@ func init() {
 
 type mockSubscriber struct{}
 
-func (m *mockSubscriber) ReceiveUpdate(upd backend.BackendUpdate)       {}
-func (m *mockSubscriber) SubscribeTo(bup backend.BackendUpdateProvider) {}
+func (m *mockSubscriber) ReceiveUpdate(upd backend.BackendUpdate) {}
 
 // TestMySQL verifies the initialization, configuration validation, and backend update handling
 // for the MySQL checker. It also tests various error and panic scenarios during health checks.

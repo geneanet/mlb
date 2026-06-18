@@ -242,7 +242,7 @@ func TestRedisChecker_ModuleMethods(t *testing.T) {
 	}
 
 	prov := &dummyProvider{backends: registry}
-	c.SubscribeTo(prov)
+	prov.ProvideUpdates(c)
 
 	modules := module.NewModulesRegistry()
 	provider := &dummyProvider{id: "test-source", backends: registry}

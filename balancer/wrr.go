@@ -196,10 +196,6 @@ func (b *WRRBalancer) ReceiveUpdate(upd backend.BackendUpdate) {
 	}
 }
 
-func (b *WRRBalancer) SubscribeTo(bup backend.BackendUpdateProvider) {
-	bup.ProvideUpdates(b)
-}
-
 func (b *WRRBalancer) GetID() string {
 	return b.id
 }
@@ -209,5 +205,5 @@ func (b *WRRBalancer) GetBackendList() []*backend.Backend {
 }
 
 func (b *WRRBalancer) Bind(modules module.ModulesRegistry) {
-	b.SubscribeTo(module.Get[backend.BackendUpdateProvider](modules, b.source))
+	module.Get[backend.BackendUpdateProvider](modules, b.source).ProvideUpdates(b)
 }

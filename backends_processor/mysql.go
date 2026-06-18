@@ -286,10 +286,6 @@ func (c *MySQLChecker) ReceiveUpdate(upd backend.BackendUpdate) {
 	}
 }
 
-func (c *MySQLChecker) SubscribeTo(bup backend.BackendUpdateProvider) {
-	bup.ProvideUpdates(c)
-}
-
 func (c *MySQLChecker) GetID() string {
 	return c.id
 }
@@ -299,7 +295,7 @@ func (c *MySQLChecker) GetBackendList() []*backend.Backend {
 }
 
 func (c *MySQLChecker) Bind(modules module.ModulesRegistry) {
-	c.SubscribeTo(module.Get[backend.BackendUpdateProvider](modules, c.source))
+	module.Get[backend.BackendUpdateProvider](modules, c.source).ProvideUpdates(c)
 }
 
 type MySQLCheck struct {

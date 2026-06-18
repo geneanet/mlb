@@ -310,10 +310,6 @@ func (f *SimpleFilter) ReceiveUpdate(upd backend.BackendUpdate) {
 	}
 }
 
-func (f *SimpleFilter) SubscribeTo(bup backend.BackendUpdateProvider) {
-	bup.ProvideUpdates(f)
-}
-
 func (f *SimpleFilter) GetID() string {
 	return f.id
 }
@@ -327,5 +323,5 @@ func (f *SimpleFilter) GetBackendList() []*backend.Backend {
 }
 
 func (f *SimpleFilter) Bind(modules module.ModulesRegistry) {
-	f.SubscribeTo(module.Get[backend.BackendUpdateProvider](modules, f.source))
+	module.Get[backend.BackendUpdateProvider](modules, f.source).ProvideUpdates(f)
 }

@@ -246,11 +246,6 @@ func (c *RedisChecker) ReceiveUpdate(upd backend.BackendUpdate) {
 	}
 }
 
-// SubscribeTo implements backend.BackendUpdateSubscriber.
-func (c *RedisChecker) SubscribeTo(bup backend.BackendUpdateProvider) {
-	bup.ProvideUpdates(c)
-}
-
 func (c *RedisChecker) GetID() string {
 	return c.id
 }
@@ -261,7 +256,7 @@ func (c *RedisChecker) GetBackendList() []*backend.Backend {
 
 // Bind initializes the module by subscribing to its configured source.
 func (c *RedisChecker) Bind(modules module.ModulesRegistry) {
-	c.SubscribeTo(module.Get[backend.BackendUpdateProvider](modules, c.source))
+	module.Get[backend.BackendUpdateProvider](modules, c.source).ProvideUpdates(c)
 }
 
 // RedisCheck represents a background health checker for a single Redis instance.

@@ -235,10 +235,6 @@ func (c *ConsulKV) ReceiveUpdate(upd backend.BackendUpdate) {
 	}
 }
 
-func (c *ConsulKV) SubscribeTo(bup backend.BackendUpdateProvider) {
-	bup.ProvideUpdates(c)
-}
-
 func (c *ConsulKV) GetID() string {
 	return c.id
 }
@@ -248,7 +244,7 @@ func (c *ConsulKV) GetBackendList() []*backend.Backend {
 }
 
 func (c *ConsulKV) Bind(modules module.ModulesRegistry) {
-	c.SubscribeTo(module.Get[backend.BackendUpdateProvider](modules, c.source))
+	module.Get[backend.BackendUpdateProvider](modules, c.source).ProvideUpdates(c)
 }
 
 // Watcher

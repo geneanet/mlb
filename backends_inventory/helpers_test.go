@@ -21,10 +21,6 @@ func (d *dummySubscriber) ReceiveUpdate(u backend.BackendUpdate) {
 	d.wg.Done()
 }
 
-// SubscribeTo is a no-op for this mock.
-func (d *dummySubscriber) SubscribeTo(p backend.BackendUpdateProvider) {
-}
-
 // parseHCL is a helper that parses a HCL string into an hcl.Block.
 func parseHCL(t *testing.T, src string) *hcl.Block {
 	t.Helper()
