@@ -58,6 +58,7 @@ type RedisCheckerConfig struct {
 	WriteTimeout   string  `hcl:"write_timeout,optional"`
 }
 
+// validateRedisCheckerConfig validates the Redis checker configuration.
 func validateRedisCheckerConfig(tc *module.Config) hcl.Diagnostics {
 	configBody := &RedisCheckerConfig{}
 	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
@@ -71,6 +72,7 @@ func validateRedisCheckerConfig(tc *module.Config) hcl.Diagnostics {
 	return diags
 }
 
+// parseRedisCheckerConfig parses the Redis checker configuration.
 func parseRedisCheckerConfig(tc *module.Config) *RedisCheckerConfig {
 	config := &RedisCheckerConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {

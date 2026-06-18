@@ -14,6 +14,7 @@ import (
 // Redis Backend Connection
 //--------------------------
 
+// RedisBackendConnection represents a single persistent connection to a Redis backend.
 type RedisBackendConnection struct {
 	pool          *RedisBackendConnectionPool
 	backend       *backend.Backend
@@ -25,6 +26,7 @@ type RedisBackendConnection struct {
 	cancel        context.CancelFunc
 }
 
+// NewRedisBackendConnection creates a new RedisBackendConnection and starts its lifecycle.
 func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backend.Backend) (rbc *RedisBackendConnection, e error) {
 	// Error handler
 	defer func() {
@@ -139,6 +141,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 	return rbc, nil
 }
 
+// Query sends a query to the backend.
 func (rbc *RedisBackendConnection) Query(q RedisQuery) (retError error) {
 	select {
 	case rbc.inputChan <- q:
@@ -148,6 +151,7 @@ func (rbc *RedisBackendConnection) Query(q RedisQuery) (retError error) {
 	}
 }
 
+// AbortInflightQueries aborts all queries that are currently waiting for a response from the backend.
 func (rbc *RedisBackendConnection) AbortInflightQueries() {
 	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Aborting in-flight requests")
 	for {

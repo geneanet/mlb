@@ -8,10 +8,7 @@ import (
 	"time"
 )
 
-//----------------
-// Connection Pool
-//----------------
-
+// RedisBackendConnectionPool manages a pool of connections to Redis backends.
 type RedisBackendConnectionPool struct {
 	pool                map[*RedisBackendConnection]struct{}
 	mutex               sync.RWMutex
@@ -24,6 +21,7 @@ type RedisBackendConnectionPool struct {
 	waitBackends        chan struct{}
 }
 
+// NewRedisBackendConnectionPool creates a new RedisBackendConnectionPool.
 func NewRedisBackendConnectionPool(proxy *RedisProxy) *RedisBackendConnectionPool {
 	rbcp := &RedisBackendConnectionPool{
 		pool:                make(map[*RedisBackendConnection]struct{}),
@@ -53,6 +51,7 @@ func NewRedisBackendConnectionPool(proxy *RedisProxy) *RedisBackendConnectionPoo
 	return rbcp
 }
 
+// updateWaitState updates the wait state based on pool size.
 func (rbcp *RedisBackendConnectionPool) updateWaitState() {
 	needsWait := len(rbcp.pool) == 0
 	if needsWait == (rbcp.waitBackends != nil) {
@@ -68,6 +67,7 @@ func (rbcp *RedisBackendConnectionPool) updateWaitState() {
 	}
 }
 
+// Wait blocks until at least one connection is available in the pool or the context is cancelled.
 func (rbcp *RedisBackendConnectionPool) Wait(ctx context.Context) error {
 	rbcp.mutex.RLock()
 	ch := rbcp.waitBackends
@@ -83,6 +83,8 @@ func (rbcp *RedisBackendConnectionPool) Wait(ctx context.Context) error {
 	}
 }
 
+// GetRandom returns a random connection from the pool.
+// If wait is true and the pool is empty, it will wait for a connection or timeout.
 func (rbcp *RedisBackendConnectionPool) GetRandom(wait bool) *RedisBackendConnection {
 	rbcp.mutex.RLock()
 	defer rbcp.mutex.RUnlock()

@@ -19,6 +19,7 @@ var restrictedCommandsMap = map[string]struct{}{
 	"monitor": {}, // MISC
 }
 
+// RedisQuery represents a single Redis command query.
 type RedisQuery struct {
 	id               uint64
 	item             []byte
@@ -26,6 +27,7 @@ type RedisQuery struct {
 	responseChanStop chan struct{}
 }
 
+// NewRedisQuery creates a new RedisQuery with a unique ID.
 func NewRedisQuery(item []byte, responseChan chan RedisReponse, responseChanStop chan struct{}) RedisQuery {
 	return RedisQuery{
 		id:               RedisQueryCounter.Add(1),
@@ -35,6 +37,7 @@ func NewRedisQuery(item []byte, responseChan chan RedisReponse, responseChanStop
 	}
 }
 
+// Reply sends the backend response back to the client.
 func (q RedisQuery) Reply(item []byte) (e error) {
 	select {
 	case q.responseChan <- RedisReponse{
@@ -47,10 +50,13 @@ func (q RedisQuery) Reply(item []byte) (e error) {
 	}
 }
 
+// Abort sends a nil response to the client, effectively aborting the query.
 func (q RedisQuery) Abort() (e error) {
 	return q.Reply(nil)
 }
 
+// IsRestricted checks if the command is in the restricted commands list.
+// Restricted commands are those that would break the proxy logic (e.g. blocking or pubsub).
 func (q RedisQuery) IsRestricted() bool {
 	command, err := q.GetCommand()
 
@@ -78,6 +84,7 @@ func (q RedisQuery) IsRestricted() bool {
 	return found
 }
 
+// GetCommand extracts the command name from the raw query bytes.
 func (q RedisQuery) GetCommand() ([]byte, error) {
 	if len(q.item) >= 3 { // Minimum 1 character + \r\n
 		if q.item[0] == '*' { // Array
@@ -115,6 +122,7 @@ func (q RedisQuery) GetCommand() ([]byte, error) {
 // Redis Response
 //---------------
 
+// RedisReponse represents a response from a Redis backend for a specific query.
 type RedisReponse struct {
 	query RedisQuery
 	item  []byte

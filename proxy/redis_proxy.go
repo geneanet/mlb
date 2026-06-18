@@ -26,6 +26,7 @@ func init() {
 	module.RegisterFactory("proxy", "redis", newRedisProxy, validateRedisProxyConfig)
 }
 
+// RedisProxy implements a Redis protocol proxy.
 type RedisProxy struct {
 	id                        string
 	addresses                 []string
@@ -51,6 +52,7 @@ type RedisProxy struct {
 	retryBackoffFactor        float64
 }
 
+// RedisProxyConfig defines the HCL configuration for the Redis proxy.
 type RedisProxyConfig struct {
 	ID                        string   `hcl:"id,label"`
 	Source                    string   `hcl:"source"`
@@ -67,6 +69,7 @@ type RedisProxyConfig struct {
 	RetryBackoffFactor        float64  `hcl:"retry_backoff_factor,optional"`
 }
 
+// validateRedisProxyConfig validates the Redis proxy configuration.
 func validateRedisProxyConfig(tc *module.Config) hcl.Diagnostics {
 	configBody := &RedisProxyConfig{}
 	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
@@ -80,6 +83,7 @@ func validateRedisProxyConfig(tc *module.Config) hcl.Diagnostics {
 	return diags
 }
 
+// parseRedisProxyConfig parses the Redis proxy configuration.
 func parseRedisProxyConfig(tc *module.Config) *RedisProxyConfig {
 	config := &RedisProxyConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {

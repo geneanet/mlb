@@ -137,6 +137,7 @@ func newSimpleFilter(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 	return f
 }
 
+// ProvideUpdates registers a subscriber and sends initial updates for all currently matched backends.
 func (f *SimpleFilter) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 	f.backends.Subscribe(s)
 
@@ -154,6 +155,7 @@ func (f *SimpleFilter) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 	}
 }
 
+// matchFilter evaluates the condition expression against a backend.
 func (f *SimpleFilter) matchFilter(b *backend.Backend) bool {
 	var condition bool
 	known, diags := b.ResolveExpression(f.condition, f.evalCtx, &condition)
@@ -278,6 +280,7 @@ func compareCtyValues(a, b cty.Value) int {
 	}
 }
 
+// valToString converts a cty.Value to its string representation for sorting tie-breaks.
 func valToString(v cty.Value) string {
 	if v.IsNull() {
 		return ""
@@ -300,6 +303,7 @@ func valToString(v cty.Value) string {
 	}
 }
 
+// ReceiveUpdate implements the backend.BackendUpdateSubscriber interface.
 func (f *SimpleFilter) ReceiveUpdate(upd backend.BackendUpdate) {
 	select {
 	case f.updChan <- upd:
@@ -307,7 +311,7 @@ func (f *SimpleFilter) ReceiveUpdate(upd backend.BackendUpdate) {
 	}
 }
 
-
+// GetBackendList returns the current top-N backends in their sort order.
 func (f *SimpleFilter) GetBackendList() []*backend.Backend {
 	f.listMu.RLock()
 	defer f.listMu.RUnlock()
@@ -316,6 +320,7 @@ func (f *SimpleFilter) GetBackendList() []*backend.Backend {
 	return list
 }
 
+// Bind cross-links the filter with its source backend provider.
 func (f *SimpleFilter) Bind(modules module.ModulesRegistry) {
 	module.Get[backend.BackendUpdateProvider](modules, f.source).ProvideUpdates(f)
 }

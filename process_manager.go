@@ -1,3 +1,4 @@
+// Main process manager logic.
 package main
 
 import (
@@ -9,6 +10,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// Process represents a managed worker process.
 type Process struct {
 	Process    *os.Process
 	FinalState *os.ProcessState
@@ -19,18 +21,21 @@ var (
 	osArgs   = os.Args
 )
 
+// getOsArgs returns the command line arguments in a thread-safe way.
 func getOsArgs() []string {
 	osArgsMu.RLock()
 	defer osArgsMu.RUnlock()
 	return osArgs
 }
 
+// setOsArgs sets the command line arguments in a thread-safe way.
 func setOsArgs(args []string) {
 	osArgsMu.Lock()
 	defer osArgsMu.Unlock()
 	osArgs = args
 }
 
+// startProcess starts a new worker process.
 func startProcess(chanProcess chan *Process) (*Process, error) {
 	log.Info().Msg("Starting new process")
 
@@ -67,6 +72,7 @@ func startProcess(chanProcess chan *Process) (*Process, error) {
 	return p, err
 }
 
+// processManager enters the process manager mode.
 func processManager() {
 	chanSignals := make(chan os.Signal, 1)
 	signal.Notify(chanSignals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR1)
@@ -74,6 +80,7 @@ func processManager() {
 	processManagerLoop(chanSignals)
 }
 
+// processManagerLoop is the main loop for managing worker processes.
 func processManagerLoop(chanSignals <-chan os.Signal) {
 	processes := map[*Process]*Process{}
 	chanProcess := make(chan *Process)

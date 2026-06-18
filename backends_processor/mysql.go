@@ -65,6 +65,7 @@ type MySQLChecker struct {
 	checkReplica    bool
 }
 
+// MySQLCheckerConfig defines the HCL configuration for the MySQL backend processor.
 type MySQLCheckerConfig struct {
 	ID              string  `hcl:"id,label"`
 	Source          string  `hcl:"source"`
@@ -80,6 +81,7 @@ type MySQLCheckerConfig struct {
 	CheckReplica    bool    `hcl:"check_replica,optional"`
 }
 
+// validateMySQLCheckerConfig validates the MySQL checker configuration.
 func validateMySQLCheckerConfig(tc *module.Config) hcl.Diagnostics {
 	configBody := &MySQLCheckerConfig{}
 	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
@@ -94,6 +96,7 @@ func validateMySQLCheckerConfig(tc *module.Config) hcl.Diagnostics {
 	return diags
 }
 
+// parseMySQLCheckerConfig parses the MySQL checker configuration.
 func parseMySQLCheckerConfig(tc *module.Config) *MySQLCheckerConfig {
 	config := &MySQLCheckerConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
@@ -262,6 +265,7 @@ func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 	return c
 }
 
+// stopChecks stops all active MySQL health checks.
 func (c *MySQLChecker) stopChecks() {
 	c.checksMtex.RLock()
 	defer c.checksMtex.RUnlock()
@@ -272,10 +276,12 @@ func (c *MySQLChecker) stopChecks() {
 	}
 }
 
+// ProvideUpdates registers a subscriber and sends initial updates for all currently matched backends.
 func (c *MySQLChecker) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 	c.backends.ProvideUpdates(s)
 }
 
+// ReceiveUpdate implements the backend.BackendUpdateSubscriber interface.
 func (c *MySQLChecker) ReceiveUpdate(upd backend.BackendUpdate) {
 	select {
 	case c.updChan <- upd:
@@ -283,15 +289,17 @@ func (c *MySQLChecker) ReceiveUpdate(upd backend.BackendUpdate) {
 	}
 }
 
-
+// GetBackendList returns the current list of backends with their MySQL health metadata.
 func (c *MySQLChecker) GetBackendList() []*backend.Backend {
 	return c.backends.GetList()
 }
 
+// Bind cross-links the processor with its source backend provider.
 func (c *MySQLChecker) Bind(modules module.ModulesRegistry) {
 	module.Get[backend.BackendUpdateProvider](modules, c.source).ProvideUpdates(c)
 }
 
+// MySQLCheck manages the health check lifecycle for a single MySQL backend.
 type MySQLCheck struct {
 	backend         *backend.Backend
 	dsn             string
@@ -311,6 +319,7 @@ type MySQLCheck struct {
 	checkReplica    bool
 }
 
+// NewMySQLCheck creates a new MySQLCheck instance.
 func NewMySQLCheck(backend *backend.Backend, dsn string, defaultPeriod time.Duration, maxPeriod time.Duration, backoffFactor float64, connMaxLifetime time.Duration, statusChan chan *backend.Backend, checkReplica bool) *MySQLCheck {
 	c := &MySQLCheck{
 		backend:         backend,
@@ -334,6 +343,7 @@ func NewMySQLCheck(backend *backend.Backend, dsn string, defaultPeriod time.Dura
 	return c
 }
 
+// fetchReadOnly checks if the MySQL instance is in read-only mode.
 func (c *MySQLCheck) fetchReadOnly() (retReadonly cty.Value, retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -359,6 +369,7 @@ func (c *MySQLCheck) fetchReadOnly() (retReadonly cty.Value, retErr error) {
 	return cty.BoolVal(readOnly), nil
 }
 
+// fetchReplicaLatency checks the replication lag of the MySQL instance.
 func (c *MySQLCheck) fetchReplicaLatency() (retReplicaLatency cty.Value, retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -425,6 +436,7 @@ func (c *MySQLCheck) fetchReplicaLatency() (retReplicaLatency cty.Value, retErr 
 	return cty.NumberIntVal(replicationLatency), nil
 }
 
+// fetchStatus performs all health checks for the MySQL instance.
 func (c *MySQLCheck) fetchStatus() (retStatus cty.Value, retReadonly cty.Value, retReplicaLatency cty.Value, retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -484,6 +496,7 @@ func (c *MySQLCheck) fetchStatus() (retStatus cty.Value, retReadonly cty.Value, 
 	return cty.StringVal("ok"), readOnly, replicaLatency, nil
 }
 
+// updateStatus fetches the current status and updates the backend metadata if it has changed.
 func (c *MySQLCheck) updateStatus() {
 	newStatus, newReadonly, newReplicaLatency, err := c.fetchStatus()
 
@@ -552,6 +565,7 @@ func (c *MySQLCheck) updateStatus() {
 	}
 }
 
+// StartPolling starts the health check polling loop for the MySQL instance.
 func (c *MySQLCheck) StartPolling() error {
 	c.runningMu.Lock()
 	if c.running {
@@ -608,6 +622,7 @@ func (c *MySQLCheck) StartPolling() error {
 	return nil
 }
 
+// StopPolling stops the health check polling loop for the MySQL instance.
 func (c *MySQLCheck) StopPolling() {
 	c.runningMu.Lock()
 	defer c.runningMu.Unlock()

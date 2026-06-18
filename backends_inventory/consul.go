@@ -46,6 +46,7 @@ type consulService struct {
 type consulServicesMap map[string]consulService
 type consulServicesSlice []consulService
 
+// BackendsInventoryConsul implements a Consul-based backend discovery.
 type BackendsInventoryConsul struct {
 	id       string
 	url      string
@@ -58,6 +59,7 @@ type BackendsInventoryConsul struct {
 	log      zerolog.Logger
 }
 
+// ConsulBackendsInventoryConfig defines the HCL configuration for Consul discovery.
 type ConsulBackendsInventoryConfig struct {
 	ID            string  `hcl:"id,label"`
 	URL           string  `hcl:"url"`
@@ -67,6 +69,7 @@ type ConsulBackendsInventoryConfig struct {
 	BackoffFactor float64 `hcl:"backoff_factor,optional"`
 }
 
+// validateConsulBackendsInventoryConfig validates the Consul discovery configuration.
 func validateConsulBackendsInventoryConfig(tc *module.Config) hcl.Diagnostics {
 	configBody := &ConsulBackendsInventoryConfig{}
 	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)

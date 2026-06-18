@@ -23,6 +23,7 @@ func init() {
 	module.RegisterFactory("balancer", "wrr", newWRRBalancer, validateWRRBalancerConfig)
 }
 
+// WRRBalancer implements a Weighted Round-Robin load balancing algorithm.
 type WRRBalancer struct {
 	id           string
 	backends     *backend.Registry
@@ -38,6 +39,7 @@ type WRRBalancer struct {
 	timeout      time.Duration
 }
 
+// WRRBalancerConfig defines the HCL configuration for the WRR balancer.
 type WRRBalancerConfig struct {
 	ID      string
 	Source  string         `hcl:"source"`
@@ -45,6 +47,7 @@ type WRRBalancerConfig struct {
 	Timeout string         `hcl:"timeout,optional"`
 }
 
+// validateWRRBalancerConfig validates the WRR balancer configuration.
 func validateWRRBalancerConfig(tc *module.Config) hcl.Diagnostics {
 	configBody := &WRRBalancerConfig{}
 	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
@@ -54,6 +57,7 @@ func validateWRRBalancerConfig(tc *module.Config) hcl.Diagnostics {
 	return diags
 }
 
+// parseWRRBalancerConfig parses the WRR balancer configuration.
 func parseWRRBalancerConfig(tc *module.Config) *WRRBalancerConfig {
 	config := &WRRBalancerConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {
@@ -66,6 +70,7 @@ func parseWRRBalancerConfig(tc *module.Config) *WRRBalancerConfig {
 	return config
 }
 
+// newWRRBalancer creates a new instance of a WRR balancer.
 func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
 	config := parseWRRBalancerConfig(tc)
 
@@ -165,6 +170,8 @@ func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 	return b
 }
 
+// GetBackend returns a random backend from the weighted list.
+// If wait is true and the list is empty, it will wait for a backend or timeout.
 func (b *WRRBalancer) GetBackend(wait bool) *backend.Backend {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -186,6 +193,7 @@ func (b *WRRBalancer) GetBackend(wait bool) *backend.Backend {
 	}
 }
 
+// ReceiveUpdate implements the backend.BackendUpdateSubscriber interface.
 func (b *WRRBalancer) ReceiveUpdate(upd backend.BackendUpdate) {
 	select {
 	case b.updChan <- upd:
@@ -193,11 +201,12 @@ func (b *WRRBalancer) ReceiveUpdate(upd backend.BackendUpdate) {
 	}
 }
 
-
+// GetBackendList returns the current list of backends in the balancer.
 func (b *WRRBalancer) GetBackendList() []*backend.Backend {
 	return b.backends.GetList()
 }
 
+// Bind cross-links the balancer with its source backend provider.
 func (b *WRRBalancer) Bind(modules module.ModulesRegistry) {
 	module.Get[backend.BackendUpdateProvider](modules, b.source).ProvideUpdates(b)
 }

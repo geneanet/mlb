@@ -8,19 +8,20 @@ import (
 	ctyjson "github.com/zclconf/go-cty/cty/json"
 )
 
-// Map
-
+// MetaMap is a thread-safe map of metadata buckets, where each bucket is a map of cty.Value.
 type MetaMap struct {
 	data  map[string]MetaBucket
 	mutex sync.RWMutex
 }
 
+// NewEmptyMetaMap creates a new empty MetaMap with the specified initial capacity.
 func NewEmptyMetaMap(size int) *MetaMap {
 	return &MetaMap{
 		data: make(map[string]MetaBucket, size),
 	}
 }
 
+// NewMetaMap creates a new MetaMap from the provided data.
 func NewMetaMap(data map[string]MetaBucket) *MetaMap {
 	m := NewEmptyMetaMap(len(data))
 
@@ -31,6 +32,7 @@ func NewMetaMap(data map[string]MetaBucket) *MetaMap {
 	return m
 }
 
+// Set sets a value in a specific bucket and key.
 func (m *MetaMap) Set(bucket string, key string, value cty.Value) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -41,7 +43,7 @@ func (m *MetaMap) Set(bucket string, key string, value cty.Value) {
 	m.data[bucket][key] = value
 }
 
-// Replace all the metadata with the provided ones, except for the specified bucket that is preserved
+// Update replaces all metadata with the provided ones, except for the specified buckets that are preserved.
 func (m *MetaMap) Update(source *MetaMap, except ...string) {
 	if m == source {
 		return
@@ -60,6 +62,7 @@ func (m *MetaMap) Update(source *MetaMap, except ...string) {
 	m.data = new.data
 }
 
+// Get retrieves a value from a specific bucket and key.
 func (m *MetaMap) Get(bucket string, key string) (cty.Value, bool) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
@@ -73,6 +76,7 @@ func (m *MetaMap) Get(bucket string, key string) (cty.Value, bool) {
 	return m.data[bucket][key], true
 }
 
+// ToCtyObject converts the MetaMap to a cty.Value object.
 func (m *MetaMap) ToCtyObject() cty.Value {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
@@ -86,6 +90,7 @@ func (m *MetaMap) ToCtyObject() cty.Value {
 	return cty.ObjectVal(buckets)
 }
 
+// Equal checks if two MetaMaps are equal.
 func (m *MetaMap) Equal(other *MetaMap) bool {
 	if m == other {
 		return true
@@ -110,6 +115,7 @@ func (m *MetaMap) Equal(other *MetaMap) bool {
 	return true
 }
 
+// Clone creates a deep copy of the MetaMap.
 func (m *MetaMap) Clone() *MetaMap {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
@@ -121,14 +127,15 @@ func (m *MetaMap) Clone() *MetaMap {
 	return new
 }
 
+// MarshalJSON implements the json.Marshaler interface.
 func (m *MetaMap) MarshalJSON() ([]byte, error) {
 	return json.Marshal(m.data)
 }
 
-// Bucket
-
+// MetaBucket is a map of cty.Value.
 type MetaBucket map[string]cty.Value
 
+// Equal checks if two MetaBuckets are equal.
 func (m MetaBucket) Equal(other MetaBucket) bool {
 	if len(m) != len(other) {
 		return false
@@ -144,6 +151,7 @@ func (m MetaBucket) Equal(other MetaBucket) bool {
 	return true
 }
 
+// Clone creates a deep copy of the MetaBucket.
 func (m MetaBucket) Clone() MetaBucket {
 	new := make(MetaBucket, len(m))
 	for k, v := range m {
@@ -152,6 +160,7 @@ func (m MetaBucket) Clone() MetaBucket {
 	return new
 }
 
+// MarshalJSON implements the json.Marshaler interface.
 func (m MetaBucket) MarshalJSON() ([]byte, error) {
 	b := map[string]ctyjson.SimpleJSONValue{}
 

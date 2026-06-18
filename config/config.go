@@ -15,6 +15,7 @@ import (
 	"github.com/zclconf/go-cty/cty/function/stdlib"
 )
 
+// Config represents the complete application configuration.
 type Config struct {
 	BackendsInventoryList []*module.Config
 	BackendsProcessorList []*module.Config
@@ -51,6 +52,7 @@ var configFileSchema = &hcl.BodySchema{
 	},
 }
 
+// RenderConfigDiag prints HCL diagnostics to stdout.
 func RenderConfigDiag(diags hcl.Diagnostics, parser *hclparse.Parser) {
 	wr := hcl.NewDiagnosticTextWriter(
 		os.Stdout,      // writer to send messages to
@@ -61,6 +63,7 @@ func RenderConfigDiag(diags hcl.Diagnostics, parser *hclparse.Parser) {
 	wr.WriteDiagnostics(diags)
 }
 
+// LoadConfig loads and parses an HCL configuration file from the given path.
 func LoadConfig(path string) (*Config, hcl.Diagnostics) {
 	diags := hcl.Diagnostics{}
 	p := hclparse.NewParser()

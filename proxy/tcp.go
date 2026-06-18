@@ -27,6 +27,7 @@ func init() {
 	module.RegisterFactory("proxy", "tcp", newTCPProxy, validateTCPProxyConfig)
 }
 
+// ProxyTCP implements a TCP level proxy.
 type ProxyTCP struct {
 	id                    string
 	addresses             []string
@@ -52,6 +53,7 @@ type ProxyTCP struct {
 	closeOnBackendRemoval bool
 }
 
+// Metrics holds Prometheus metrics for a specific backend.
 type Metrics struct {
 	processed prometheus.Counter
 	active    prometheus.Gauge
@@ -60,6 +62,7 @@ type Metrics struct {
 	cnxErrors prometheus.Counter
 }
 
+// TCPProxyConfig defines the HCL configuration for the TCP proxy.
 type TCPProxyConfig struct {
 	ID                    string   `hcl:"id,label"`
 	Source                string   `hcl:"source"`
@@ -75,6 +78,7 @@ type TCPProxyConfig struct {
 	CloseOnBackendRemoval bool     `hcl:"close_on_backend_removal,optional"`
 }
 
+// validateTCPProxyConfig validates the TCP proxy configuration.
 func validateTCPProxyConfig(tc *module.Config) hcl.Diagnostics {
 	configBody := &TCPProxyConfig{}
 	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
@@ -88,6 +92,7 @@ func validateTCPProxyConfig(tc *module.Config) hcl.Diagnostics {
 	return diags
 }
 
+// parseTCPProxyConfig parses the TCP proxy configuration.
 func parseTCPProxyConfig(tc *module.Config) *TCPProxyConfig {
 	config := &TCPProxyConfig{}
 	if diags := gohcl.DecodeBody(tc.Config, tc.Ctx, config); diags.HasErrors() {

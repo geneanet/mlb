@@ -1,3 +1,4 @@
+// Main entry point for the mlb application.
 package main
 
 import (
@@ -27,7 +28,7 @@ import (
 	_ "net/http/pprof"
 )
 
-// Main
+// main is the entry point of the application.
 func main() {
 	// Parse CLI args
 	argConfig := flag.String("config", "config.hcl", "config file")

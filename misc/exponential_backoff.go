@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// ExponentialBackoff implements an exponential backoff algorithm.
 type ExponentialBackoff struct {
 	defaultDuration time.Duration
 	maxDuration     time.Duration
@@ -12,6 +13,7 @@ type ExponentialBackoff struct {
 	backoffFactor   float64
 }
 
+// NewExponentialBackoff creates a new ExponentialBackoff instance.
 func NewExponentialBackoff(defaultDuration time.Duration, maxDuration time.Duration, backoffFactor float64) *ExponentialBackoff {
 	return &ExponentialBackoff{
 		defaultDuration: defaultDuration,
@@ -21,12 +23,12 @@ func NewExponentialBackoff(defaultDuration time.Duration, maxDuration time.Durat
 	}
 }
 
-// Reset the duration to the default value
+// Reset resets the duration to the initial default value.
 func (eb *ExponentialBackoff) Reset() {
 	eb.currentDuration = eb.defaultDuration
 }
 
-// Return the current duration and increase it for the next use
+// Get returns the current duration and increases it for the next call according to the backoff factor.
 func (eb *ExponentialBackoff) Get() time.Duration {
 	duration := eb.currentDuration
 
@@ -40,7 +42,8 @@ func (eb *ExponentialBackoff) Get() time.Duration {
 	return duration
 }
 
-// Sleep for the current duration and increase it for the next use
+// Sleep blocks for the current duration or until the context is cancelled.
+// It also increases the duration for the next call.
 func (eb *ExponentialBackoff) Sleep(ctx context.Context) {
 	timer := time.NewTimer(eb.Get())
 	select {

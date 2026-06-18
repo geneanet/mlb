@@ -15,16 +15,19 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// MetricsConfig defines the HCL configuration for the metrics server.
 type MetricsConfig struct {
 	Address string `hcl:"address"`
 }
 
+// DecodeConfigBlock decodes an HCL block into a MetricsConfig.
 func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*MetricsConfig, hcl.Diagnostics) {
 	c := &MetricsConfig{}
 	diag := gohcl.DecodeBody(block.Body, ctx, c)
 	return c, diag
 }
 
+// HttpLogWrapper wraps an http.Handler to log details of each request.
 func HttpLogWrapper(originalHandler http.Handler) http.Handler {
 	logFn := func(rw http.ResponseWriter, r *http.Request) {
 		uri := r.RequestURI
@@ -40,6 +43,7 @@ func HttpLogWrapper(originalHandler http.Handler) http.Handler {
 	return http.HandlerFunc(logFn)
 }
 
+// NewHTTPServer creates and starts a new HTTP server with SO_REUSEPORT.
 func NewHTTPServer(address string, wg *sync.WaitGroup, ctx context.Context) error {
 	srv := http.Server{}
 

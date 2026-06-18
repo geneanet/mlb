@@ -26,6 +26,7 @@ func init() {
 	module.RegisterFactory("backends_processor", "consul_kv", newConsulKV, validateConsulKVConfig)
 }
 
+// ConsulKV implements a backend processor that fetches metadata from Consul KV.
 type ConsulKV struct {
 	id            string
 	url           string
@@ -44,6 +45,7 @@ type ConsulKV struct {
 	watchers      map[string][]*consulKVWatcher
 }
 
+// ConsulKVConfig defines the HCL configuration for the Consul KV processor.
 type ConsulKVConfig struct {
 	ID            string                `hcl:"id,label"`
 	Source        string                `hcl:"source"`
@@ -54,12 +56,14 @@ type ConsulKVConfig struct {
 	Values        []ConsulKVValueConfig `hcl:"value,block"`
 }
 
+// ConsulKVValueConfig defines a single Consul KV watch.
 type ConsulKVValueConfig struct {
 	ID        string         `hcl:"id,label"`
 	ConsulKey hcl.Expression `hcl:"consul_key"`
 	Default   string         `hcl:"default"`
 }
 
+// validateConsulKVConfig validates the Consul KV configuration.
 func validateConsulKVConfig(tc *module.Config) hcl.Diagnostics {
 	configBody := &ConsulKVConfig{}
 	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
@@ -221,10 +225,12 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any
 	return c
 }
 
+// ProvideUpdates registers a subscriber and sends initial updates for all currently matched backends.
 func (c *ConsulKV) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 	c.backends.ProvideUpdates(s)
 }
 
+// ReceiveUpdate implements the backend.BackendUpdateSubscriber interface.
 func (c *ConsulKV) ReceiveUpdate(upd backend.BackendUpdate) {
 	select {
 	case c.updChan <- upd:
@@ -232,22 +238,26 @@ func (c *ConsulKV) ReceiveUpdate(upd backend.BackendUpdate) {
 	}
 }
 
+// GetBackendList returns the current list of backends with their Consul KV metadata.
 func (c *ConsulKV) GetBackendList() []*backend.Backend {
 	return c.backends.GetList()
 }
 
+// Bind cross-links the processor with its source backend provider.
 func (c *ConsulKV) Bind(modules module.ModulesRegistry) {
 	module.Get[backend.BackendUpdateProvider](modules, c.source).ProvideUpdates(c)
 }
 
 // Watcher
 
+// consulKVWatcherMessage is used to communicate value changes from a watcher to the main loop.
 type consulKVWatcherMessage struct {
 	backend *backend.Backend
 	id      string
 	value   string
 }
 
+// consulKVWatcher polls a specific key in Consul for a backend and value ID.
 type consulKVWatcher struct {
 	backend *backend.Backend
 	id      string
@@ -261,11 +271,13 @@ type consulKVWatcher struct {
 	index   string
 }
 
+// consulKVValue represents the structure of a Consul KV response.
 type consulKVValue struct {
 	Key   string
 	Value string
 }
 
+// newConsulKVWatcher creates and starts a new consulKVWatcher.
 func newConsulKVWatcher(backend *backend.Backend, id string, url string, key string, defaultPeriod time.Duration, maxPeriod time.Duration, backoffFactor float64, channel chan *consulKVWatcherMessage, ctx context.Context, log zerolog.Logger) *consulKVWatcher {
 	w := &consulKVWatcher{
 		backend: backend,
@@ -334,6 +346,7 @@ func newConsulKVWatcher(backend *backend.Backend, id string, url string, key str
 	return w
 }
 
+// fetch performs a long-polling request to Consul to get the current value of the key.
 func (w *consulKVWatcher) fetch() (retValue cty.Value, retError error) {
 	// Error handler
 	defer func() {

@@ -12,7 +12,7 @@ import (
 	"github.com/zclconf/go-cty/cty/gocty"
 )
 
-// Backend
+// Backend represents a single backend server with its metadata and lifecycle.
 type Backend struct {
 	Address string             `json:"address"`
 	Meta    *MetaMap           `json:"meta"`
@@ -20,6 +20,7 @@ type Backend struct {
 	Cancel  context.CancelFunc `json:"-"`
 }
 
+// Clone creates a deep copy of the Backend.
 func (b *Backend) Clone() *Backend {
 	new := &Backend{
 		Address: b.Address,
@@ -30,10 +31,12 @@ func (b *Backend) Clone() *Backend {
 	return new
 }
 
+// Equal checks if two backends are equal based on address and metadata.
 func (b *Backend) Equal(other *Backend) bool {
 	return b.Address == other.Address && b.Meta.Equal(other.Meta)
 }
 
+// ResolveExpression evaluates an HCL expression in the context of this backend.
 func (b *Backend) ResolveExpression(expression hcl.Expression, ctx *hcl.EvalContext, target interface{}) (bool, hcl.Diagnostics) {
 	var metaCtx *hcl.EvalContext
 
@@ -80,6 +83,7 @@ type Registry struct {
 	waitChan    chan struct{}
 }
 
+// NewRegistry creates a new empty Registry.
 func NewRegistry() *Registry {
 	return &Registry{
 		backends: make(map[string]*Backend),
@@ -87,6 +91,7 @@ func NewRegistry() *Registry {
 	}
 }
 
+// updateWaitState updates the wait channel state based on whether backends are present.
 func (r *Registry) updateWaitState() {
 	needsWait := len(r.backends) == 0
 	if needsWait == (r.waitChan != nil) {
@@ -100,6 +105,7 @@ func (r *Registry) updateWaitState() {
 	}
 }
 
+// Wait blocks until at least one backend is available or the context is cancelled.
 func (r *Registry) Wait(ctx context.Context) error {
 	r.mu.RLock()
 	ch := r.waitChan
@@ -115,18 +121,21 @@ func (r *Registry) Wait(ctx context.Context) error {
 	}
 }
 
+// Get retrieves a backend by its address.
 func (r *Registry) Get(address string) *Backend {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.backends[address]
 }
 
+// GetList returns a slice containing all current backends.
 func (r *Registry) GetList() BackendsList {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return slices.Collect(maps.Values(r.backends))
 }
 
+// GetSortedList returns a slice containing all current backends sorted by address.
 func (r *Registry) GetSortedList() BackendsList {
 	backends := r.GetList()
 	sort.Slice(backends, func(i, j int) bool {
@@ -135,6 +144,7 @@ func (r *Registry) GetSortedList() BackendsList {
 	return backends
 }
 
+// Add adds a backend to the registry.
 func (r *Registry) Add(b *Backend) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -142,6 +152,7 @@ func (r *Registry) Add(b *Backend) {
 	r.updateWaitState()
 }
 
+// Update updates an existing backend or adds it if it doesn't exist.
 func (r *Registry) Update(b *Backend, exceptMeta ...string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -157,6 +168,7 @@ func (r *Registry) Update(b *Backend, exceptMeta ...string) {
 	r.updateWaitState()
 }
 
+// Remove removes a backend from the registry by its address.
 func (r *Registry) Remove(address string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -164,6 +176,7 @@ func (r *Registry) Remove(address string) {
 	r.updateWaitState()
 }
 
+// Has checks if a backend with the given address exists in the registry.
 func (r *Registry) Has(address string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -171,12 +184,14 @@ func (r *Registry) Has(address string) bool {
 	return ok
 }
 
+// Subscribe registers a new subscriber for backend updates.
 func (r *Registry) Subscribe(s BackendUpdateSubscriber) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.subscribers = append(r.subscribers, s)
 }
 
+// ProvideUpdates registers a subscriber and immediately provides it with the current list of backends.
 func (r *Registry) ProvideUpdates(s BackendUpdateSubscriber) {
 	r.mu.Lock()
 	r.subscribers = append(r.subscribers, s)
@@ -192,6 +207,7 @@ func (r *Registry) ProvideUpdates(s BackendUpdateSubscriber) {
 	}
 }
 
+// Publish sends a backend update to all registered subscribers.
 func (r *Registry) Publish(u BackendUpdate) {
 	r.mu.RLock()
 	subs := slices.Clone(r.subscribers)
@@ -202,7 +218,7 @@ func (r *Registry) Publish(u BackendUpdate) {
 	}
 }
 
-// List
+// BackendsList is a slice of Backend pointers.
 type BackendsList []*Backend
 
 // Addresses returns a slice containing the addresses of all backends in the list.
@@ -214,34 +230,41 @@ func (l BackendsList) Addresses() []string {
 	return res
 }
 
-// Messages
+// BackendUpdate represents a change to a backend.
 type BackendUpdate struct {
 	Kind    BackendUpdateKind
 	Address string
 	Backend *Backend
 }
 
+// BackendUpdateKind defines the type of backend update.
 type BackendUpdateKind int
 
 const (
+	// UpdBackendAdded indicates a new backend was added.
 	UpdBackendAdded BackendUpdateKind = iota
+	// UpdBackendModified indicates an existing backend was modified.
 	UpdBackendModified
+	// UpdBackendRemoved indicates a backend was removed.
 	UpdBackendRemoved
 )
 
-// Interfaces
+// BackendUpdateProvider is the interface for components that provide backend updates.
 type BackendUpdateProvider interface {
 	ProvideUpdates(BackendUpdateSubscriber)
 }
 
+// BackendUpdateSubscriber is the interface for components that receive backend updates.
 type BackendUpdateSubscriber interface {
 	ReceiveUpdate(BackendUpdate)
 }
 
+// BackendProvider is the interface for components that can provide a single backend.
 type BackendProvider interface {
 	GetBackend(wait bool) *Backend
 }
 
+// BackendListProvider is the interface for components that can provide a list of backends.
 type BackendListProvider interface {
 	GetBackendList() []*Backend
 }
