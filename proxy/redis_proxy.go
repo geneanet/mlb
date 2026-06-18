@@ -266,9 +266,7 @@ func (p *RedisProxy) handleConnection(connFront net.Conn) {
 		p.log.Debug().Str("peer", peerAddress).Msg("Closing Frontend connection")
 		err := connFront.Close()
 		if err != nil && !errors.Is(err, net.ErrClosed) {
-			if err != nil {
-				panic(err)
-			}
+			panic(err)
 		}
 	})
 
@@ -339,6 +337,7 @@ func (p *RedisProxy) handleConnection(connFront net.Conn) {
 
 	// Read queries
 	frontReader := NewRedisProtocolReader(connFront, p.bufferSize)
+	defer frontReader.Release()
 
 	for {
 		item, err := frontReader.ReadMessage(true)

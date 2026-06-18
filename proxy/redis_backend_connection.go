@@ -111,6 +111,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 	// Read backend responses and send them to the client
 	go func() {
 		reader := NewRedisProtocolReader(rbc.conn, rbc.pool.proxy.bufferSize)
+		defer reader.Release()
 
 		for {
 			item, err := reader.ReadMessage(false)

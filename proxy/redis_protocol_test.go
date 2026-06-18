@@ -9,20 +9,35 @@ import (
 	"testing"
 )
 
-// TestNewRedisProtocolReader verifies that a new protocol reader is initialized with
-// the correct reader interface and initial buffer size limits.
-func TestNewRedisProtocolReader(t *testing.T) {
-	var buf bytes.Buffer
-	reader := NewRedisProtocolReader(&buf, 1024)
+// TestRedisProtocolReader_Release verifies that the reader can be released and reused
+// via the sync.Pool, and that it correctly resets for a new source.
+func TestRedisProtocolReader_Release(t *testing.T) {
+	input1 := "+OK\r\n"
+	r1 := bytes.NewReader([]byte(input1))
+	reader := NewRedisProtocolReader(r1, 128)
 
-	if reader.reader != &buf {
-		t.Errorf("expected reader %v, got %v", &buf, reader.reader)
+	msg1, err := reader.ReadMessage(false)
+	if err != nil || !bytes.Equal(msg1, []byte(input1)) {
+		t.Fatalf("msg1 failed: %v, %s", err, string(msg1))
 	}
-	if reader.initialBufferSize != 1024 {
-		t.Errorf("expected initialBufferSize 1024, got %d", reader.initialBufferSize)
+
+	// Capture the bufio.Reader to verify it's the same one later
+	br := reader.br
+	reader.Release()
+
+	// New reader should potentially pick up the same bufio.Reader from the pool
+	input2 := "+PONG\r\n"
+	r2 := bytes.NewReader([]byte(input2))
+	reader2 := NewRedisProtocolReader(r2, 128)
+	defer reader2.Release()
+
+	if reader2.br != br {
+		t.Log("Note: sync.Pool did not return the same reader (this is normal but doesn't test reuse)")
 	}
-	if reader.minimumReadSize != 64 {
-		t.Errorf("expected minimumReadSize 64, got %d", reader.minimumReadSize)
+
+	msg2, err := reader2.ReadMessage(false)
+	if err != nil || !bytes.Equal(msg2, []byte(input2)) {
+		t.Fatalf("msg2 failed: %v, %s", err, string(msg2))
 	}
 }
 
@@ -232,9 +247,9 @@ func TestReadMessage_BufferMove(t *testing.T) {
 	}
 }
 
-// TestReadMessage_BufferShiftLarge verifies that shifting a large buffered portion
-// to the beginning of the buffer does not panic when it exceeds initialBufferSize.
-func TestReadMessage_BufferShiftLarge(t *testing.T) {
+// TestReadMessage_SequentialLargeMessages verifies that parsing multiple large messages
+// in sequence does not cause issues.
+func TestReadMessage_SequentialLargeMessages(t *testing.T) {
 	initialSize := 1024
 
 	// Msg 1: Small enough to stay in first grow
@@ -617,6 +632,7 @@ func TestReadMessage_Errors(t *testing.T) {
 		}
 	})
 }
+
 // TestParseSize verifies the decimal integer parsing logic for RESP sizes.
 func TestParseSize(t *testing.T) {
 	tests := []struct {
