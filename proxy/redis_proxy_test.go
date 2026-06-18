@@ -189,9 +189,6 @@ func TestRedisProxyFactory_New(t *testing.T) {
 	if p.GetID() != "proxy.redis_proxy.test" {
 		t.Errorf("expected ID proxy.redis_proxy.test, got %s", p.GetID())
 	}
-	if p.GetUpdateSource() != "test-source" {
-		t.Errorf("expected update source test-source, got %s", p.GetUpdateSource())
-	}
 
 	// Test ReceiveUpdate processing for backend lifecycle events
 	p.ReceiveUpdate(backend.BackendUpdate{

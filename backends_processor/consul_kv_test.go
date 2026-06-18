@@ -99,9 +99,6 @@ backends_processor "consul_kv" "test" {
 	if consulMod.GetID() != "backends_processor.consul_kv.test" {
 		t.Errorf("Unexpected ID: %s", consulMod.GetID())
 	}
-	if consulMod.GetUpdateSource() != "foo" {
-		t.Errorf("Unexpected update source: %s", consulMod.GetUpdateSource())
-	}
 
 	dp := &dummyProvider{id: "foo", backends: backend.NewRegistry()}
 	modules := module.NewModulesRegistry()

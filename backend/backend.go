@@ -234,7 +234,6 @@ type BackendUpdateProvider interface {
 
 type BackendUpdateSubscriber interface {
 	SubscribeTo(BackendUpdateProvider)
-	GetUpdateSource() string
 	ReceiveUpdate(BackendUpdate)
 }
 

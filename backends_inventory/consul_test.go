@@ -33,9 +33,6 @@ func (d *consulDummySubscriber) ReceiveUpdate(u backend.BackendUpdate) {
 // SubscribeTo is a no-op for this mock.
 func (d *consulDummySubscriber) SubscribeTo(p backend.BackendUpdateProvider) {}
 
-// GetUpdateSource returns a default identifier.
-func (d *consulDummySubscriber) GetUpdateSource() string { return "consul_dummy" }
-
 // TestConsulBackendsInventory_All tests the full functionality of the Consul backends inventory,
 // including service discovery, reacting to changes in Consul, and service removal.
 func TestConsulBackendsInventory_All(t *testing.T) {

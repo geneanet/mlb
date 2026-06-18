@@ -388,10 +388,6 @@ func (p *RedisProxy) SubscribeTo(bup backend.BackendUpdateProvider) {
 	bup.ProvideUpdates(p)
 }
 
-func (p *RedisProxy) GetUpdateSource() string {
-	return p.source
-}
-
 func (p *RedisProxy) Bind(modules module.ModulesRegistry) {
 	p.SubscribeTo(module.Get[backend.BackendUpdateProvider](modules, p.source))
 

@@ -43,9 +43,6 @@ backends_processor "simple_filter" "test" {
 	if filterMod.GetID() != "backends_processor.simple_filter.test" {
 		t.Errorf("Unexpected ID: %s", filterMod.GetID())
 	}
-	if filterMod.GetUpdateSource() != "foo" {
-		t.Errorf("Unexpected update source: %s", filterMod.GetUpdateSource())
-	}
 
 	// Create a dummy provider to feed updates
 	dp := &dummyProvider{id: "foo", backends: backend.NewRegistry()}

@@ -25,11 +25,6 @@ func (d *dummySubscriber) ReceiveUpdate(u backend.BackendUpdate) {
 func (d *dummySubscriber) SubscribeTo(p backend.BackendUpdateProvider) {
 }
 
-// GetUpdateSource returns a default identifier for the subscriber.
-func (d *dummySubscriber) GetUpdateSource() string {
-	return "dummy"
-}
-
 // parseHCL is a helper that parses a HCL string into an hcl.Block.
 func parseHCL(t *testing.T, src string) *hcl.Block {
 	t.Helper()

@@ -239,10 +239,6 @@ func (c *ConsulKV) SubscribeTo(bup backend.BackendUpdateProvider) {
 	bup.ProvideUpdates(c)
 }
 
-func (c *ConsulKV) GetUpdateSource() string {
-	return c.source
-}
-
 func (c *ConsulKV) GetID() string {
 	return c.id
 }

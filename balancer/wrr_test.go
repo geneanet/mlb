@@ -169,9 +169,6 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	if balancer.GetID() != "balancer.wrr.test" {
 		t.Errorf("Unexpected ID: %s", balancer.GetID())
 	}
-	if balancer.GetUpdateSource() != "src1" {
-		t.Errorf("Unexpected source: %s", balancer.GetUpdateSource())
-	}
 	if len(balancer.GetBackendList()) != 0 {
 		t.Errorf("Expected 0 reg")
 	}

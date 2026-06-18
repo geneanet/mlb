@@ -251,10 +251,6 @@ func (c *RedisChecker) SubscribeTo(bup backend.BackendUpdateProvider) {
 	bup.ProvideUpdates(c)
 }
 
-func (c *RedisChecker) GetUpdateSource() string {
-	return c.source
-}
-
 func (c *RedisChecker) GetID() string {
 	return c.id
 }

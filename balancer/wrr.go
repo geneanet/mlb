@@ -200,10 +200,6 @@ func (b *WRRBalancer) SubscribeTo(bup backend.BackendUpdateProvider) {
 	bup.ProvideUpdates(b)
 }
 
-func (b *WRRBalancer) GetUpdateSource() string {
-	return b.source
-}
-
 func (b *WRRBalancer) GetID() string {
 	return b.id
 }

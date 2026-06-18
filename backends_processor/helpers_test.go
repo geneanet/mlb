@@ -28,14 +28,6 @@ func (d *dummySubscriber) SubscribeTo(p backend.BackendUpdateProvider) {
 	p.ProvideUpdates(d)
 }
 
-// GetUpdateSource returns the configured source or a default value.
-func (d *dummySubscriber) GetUpdateSource() string {
-	if d.source != "" {
-		return d.source
-	}
-	return "dummy"
-}
-
 // dummyProvider implements backend.BackendUpdateProvider for testing.
 type dummyProvider struct {
 	id       string

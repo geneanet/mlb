@@ -146,7 +146,6 @@ type mockSubscriber struct{}
 
 func (m *mockSubscriber) ReceiveUpdate(upd backend.BackendUpdate)       {}
 func (m *mockSubscriber) SubscribeTo(bup backend.BackendUpdateProvider) {}
-func (m *mockSubscriber) GetUpdateSource() string                       { return "" }
 
 // TestMySQL verifies the initialization, configuration validation, and backend update handling
 // for the MySQL checker. It also tests various error and panic scenarios during health checks.
@@ -189,7 +188,6 @@ func TestMySQL(t *testing.T) {
 	mysqlChecker := mod.(*MySQLChecker)
 
 	mysqlChecker.GetID()
-	mysqlChecker.GetUpdateSource()
 	mysqlChecker.GetBackendList()
 
 	dp := &dummyProvider{id: "test", backends: backend.NewRegistry()}

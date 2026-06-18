@@ -290,10 +290,6 @@ func (c *MySQLChecker) SubscribeTo(bup backend.BackendUpdateProvider) {
 	bup.ProvideUpdates(c)
 }
 
-func (c *MySQLChecker) GetUpdateSource() string {
-	return c.source
-}
-
 func (c *MySQLChecker) GetID() string {
 	return c.id
 }

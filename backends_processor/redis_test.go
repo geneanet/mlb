@@ -237,9 +237,6 @@ func TestRedisChecker_ModuleMethods(t *testing.T) {
 	if c.GetID() != "test-id" {
 		t.Errorf("expected test-id, got %s", c.GetID())
 	}
-	if c.GetUpdateSource() != "test-source" {
-		t.Errorf("expected test-source, got %s", c.GetUpdateSource())
-	}
 	if len(c.GetBackendList()) != 0 {
 		t.Errorf("expected empty backend list")
 	}

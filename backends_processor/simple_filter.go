@@ -314,10 +314,6 @@ func (f *SimpleFilter) SubscribeTo(bup backend.BackendUpdateProvider) {
 	bup.ProvideUpdates(f)
 }
 
-func (f *SimpleFilter) GetUpdateSource() string {
-	return f.source
-}
-
 func (f *SimpleFilter) GetID() string {
 	return f.id
 }
