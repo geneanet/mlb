@@ -13,18 +13,16 @@ import (
 func TestRegistry(t *testing.T) {
 	category := "test_category"
 	typeName := "mock"
-	factory := Factory{
-		New: func(config *Config, wg *sync.WaitGroup, ctx context.Context) Module {
-			return &dummyModule{id: config.Name}
-		},
-		ValidateConfig: func(config *Config) hcl.Diagnostics {
-			return nil
-		},
+	newFn := func(config *Config, wg *sync.WaitGroup, ctx context.Context) any {
+		return &dummyModule{id: config.Name}
+	}
+	validateFn := func(config *Config) hcl.Diagnostics {
+		return nil
 	}
 
-	RegisterFactory(category, typeName, factory)
+	RegisterFactory(category, typeName, newFn, validateFn)
 
-	if GetFactory(category, typeName).New == nil {
+	if getFactory(category, typeName) == nil {
 		t.Error("Expected factory to be registered")
 	}
 
@@ -59,8 +57,8 @@ func TestRegistry(t *testing.T) {
 		t.Fatal("Expected module to be created")
 	}
 
-	// Test GetFactory with unregistered category
-	if GetFactory("non_existent", "mock") != nil {
+	// Test getFactory with unregistered category
+	if getFactory("non_existent", "mock") != nil {
 		t.Error("Expected nil for unregistered category")
 	}
 
@@ -104,13 +102,9 @@ func TestRegistry(t *testing.T) {
 
 // Mock module structures for testing the ModulesRegistry functionality.
 
-// dummyModule is a basic mock that implements the module.Module interface.
+// dummyModule is a basic mock.
 type dummyModule struct {
 	id string
-}
-
-func (d *dummyModule) GetID() string {
-	return d.id
 }
 
 func (d *dummyModule) Bind(modules ModulesRegistry) {}
@@ -133,22 +127,11 @@ func (d *dummyListProvider) GetBackendList() []*backend.Backend {
 
 // Tests
 
-// TestNewModulesRegistry verifies the correct initialization of an empty ModulesRegistry.
-func TestNewModulesRegistry(t *testing.T) {
-	ml := NewModulesRegistry()
-	if ml == nil {
-		t.Fatal("Expected NewModulesRegistry to return a non-nil object")
-	}
-	if len(ml) != 0 {
-		t.Errorf("Expected fresh ModulesRegistry to be empty, got size %d", len(ml))
-	}
-}
-
 // TestModulesRegistryAdd verifies that modules can be added to and retrieved from the ModulesRegistry by their ID.
 func TestModulesRegistryAdd(t *testing.T) {
-	ml := NewModulesRegistry()
+	ml := make(ModulesRegistry)
 	m := &dummyModule{id: "m1"}
-	ml.AddModule(m)
+	ml.AddModule("m1", m)
 
 	if len(ml) != 1 {
 		t.Fatalf("Expected ModulesRegistry size 1, got %d", len(ml))
@@ -161,9 +144,9 @@ func TestModulesRegistryAdd(t *testing.T) {
 
 // TestModulesRegistryGet verifies the retrieval of modules using the generic Get function.
 func TestModulesRegistryGet(t *testing.T) {
-	ml := NewModulesRegistry()
+	ml := make(ModulesRegistry)
 	m := &dummyUpdateProvider{dummyModule: dummyModule{id: "m1"}}
-	ml.AddModule(m)
+	ml.AddModule("m1", m)
 
 	// Scenario 1: Correct retrieval
 	bup := Get[backend.BackendUpdateProvider](ml, "m1")
@@ -176,22 +159,22 @@ func TestModulesRegistryGet(t *testing.T) {
 
 	// Scenario 3: Module found but interface not implemented (expects panic)
 	mWrong := &dummyModule{id: "m2"}
-	ml.AddModule(mWrong)
+	ml.AddModule("m2", mWrong)
 	assertPanic(t, func() { Get[backend.BackendUpdateProvider](ml, "m2") }, "Expected panic for module not implementing BackendUpdateProvider")
 }
 
 // TestModulesRegistryFilter verifies that Filter correctly filters
 // and returns all modules in the list that implement the requested interface.
 func TestModulesRegistryFilter(t *testing.T) {
-	ml := NewModulesRegistry()
+	ml := make(ModulesRegistry)
 
 	m1 := &dummyListProvider{dummyModule: dummyModule{id: "m1"}}
 	m2 := &dummyModule{id: "m2"} // Does not implement BackendListProvider
 	m3 := &dummyListProvider{dummyModule: dummyModule{id: "m3"}}
 
-	ml.AddModule(m1)
-	ml.AddModule(m2)
-	ml.AddModule(m3)
+	ml.AddModule("m1", m1)
+	ml.AddModule("m2", m2)
+	ml.AddModule("m3", m3)
 
 	providers := Filter[backend.BackendListProvider](ml)
 

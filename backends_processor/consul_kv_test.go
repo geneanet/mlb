@@ -96,13 +96,9 @@ backends_processor "consul_kv" "test" {
 	mod := module.New(cfg, wg, ctxBG, "backends_processor")
 	consulMod := mod.(*ConsulKV)
 
-	if consulMod.GetID() != "backends_processor.consul_kv.test" {
-		t.Errorf("Unexpected ID: %s", consulMod.GetID())
-	}
-
 	dp := &dummyProvider{id: "foo", backends: backend.NewRegistry()}
-	modules := module.NewModulesRegistry()
-	modules.AddModule(dp)
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("foo", dp)
 	consulMod.Bind(modules)
 
 	sub := &dummySubscriber{wg: sync.WaitGroup{}}
@@ -235,8 +231,8 @@ backends_processor "consul_kv" "test" {
 	consulMod := mod.(*ConsulKV)
 
 	dp := &dummyProvider{id: "foo", backends: backend.NewRegistry()}
-	modules := module.NewModulesRegistry()
-	modules.AddModule(dp)
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("foo", dp)
 	consulMod.Bind(modules)
 
 	b1 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}

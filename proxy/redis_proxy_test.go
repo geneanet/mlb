@@ -186,10 +186,6 @@ func TestRedisProxyFactory_New(t *testing.T) {
 		t.Fatal("expected mod to be *RedisProxy")
 	}
 
-	if p.GetID() != "proxy.redis_proxy.test" {
-		t.Errorf("expected ID proxy.redis_proxy.test, got %s", p.GetID())
-	}
-
 	// Test ReceiveUpdate processing for backend lifecycle events
 	p.ReceiveUpdate(backend.BackendUpdate{
 		Kind:    backend.UpdBackendAdded,
@@ -314,8 +310,8 @@ func TestRedisProxy_ListenAndConnection(t *testing.T) {
 	dummyProvider := &dummyUpdateProvider{
 		sourceName: "test-source",
 	}
-	moduleList := module.NewModulesRegistry()
-	moduleList.AddModule(dummyProvider)
+	moduleList := make(module.ModulesRegistry)
+	moduleList.AddModule("test-source", dummyProvider)
 
 	p.Bind(moduleList)
 
@@ -378,8 +374,8 @@ type dummyUpdateProvider struct {
 }
 
 func (d *dummyUpdateProvider) ProvideUpdates(r backend.BackendUpdateSubscriber) {}
-func (d *dummyUpdateProvider) GetID() string                                    { return d.sourceName }
-func (d *dummyUpdateProvider) Bind(modules module.ModulesRegistry)              {}
+func (d *dummyUpdateProvider) Bind(modules module.ModulesRegistry)                 {}
+
 func (d *dummyUpdateProvider) IsBackendUpdateProvider(source string) bool {
 	return d.sourceName == source
 }

@@ -20,10 +20,7 @@ import (
 )
 
 func init() {
-	module.RegisterFactory("balancer", "wrr", module.Factory{
-		ValidateConfig: validateWRRBalancerConfig,
-		New:            newWRRBalancer,
-	})
+	module.RegisterFactory("balancer", "wrr", newWRRBalancer, validateWRRBalancerConfig)
 }
 
 type WRRBalancer struct {
@@ -69,7 +66,7 @@ func parseWRRBalancerConfig(tc *module.Config) *WRRBalancerConfig {
 	return config
 }
 
-func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
 	config := parseWRRBalancerConfig(tc)
 
 	b := &WRRBalancer{
@@ -196,9 +193,6 @@ func (b *WRRBalancer) ReceiveUpdate(upd backend.BackendUpdate) {
 	}
 }
 
-func (b *WRRBalancer) GetID() string {
-	return b.id
-}
 
 func (b *WRRBalancer) GetBackendList() []*backend.Backend {
 	return b.backends.GetList()

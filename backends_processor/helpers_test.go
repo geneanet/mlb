@@ -29,14 +29,6 @@ type dummyProvider struct {
 	backends *backend.Registry
 }
 
-// GetID returns the provider's identifier.
-func (d *dummyProvider) GetID() string {
-	if d.id != "" {
-		return d.id
-	}
-	return "dummy"
-}
-
 // Bind is a no-op implementation of the module.Module interface.
 func (d *dummyProvider) Bind(modules module.ModulesRegistry) {}
 

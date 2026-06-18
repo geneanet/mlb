@@ -45,9 +45,6 @@ func (m *mockBackendProvider) setReturnNil(v bool) {
 	m.returnNil = v
 }
 
-func (m *mockBackendProvider) GetID() string {
-	return m.id
-}
 
 func (m *mockBackendProvider) Bind(modules module.ModulesRegistry) {
 	// No operation needed for this mock
@@ -131,9 +128,6 @@ func TestTCPProxyFactory(t *testing.T) {
 	mod := newTCPProxy(tc, wg, ctx)
 	if mod == nil {
 		t.Fatal("expected mod not to be nil")
-	}
-	if mod.GetID() != "proxy.tcp.test_proxy" {
-		t.Errorf("expected ID proxy.tcp.test_proxy, got %s", mod.GetID())
 	}
 
 	p := mod.(*ProxyTCP)
@@ -255,9 +249,9 @@ func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 	primaryProvider := &mockBackendProvider{id: "primary_backend", backendAddress: primaryBackend.Addr().String()}
 	backupProvider := &mockBackendProvider{id: "backup_backend", backendAddress: backupBackend.Addr().String()}
 
-	modules := module.NewModulesRegistry()
-	modules.AddModule(primaryProvider)
-	modules.AddModule(backupProvider)
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("primary_backend", primaryProvider)
+	modules.AddModule("backup_backend", backupProvider)
 	p.Bind(modules)
 
 	// Wait for proxy listener to start
@@ -355,8 +349,8 @@ func TestTCPProxy_NoBackendPanic(t *testing.T) {
 	}
 
 	provider := &mockBackendProvider{id: "missing_backend", backendAddress: "", returnNil: true}
-	modules := module.NewModulesRegistry()
-	modules.AddModule(provider)
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("missing_backend", provider)
 	p.Bind(modules)
 
 	// Wait for proxy listener to start
@@ -424,8 +418,8 @@ func TestTCPProxy_TimeoutAndContextCancel(t *testing.T) {
 	}
 
 	provider := &mockBackendProvider{id: "test_backend", backendAddress: backend.Addr().String()}
-	modules := module.NewModulesRegistry()
-	modules.AddModule(provider)
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("test_backend", provider)
 	p.Bind(modules)
 
 	// Wait for proxy listener to start
@@ -744,8 +738,8 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 	}
 
 	provider := &mockBackendProvider{id: "test_backend", backendAddress: backendAddr}
-	modules := module.NewModulesRegistry()
-	modules.AddModule(provider)
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("test_backend", provider)
 	p.Bind(modules)
 
 	// Wait for proxy listener to start
@@ -780,9 +774,6 @@ func (c *customBackendProvider) GetBackend(wait bool) *backend.Backend {
 	return c.be
 }
 
-func (c *customBackendProvider) GetID() string {
-	return c.id
-}
 
 func (c *customBackendProvider) Bind(modules module.ModulesRegistry) {}
 
@@ -831,8 +822,8 @@ func TestTCPProxy_CloseOnBackendRemoval(t *testing.T) {
 	}
 
 	provider := &customBackendProvider{id: "test_backend", be: testBe}
-	modules := module.NewModulesRegistry()
-	modules.AddModule(provider)
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("test_backend", provider)
 	p.Bind(modules)
 
 	// Wait for proxy listener to start

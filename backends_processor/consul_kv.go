@@ -23,10 +23,7 @@ import (
 )
 
 func init() {
-	module.RegisterFactory("backends_processor", "consul_kv", module.Factory{
-		ValidateConfig: validateConsulKVConfig,
-		New:            newConsulKV,
-	})
+	module.RegisterFactory("backends_processor", "consul_kv", newConsulKV, validateConsulKVConfig)
 }
 
 type ConsulKV struct {
@@ -91,7 +88,7 @@ func parseConsulKVConfig(tc *module.Config) *ConsulKVConfig {
 	return config
 }
 
-func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
 	config := parseConsulKVConfig(tc)
 
 	c := &ConsulKV{
@@ -233,10 +230,6 @@ func (c *ConsulKV) ReceiveUpdate(upd backend.BackendUpdate) {
 	case c.updChan <- upd:
 	case <-c.updChanStop:
 	}
-}
-
-func (c *ConsulKV) GetID() string {
-	return c.id
 }
 
 func (c *ConsulKV) GetBackendList() []*backend.Backend {

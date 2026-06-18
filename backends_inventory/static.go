@@ -15,10 +15,7 @@ import (
 )
 
 func init() {
-	module.RegisterFactory("backends_inventory", "static", module.Factory{
-		ValidateConfig: validateStaticBackendsInventoryConfig,
-		New:            newStaticBackendsInventory,
-	})
+	module.RegisterFactory("backends_inventory", "static", newStaticBackendsInventory, validateStaticBackendsInventoryConfig)
 }
 
 type BackendsInventoryStatic struct {
@@ -48,7 +45,7 @@ func parseStaticBackendsInventoryConfig(tc *module.Config) *StaticBackendsInvent
 	return config
 }
 
-func newStaticBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+func newStaticBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
 	config := parseStaticBackendsInventoryConfig(tc)
 
 	c := &BackendsInventoryStatic{
@@ -71,10 +68,6 @@ func newStaticBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx conte
 
 func (c *BackendsInventoryStatic) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 	c.backends.ProvideUpdates(s)
-}
-
-func (c *BackendsInventoryStatic) GetID() string {
-	return c.id
 }
 
 func (c *BackendsInventoryStatic) GetBackendList() []*backend.Backend {

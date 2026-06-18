@@ -36,10 +36,6 @@ backends_inventory "static" "test" {
 		t.Fatalf("Expected *BackendsInventoryStatic")
 	}
 
-	if staticMod.GetID() != "backends_inventory.static.test" {
-		t.Errorf("Unexpected ID: %s", staticMod.GetID())
-	}
-
 	backends := staticMod.GetBackendList()
 	if len(backends) != 2 {
 		t.Errorf("Expected 2 backends, got %d", len(backends))

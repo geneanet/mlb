@@ -20,12 +20,6 @@ type mockProvider struct {
 	backends *backend.Registry
 }
 
-// GetID returns the provider's identifier.
-func (mp *mockProvider) GetID() string {
-	return mp.id
-}
-
-// Bind is a no-op implementation of the module.Module interface.
 func (mp *mockProvider) Bind(modules module.ModulesRegistry) {}
 
 // ProvideUpdates registers a subscriber to receive backend updates.
@@ -166,16 +160,13 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	mod := newWRRBalancer(cfg, wg, ctx)
 	balancer := mod.(*WRRBalancer)
 
-	if balancer.GetID() != "balancer.wrr.test" {
-		t.Errorf("Unexpected ID: %s", balancer.GetID())
-	}
 	if len(balancer.GetBackendList()) != 0 {
 		t.Errorf("Expected 0 reg")
 	}
 
 	provider := &mockProvider{id: "src1", backends: backend.NewRegistry()}
-	modules := module.NewModulesRegistry()
-	modules.AddModule(provider)
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("src1", provider)
 	balancer.Bind(modules)
 
 	// Test timeout when no reg are available

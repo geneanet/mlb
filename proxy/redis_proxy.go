@@ -23,10 +23,7 @@ import (
 )
 
 func init() {
-	module.RegisterFactory("proxy", "redis", module.Factory{
-		ValidateConfig: validateRedisProxyConfig,
-		New:            newRedisProxy,
-	})
+	module.RegisterFactory("proxy", "redis", newRedisProxy, validateRedisProxyConfig)
 }
 
 type RedisProxy struct {
@@ -122,7 +119,7 @@ func parseRedisProxyConfig(tc *module.Config) *RedisProxyConfig {
 	return config
 }
 
-func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
 	config := parseRedisProxyConfig(tc)
 
 	p := &RedisProxy{
@@ -372,9 +369,6 @@ func (p *RedisProxy) handleConnection(connFront net.Conn) {
 	}
 }
 
-func (p *RedisProxy) GetID() string {
-	return p.id
-}
 
 func (p *RedisProxy) ReceiveUpdate(upd backend.BackendUpdate) {
 	select {

@@ -20,10 +20,7 @@ import (
 )
 
 func init() {
-	module.RegisterFactory("backends_processor", "redis", module.Factory{
-		ValidateConfig: validateRedisCheckerConfig,
-		New:            newRedisChecker,
-	})
+	module.RegisterFactory("backends_processor", "redis", newRedisChecker, validateRedisCheckerConfig)
 }
 
 // RedisChecker manages multiple health checks for Redis backends.
@@ -102,7 +99,7 @@ func parseRedisCheckerConfig(tc *module.Config) *RedisCheckerConfig {
 }
 
 // New creates a new instance of the RedisChecker module.
-func newRedisChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+func newRedisChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
 	config := parseRedisCheckerConfig(tc)
 
 	c := &RedisChecker{
@@ -246,9 +243,6 @@ func (c *RedisChecker) ReceiveUpdate(upd backend.BackendUpdate) {
 	}
 }
 
-func (c *RedisChecker) GetID() string {
-	return c.id
-}
 
 func (c *RedisChecker) GetBackendList() []*backend.Backend {
 	return c.backends.GetList()

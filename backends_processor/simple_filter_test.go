@@ -40,10 +40,6 @@ backends_processor "simple_filter" "test" {
 		t.Fatalf("Expected *SimpleFilter")
 	}
 
-	if filterMod.GetID() != "backends_processor.simple_filter.test" {
-		t.Errorf("Unexpected ID: %s", filterMod.GetID())
-	}
-
 	// Create a dummy provider to feed updates
 	dp := &dummyProvider{id: "foo", backends: backend.NewRegistry()}
 
@@ -51,8 +47,8 @@ backends_processor "simple_filter" "test" {
 	sub := &dummySubscriber{wg: sync.WaitGroup{}}
 	filterMod.ProvideUpdates(sub)
 
-	modules := module.NewModulesRegistry()
-	modules.AddModule(dp)
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("foo", dp)
 	filterMod.Bind(modules)
 
 	// Wait for goroutines to settle
@@ -133,8 +129,8 @@ backends_processor "simple_filter" "test" {
 
 	// Add an item directly to bypass wait issues, or via provider
 	dp := &dummyProvider{id: "foo", backends: backend.NewRegistry()}
-	modules := module.NewModulesRegistry()
-	modules.AddModule(dp)
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("foo", dp)
 	filterMod.Bind(modules)
 
 	// We need a subscriber to wait for the backend to be added, otherwise we can't be sure it's processed
@@ -181,8 +177,8 @@ backends_processor "simple_filter" "test_meta" {
 	sub := &dummySubscriber{wg: sync.WaitGroup{}}
 	filterMod.ProvideUpdates(sub)
 
-	modules := module.NewModulesRegistry()
-	modules.AddModule(dp)
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("foo", dp)
 	filterMod.Bind(modules)
 
 	// Add backend (matches initially)
@@ -258,7 +254,6 @@ func waitSub(t *testing.T, sub *dummySubscriber, name string) {
 // TestSimpleFilter_ReceiveUpdateClosed verifies that the filter handles updates
 // gracefully after it has been shut down.
 func TestSimpleFilter_ReceiveUpdateClosed(t *testing.T) {
-	factory := module.GetFactory("backends_processor", "simple_filter")
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
 			"source":    {Name: "source", Expr: &hclsyntax.TemplateExpr{Parts: []hclsyntax.Expression{&hclsyntax.LiteralValueExpr{Val: cty.StringVal("test")}}}},
@@ -269,7 +264,7 @@ func TestSimpleFilter_ReceiveUpdateClosed(t *testing.T) {
 
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
-	mod := factory.New(config, wg, ctx)
+	mod := module.New(config, wg, ctx, "backends_processor")
 
 	cancel()
 	wg.Wait() // Wait for the component to gracefully shut down
@@ -334,8 +329,8 @@ backends_processor "simple_filter" "test" {
 	sub := &dummySubscriber{wg: sync.WaitGroup{}}
 	filterMod.ProvideUpdates(sub)
 
-	modules := module.NewModulesRegistry()
-	modules.AddModule(dp)
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("foo", dp)
 	filterMod.Bind(modules)
 
 	// Add 3 backends with different weights
@@ -448,8 +443,8 @@ backends_processor "simple_filter" "test3" {
 		filterMod := mod.(*SimpleFilter)
 		dp := &dummyProvider{id: "foo", backends: backend.NewRegistry()}
 		
-		modules := module.NewModulesRegistry()
-		modules.AddModule(dp)
+		modules := make(module.ModulesRegistry)
+		modules.AddModule("foo", dp)
 		filterMod.Bind(modules)
 
 		setup(dp)

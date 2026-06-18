@@ -151,8 +151,6 @@ func (m *mockSubscriber) ReceiveUpdate(upd backend.BackendUpdate) {}
 func TestMySQL(t *testing.T) {
 	setMySQLDriverName("mysql_mock")
 
-	factory := module.GetFactory("backends_processor", "mysql")
-
 	// Create a mock config
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
@@ -175,7 +173,7 @@ func TestMySQL(t *testing.T) {
 		Ctx:    &hcl.EvalContext{},
 	}
 
-	diags := factory.ValidateConfig(config)
+	diags := module.ValidateConfig(config, "backends_processor")
 	if diags.HasErrors() {
 		t.Fatal(diags.Error())
 	}
@@ -186,12 +184,11 @@ func TestMySQL(t *testing.T) {
 	mod := newMySQLChecker(config, wg, ctx)
 	mysqlChecker := mod.(*MySQLChecker)
 
-	mysqlChecker.GetID()
 	mysqlChecker.GetBackendList()
 
 	dp := &dummyProvider{id: "test", backends: backend.NewRegistry()}
-	modules := module.NewModulesRegistry()
-	modules.AddModule(dp)
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("test", dp)
 	mysqlChecker.Bind(modules)
 
 	subscriber := &mockSubscriber{}
@@ -302,8 +299,9 @@ func TestMySQL_Coverage(t *testing.T) {
 	config := &module.Config{Name: "test_cov", Type: "mysql", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
-	mod := newMySQLChecker(config, wg, ctx)
+	mod := module.New(config, wg, ctx, "backends_processor")
 	mysqlChecker := mod.(*MySQLChecker)
+
 
 	// 2. Add an item directly to cover loop execution in GetBackendList, ProvideUpdates, and stopChecks
 	b := &backend.Backend{Address: "127.0.0.1:3307", Meta: backend.NewEmptyMetaMap(0)}

@@ -39,10 +39,7 @@ func setMySQLDriverName(name string) {
 }
 
 func init() {
-	module.RegisterFactory("backends_processor", "mysql", module.Factory{
-		ValidateConfig: validateMySQLCheckerConfig,
-		New:            newMySQLChecker,
-	})
+	module.RegisterFactory("backends_processor", "mysql", newMySQLChecker, validateMySQLCheckerConfig)
 }
 
 type MySQLChecker struct {
@@ -127,7 +124,7 @@ func parseMySQLCheckerConfig(tc *module.Config) *MySQLCheckerConfig {
 	return config
 }
 
-func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
 	config := parseMySQLCheckerConfig(tc)
 
 	c := &MySQLChecker{
@@ -286,9 +283,6 @@ func (c *MySQLChecker) ReceiveUpdate(upd backend.BackendUpdate) {
 	}
 }
 
-func (c *MySQLChecker) GetID() string {
-	return c.id
-}
 
 func (c *MySQLChecker) GetBackendList() []*backend.Backend {
 	return c.backends.GetList()

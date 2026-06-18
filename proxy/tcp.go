@@ -24,10 +24,7 @@ import (
 )
 
 func init() {
-	module.RegisterFactory("proxy", "tcp", module.Factory{
-		ValidateConfig: validateTCPProxyConfig,
-		New:            newTCPProxy,
-	})
+	module.RegisterFactory("proxy", "tcp", newTCPProxy, validateTCPProxyConfig)
 }
 
 type ProxyTCP struct {
@@ -118,7 +115,7 @@ func parseTCPProxyConfig(tc *module.Config) *TCPProxyConfig {
 	return config
 }
 
-func newTCPProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+func newTCPProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
 	config := parseTCPProxyConfig(tc)
 
 	p := &ProxyTCP{
@@ -421,9 +418,6 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	connBack.Close()
 }
 
-func (p *ProxyTCP) GetID() string {
-	return p.id
-}
 
 func (p *ProxyTCP) Bind(modules module.ModulesRegistry) {
 	p.backendProvider = module.Get[backend.BackendProvider](modules, p.source)

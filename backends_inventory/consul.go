@@ -24,10 +24,7 @@ import (
 )
 
 func init() {
-	module.RegisterFactory("backends_inventory", "consul", module.Factory{
-		ValidateConfig: validateConsulBackendsInventoryConfig,
-		New:            newConsulBackendsInventory,
-	})
+	module.RegisterFactory("backends_inventory", "consul", newConsulBackendsInventory, validateConsulBackendsInventoryConfig)
 }
 
 type consulService struct {
@@ -98,7 +95,7 @@ func parseConsulBackendsInventoryConfig(tc *module.Config) *ConsulBackendsInvent
 	return config
 }
 
-func newConsulBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+func newConsulBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
 	config := parseConsulBackendsInventoryConfig(tc)
 
 	c := &BackendsInventoryConsul{
@@ -260,10 +257,6 @@ func (c *BackendsInventoryConsul) fetch() (retServices consulServicesSlice, retE
 	c.index = resp.Header.Get("X-Consul-Index")
 
 	return data, nil
-}
-
-func (c *BackendsInventoryConsul) GetID() string {
-	return c.id
 }
 
 func (c *BackendsInventoryConsul) GetBackendList() backend.BackendsList {

@@ -167,8 +167,6 @@ func TestRedisChecker_ValidateConfig(t *testing.T) {
 }
 
 func TestRedis_Coverage(t *testing.T) {
-	factory := module.GetFactory("backends_processor", "redis")
-
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
 			"source": {Name: "source", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("test_cov")}},
@@ -177,7 +175,7 @@ func TestRedis_Coverage(t *testing.T) {
 	config := &module.Config{Name: "test_cov", Type: "redis", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
-	mod := factory.New(config, wg, ctx)
+	mod := module.New(config, wg, ctx, "backends_processor")
 	redisChecker := mod.(*RedisChecker)
 
 	// Add backend
@@ -205,7 +203,6 @@ func TestRedis_Coverage(t *testing.T) {
 	// GetBackendList & ProvideUpdates
 	redisChecker.GetBackendList()
 	redisChecker.ProvideUpdates(&mockSubscriber{})
-	redisChecker.GetID()
 
 	// Remove backend
 	redisChecker.ReceiveUpdate(backend.BackendUpdate{
@@ -234,9 +231,6 @@ func TestRedisChecker_ModuleMethods(t *testing.T) {
 		updChan:  make(chan backend.BackendUpdate, 1),
 	}
 
-	if c.GetID() != "test-id" {
-		t.Errorf("expected test-id, got %s", c.GetID())
-	}
 	if len(c.GetBackendList()) != 0 {
 		t.Errorf("expected empty backend list")
 	}
@@ -244,9 +238,9 @@ func TestRedisChecker_ModuleMethods(t *testing.T) {
 	prov := &dummyProvider{backends: registry}
 	prov.ProvideUpdates(c)
 
-	modules := module.NewModulesRegistry()
+	modules := make(module.ModulesRegistry)
 	provider := &dummyProvider{id: "test-source", backends: registry}
-	modules.AddModule(provider)
-
+	modules.AddModule("test-source", provider)
 	c.Bind(modules)
-}
+	}
+

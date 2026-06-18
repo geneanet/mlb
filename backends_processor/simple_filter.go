@@ -17,10 +17,7 @@ import (
 )
 
 func init() {
-	module.RegisterFactory("backends_processor", "simple_filter", module.Factory{
-		ValidateConfig: validateSimpleFilterConfig,
-		New:            newSimpleFilter,
-	})
+	module.RegisterFactory("backends_processor", "simple_filter", newSimpleFilter, validateSimpleFilterConfig)
 }
 
 // SimpleFilter implements a backend processor that filters backends based on a condition,
@@ -66,7 +63,7 @@ func parseSimpleFilterConfig(tc *module.Config) *SimpleFilterConfig {
 	return config
 }
 
-func newSimpleFilter(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) module.Module {
+func newSimpleFilter(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
 	config := parseSimpleFilterConfig(tc)
 
 	sortOrder := "asc"
@@ -310,9 +307,6 @@ func (f *SimpleFilter) ReceiveUpdate(upd backend.BackendUpdate) {
 	}
 }
 
-func (f *SimpleFilter) GetID() string {
-	return f.id
-}
 
 func (f *SimpleFilter) GetBackendList() []*backend.Backend {
 	f.listMu.RLock()

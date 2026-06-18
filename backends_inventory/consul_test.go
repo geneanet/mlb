@@ -139,10 +139,6 @@ backends_inventory "consul" "test" {
 		t.Fatalf("Expected *BackendsInventoryConsul")
 	}
 
-	if consulMod.GetID() != "backends_inventory.consul.test" {
-		t.Errorf("Unexpected ID: %s", consulMod.GetID())
-	}
-
 	consulMod.Bind(module.ModulesRegistry{})
 
 	sub := &consulDummySubscriber{}

@@ -75,24 +75,26 @@ func main() {
 		}
 
 		// Instantiate modules
-		ml := module.NewModulesRegistry()
+		ml := make(module.ModulesRegistry)
 
 		for _, c := range conf.BackendsInventoryList {
-			ml.AddModule(module.New(c, &wg, ctx, "backends_inventory"))
+			ml.AddModule(c.Name, module.New(c, &wg, ctx, "backends_inventory"))
 		}
 		for _, c := range conf.BackendsProcessorList {
-			ml.AddModule(module.New(c, &wg, ctx, "backends_processor"))
+			ml.AddModule(c.Name, module.New(c, &wg, ctx, "backends_processor"))
 		}
 		for _, c := range conf.BalancerList {
-			ml.AddModule(module.New(c, &wg, ctx, "balancer"))
+			ml.AddModule(c.Name, module.New(c, &wg, ctx, "balancer"))
 		}
 		for _, c := range conf.ProxyList {
-			ml.AddModule(module.New(c, &wg, ctx, "proxy"))
+			ml.AddModule(c.Name, module.New(c, &wg, ctx, "proxy"))
 		}
 
 		// Bind modules together
 		for _, m := range ml {
-			m.Bind(ml)
+			if b, ok := m.(module.Binder); ok {
+				b.Bind(ml)
+			}
 		}
 
 		// HTTP Metrics
