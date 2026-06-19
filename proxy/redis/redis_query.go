@@ -3,6 +3,7 @@ package redis
 import (
 	"bytes"
 	"fmt"
+	"mlb/util"
 	"sync/atomic"
 )
 
@@ -98,7 +99,7 @@ func (q RedisQuery) GetCommand() ([]byte, error) {
 				return []byte{}, fmt.Errorf("bulk string end not found")
 			}
 
-			size, err := parseSize(q.item[i+1 : i+j])
+			size, err := util.ParseSize(q.item[i+1 : i+j])
 			if err != nil {
 				return []byte{}, fmt.Errorf("unable to parse bulk string size: %v", err)
 			}

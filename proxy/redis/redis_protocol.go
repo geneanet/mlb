@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"mlb/util"
 	"slices"
 	"sync"
 )
@@ -15,36 +16,6 @@ import (
 // readerPool allows reuse of bufio.Reader instances to minimize memory allocations
 // during high-concurrency Redis proxying.
 var readerPool sync.Pool
-
-// parseSize parses a decimal integer from a byte slice without performing heap allocations.
-// It supports negative numbers and validates that all characters are decimal digits.
-func parseSize(b []byte) (int, error) {
-	if len(b) == 0 {
-		return 0, fmt.Errorf("empty integer")
-	}
-
-	neg := false
-	if b[0] == '-' {
-		neg = true
-		b = b[1:]
-		if len(b) == 0 {
-			return 0, fmt.Errorf("invalid integer: \"-\"")
-		}
-	}
-
-	res := 0
-	for _, c := range b {
-		if c < '0' || c > '9' {
-			return 0, fmt.Errorf("invalid integer")
-		}
-		res = res*10 + int(c-'0')
-	}
-
-	if neg {
-		return -res, nil
-	}
-	return res, nil
-}
 
 // RedisProtocolReader provides a high-level reader for Redis RESP2 and RESP3 protocols.
 // It uses an internal bufio.Reader for efficiency and maintains an accumulation buffer
@@ -167,7 +138,7 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 					}
 					return nil, fmt.Errorf("RESP3 protocol violation: malformed bulk header")
 				}
-				size, errAtoi := parseSize(line[1 : len(line)-2])
+				size, errAtoi := util.ParseSize(line[1 : len(line)-2])
 				if errAtoi != nil {
 					if eof {
 						break
@@ -194,7 +165,7 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 				}
 				return nil, fmt.Errorf("RESP3 protocol violation: malformed streamed string chunk header")
 			}
-			size, errAtoi := parseSize(line[1 : len(line)-2])
+			size, errAtoi := util.ParseSize(line[1 : len(line)-2])
 			if errAtoi != nil {
 				if eof {
 					break
@@ -232,7 +203,7 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 					}
 					return nil, fmt.Errorf("RESP3 protocol violation: malformed collection header")
 				}
-				size, errAtoi := parseSize(line[1 : len(line)-2])
+				size, errAtoi := util.ParseSize(line[1 : len(line)-2])
 				if errAtoi != nil {
 					if eof {
 						break

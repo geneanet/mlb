@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mlb/util"
 	"strings"
 	"testing"
 )
@@ -653,7 +654,7 @@ func TestParseSize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got, err := parseSize([]byte(tt.input))
+			got, err := util.ParseSize([]byte(tt.input))
 			if (err != nil) != tt.wantErr {
 				t.Errorf("parseSize() error = %v, wantErr %v", err, tt.wantErr)
 				return

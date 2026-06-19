@@ -9,9 +9,9 @@ import (
 	"mlb/config"
 	"mlb/metrics"
 	"mlb/module"
+	"mlb/util"
 	"net"
 	"os"
-	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -364,7 +364,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
 				continue
 			}
-			size, err := strconv.Atoi(string(fields[4]))
+			size, err := util.ParseSize(fields[4])
 			if err != nil {
 				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
 				continue
