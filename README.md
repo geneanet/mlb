@@ -9,7 +9,7 @@ It is designed to be easily extensible through its modular architecture and prov
 - **Service Discovery:** Native support for Consul (health checks and KV) and static configurations.
 - **Deep Health Probing:** Built-in MySQL and Redis health checkers with replication awareness and role detection.
 - **Zero-Downtime Restarts:** Integrated process manager allows for configuration reloads without dropping connections.
-- **Redis Protocol Support:** Specialized Redis proxy with command filtering and backend connection pooling.
+- **Redis & Memcache Protocol Support:** Specialized proxies for Redis and Memcache with command filtering, consistent hashing and connection pooling.
 - **Observability:** Prometheus metrics and structured logging (zerolog).
 - **HCL Configuration:** Human-friendly configuration using HashiCorp Configuration Language.
 
@@ -23,7 +23,7 @@ MLB uses a pipeline architecture where backends flow through several stages:
     - `consul_kv`: Dynamic metadata enrichment from Consul KV.
     - `simple_filter`: Powerful filtering, sorting, and limiting using HCL expressions.
 3.  **Balancer:** Selects a backend from a processed list using a specific algorithm (e.g., `wrr` - Weighted Round Robin).
-4.  **Proxy:** Accepts incoming connections and forwards traffic to the backend selected by the balancer (e.g., `tcp`, `redis`).
+4.  **Proxy:** Accepts incoming connections and forwards traffic to the backend selected by the balancer (e.g., `tcp`, `redis`, `memcache`).
 
 ## Getting Started
 

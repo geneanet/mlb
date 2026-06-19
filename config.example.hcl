@@ -25,6 +25,10 @@ backends_inventory "consul" "redis" {
   // backoff_factor = 1.5
 }
 
+backends_inventory "static" "memcache_static" {
+  hosts = ["127.0.0.1:11211", "127.0.0.1:11212"]
+}
+
 backends_inventory "static" "mysql_static" {
   hosts = ["127.0.0.1:3306", "127.0.0.1:3307"]
 }
@@ -124,4 +128,17 @@ proxy "redis" "redis" {
   // retry_period = "100ms"
   // retry_max_period = "1s"
   // retry_backoff_factor = 1.5
+}
+
+proxy "memcache" "memcache" {
+  source = backends_inventory.static.memcache_static
+  addresses = [":11211"]
+  // connect_timeout = "0s"
+  // close_timeout = "0s"
+  // buffer_size = 16384
+  // client_queue_size = 64
+  // backend_input_queue_size = 1024
+  // backend_inflight_queue_size = 512
+  // backend_connection_pool_size = 1
+  // max_fields_per_command = 16
 }
