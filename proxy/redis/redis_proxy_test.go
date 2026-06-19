@@ -145,8 +145,11 @@ func TestRedisProxyFactory_parseConfig(t *testing.T) {
 	if config.BackendInflightQueueSize != 512 {
 		t.Errorf("expected BackendInflightQueueSize 512, got %d", config.BackendInflightQueueSize)
 	}
-	if config.BackendConnectionPoolSize != 1 {
-		t.Errorf("expected BackendConnectionPoolSize 1, got %d", config.BackendConnectionPoolSize)
+	if config.BackendMinConnections != 1 {
+		t.Errorf("expected BackendMinConnections 1, got %d", config.BackendMinConnections)
+	}
+	if config.BackendMaxConnections != 1 {
+		t.Errorf("expected BackendMaxConnections 1, got %d", config.BackendMaxConnections)
 	}
 	if config.RetryPeriod != "100ms" {
 		t.Errorf("expected RetryPeriod 100ms, got %s", config.RetryPeriod)
@@ -261,7 +264,8 @@ func TestRedisProxy_ListenAndConnection(t *testing.T) {
 		source = "test-source"
 		addresses = ["127.0.0.1:0"]
 		backend_wait_timeout = "1s"
-		backend_connection_pool_size = 1
+		backend_min_connections = 1
+		backend_max_connections = 1
 	`)
 
 	file, diags := hclsyntax.ParseConfig(configHCL, "config.hcl", hcl.Pos{Line: 1, Column: 1})
@@ -837,5 +841,74 @@ func TestRedisProxyFactory_InvalidDurations(t *testing.T) {
 	vDiags := validateRedisProxyConfig(tc)
 	if !vDiags.HasErrors() {
 		t.Error("expected diagnostics to have errors for invalid duration")
+	}
+}
+
+func TestRedisConfigValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  string
+		wantErr bool
+	}{
+		{
+			name: "Valid min/max",
+			config: `
+				source = "s1"
+				backend_min_connections = 2
+				backend_max_connections = 5
+			`,
+			wantErr: false,
+		},
+		{
+			name: "Max less than min",
+			config: `
+				source = "s1"
+				backend_min_connections = 5
+				backend_max_connections = 2
+			`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, diags := hclsyntax.ParseConfig([]byte(tt.config), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+			if diags.HasErrors() {
+				t.Fatalf("Parse failed: %v", diags)
+			}
+			tc := &module.Config{
+				Config: f.Body,
+				Ctx:    &hcl.EvalContext{},
+			}
+			vDiags := validateRedisProxyConfig(tc)
+			if (vDiags.HasErrors()) != tt.wantErr {
+				t.Errorf("validateRedisProxyConfig() error = %v, wantErr %v", vDiags.HasErrors(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestRedisConfigParsing(t *testing.T) {
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	configStr := `
+		source = "s1"
+		backend_min_connections = 3
+		backend_input_queue_size = 2000
+	`
+	f, _ := hclsyntax.ParseConfig([]byte(configStr), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+	tc := &module.Config{Config: f.Body, Ctx: &hcl.EvalContext{}}
+
+	p := newRedisProxy(tc, wg, ctx).(*RedisProxy)
+	if p.backendMinConnections != 3 {
+		t.Errorf("Expected min 3, got %d", p.backendMinConnections)
+	}
+	if p.backendMaxConnections != 3 {
+		t.Errorf("Expected max 3 (defaulted from min), got %d", p.backendMaxConnections)
+	}
+	if p.backendInputQueueSize != 2000 {
+		t.Errorf("Expected input queue size 2000, got %d", p.backendInputQueueSize)
 	}
 }

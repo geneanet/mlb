@@ -5,6 +5,7 @@ import (
 	"mlb/backend"
 	"mlb/testutil"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -262,7 +263,8 @@ func TestRedisBackendConnectionPool_Update(t *testing.T) {
 		log:                       zerolog.Nop(),
 		ctx:                       ctx,
 		backendWaitTimeout:        50 * time.Millisecond,
-		backendConnectionPoolSize: 2,
+		backendMinConnections:     2,
+		backendMaxConnections:     2,
 		backends:                  backendsMap,
 		connectTimeout:            1 * time.Second,
 		bufferSize:                1024,
@@ -345,4 +347,107 @@ func TestRedisBackendConnectionPool_NotifyFailure(t *testing.T) {
 		defer pool.mutex.RUnlock()
 		return len(pool.pool) == 0
 	}, 1*time.Second, 10*time.Millisecond)
+}
+
+func TestRedisMinMaxPoolGrowth(t *testing.T) {
+	// Start a dummy backend
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	addr := l.Addr().String()
+	b1 := &backend.Backend{Address: addr}
+
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	proxy := &RedisProxy{
+		id:                        "test_minmax",
+		log:                       zerolog.Nop(),
+		backends:                  backend.NewRegistry(),
+		backendMinConnections:     1,
+		backendMaxConnections:     2,
+		clientQueueSize:           1, // Tiny queue to trigger saturation easily
+		backendInflightQueueSize:  10,
+		connectTimeout:            time.Second,
+		retryPeriod:               10 * time.Millisecond,
+		retryMaxPeriod:            100 * time.Millisecond,
+		retryBackoffFactor:        1.5,
+		ctx:                       ctx,
+		cancel:                    cancel,
+		wg:                        wg,
+	}
+	proxy.backends.Add(b1)
+	pool := NewRedisBackendConnectionPool(proxy)
+	pool.Update()
+
+	// 1. Should have exactly 1 connection initially
+	pool.mutex.RLock()
+	if len(pool.pool) != 1 {
+		t.Errorf("Expected 1 connection, got %d", len(pool.pool))
+	}
+	pool.mutex.RUnlock()
+
+	conn1 := pool.GetRandom(true)
+	if conn1 == nil {
+		t.Fatal("Expected connection")
+	}
+
+	// 2. Saturate conn1
+	go func() {
+		conn, _ := l.Accept()
+		if conn != nil {
+			time.Sleep(2 * time.Second)
+			conn.Close()
+		}
+	}()
+
+	// Send queries until conn1.IsFull() is true
+	for i := 0; i < 100; i++ {
+		q := NewRedisQuery([]byte("*1\r\n$4\r\nPING\r\n"), nil, nil)
+		conn1.Query(q)
+		if conn1.IsFull() {
+			break
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	if !conn1.IsFull() {
+		t.Log("Connection not full yet, trying growth anyway.")
+	}
+
+	// 3. GetRandom() should now see it's full and open a second connection
+	conn2 := pool.GetRandom(true)
+	if conn2 == nil {
+		t.Fatal("Expected second connection")
+	}
+	if conn2 == conn1 && conn1.IsFull() {
+		t.Error("GetRandom() returned the same full connection instead of growing")
+	}
+
+	pool.mutex.RLock()
+	if len(pool.pool) != 2 {
+		t.Errorf("Expected 2 connections, got %d", len(pool.pool))
+	}
+	pool.mutex.RUnlock()
+
+	// 4. Growth should stop at max=2
+	for i := 0; i < 100; i++ {
+		q := NewRedisQuery([]byte("*1\r\n$4\r\nPING\r\n"), nil, nil)
+		conn2.Query(q)
+		if conn2.IsFull() {
+			break
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	_ = pool.GetRandom(true)
+	pool.mutex.RLock()
+	if len(pool.pool) > 2 {
+		t.Errorf("Expected at most 2 connections, got %d", len(pool.pool))
+	}
+	pool.mutex.RUnlock()
 }

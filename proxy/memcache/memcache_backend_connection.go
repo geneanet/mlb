@@ -136,6 +136,11 @@ func (mbc *MemcacheBackendConnection) Query(q MemcacheQuery) error {
 	}
 }
 
+// IsFull returns true if the connection's input channel is full.
+func (mbc *MemcacheBackendConnection) IsFull() bool {
+	return len(mbc.inputChan) >= cap(mbc.inputChan)
+}
+
 // AbortInflightQueries aborts all queries that are currently waiting for a response from the backend.
 func (mbc *MemcacheBackendConnection) AbortInflightQueries() {
 	mbc.pool.proxy.log.Debug().Str("peer", mbc.backend.Address).Msg("Aborting in-flight requests")

@@ -44,8 +44,10 @@ type RedisProxy struct {
 	bufferSize                int
 	backendConnectionPool     *RedisBackendConnectionPool
 	clientQueueSize           int
+	backendInputQueueSize     int
 	backendInflightQueueSize  int
-	backendConnectionPoolSize int
+	backendMinConnections     int
+	backendMaxConnections     int
 	retryPeriod               time.Duration
 	retryMaxPeriod            time.Duration
 	retryBackoffFactor        float64
@@ -61,8 +63,10 @@ type RedisProxyConfig struct {
 	BackendWaitTimeout        string   `hcl:"backend_wait_timeout,optional"`
 	BufferSize                int      `hcl:"buffer_size,optional"`
 	ClientQueueSize           int      `hcl:"client_queue_size,optional"`
+	BackendInputQueueSize     int      `hcl:"backend_input_queue_size,optional"`
 	BackendInflightQueueSize  int      `hcl:"backend_inflight_queue_size,optional"`
-	BackendConnectionPoolSize int      `hcl:"backend_connection_pool_size,optional"`
+	BackendMinConnections     int      `hcl:"backend_min_connections,optional"`
+	BackendMaxConnections     int      `hcl:"backend_max_connections,optional"`
 	RetryPeriod               string   `hcl:"retry_period,optional"`
 	RetryMaxPeriod            string   `hcl:"retry_max_period,optional"`
 	RetryBackoffFactor        float64  `hcl:"retry_backoff_factor,optional"`
@@ -78,6 +82,14 @@ func validateRedisProxyConfig(tc *module.Config) hcl.Diagnostics {
 	config.CheckDuration(&diags, configBody.BackendWaitTimeout, "backend_wait_timeout")
 	config.CheckDuration(&diags, configBody.RetryPeriod, "retry_period")
 	config.CheckDuration(&diags, configBody.RetryMaxPeriod, "retry_max_period")
+
+	if configBody.BackendMinConnections > 0 && configBody.BackendMaxConnections > 0 && configBody.BackendMaxConnections < configBody.BackendMinConnections {
+		diags = append(diags, &hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "Invalid connection pool configuration",
+			Detail:   "backend_max_connections must be greater than or equal to backend_min_connections",
+		})
+	}
 
 	return diags
 }
@@ -104,11 +116,20 @@ func parseRedisProxyConfig(tc *module.Config) *RedisProxyConfig {
 	if config.ClientQueueSize == 0 {
 		config.ClientQueueSize = 64
 	}
+	if config.BackendInputQueueSize == 0 {
+		config.BackendInputQueueSize = 1024
+	}
 	if config.BackendInflightQueueSize == 0 {
 		config.BackendInflightQueueSize = 512
 	}
-	if config.BackendConnectionPoolSize == 0 {
-		config.BackendConnectionPoolSize = 1
+	if config.BackendMinConnections == 0 {
+		config.BackendMinConnections = 1
+	}
+	if config.BackendMaxConnections == 0 {
+		config.BackendMaxConnections = config.BackendMinConnections
+	}
+	if config.BackendMaxConnections < config.BackendMinConnections {
+		config.BackendMaxConnections = config.BackendMinConnections
 	}
 	if config.RetryPeriod == "" {
 		config.RetryPeriod = "100ms"
@@ -132,8 +153,10 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) a
 		bufferSize:                config.BufferSize,
 		source:                    config.Source,
 		clientQueueSize:           config.ClientQueueSize,
+		backendInputQueueSize:    config.BackendInputQueueSize,
 		backendInflightQueueSize:  config.BackendInflightQueueSize,
-		backendConnectionPoolSize: config.BackendConnectionPoolSize,
+		backendMinConnections:    config.BackendMinConnections,
+		backendMaxConnections:    config.BackendMaxConnections,
 		wg:                        wg,
 		backendUpdatesChan:        make(chan backend.BackendUpdate, 100),
 		backendUpdatesChanClosed:  make(chan struct{}),

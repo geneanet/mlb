@@ -2,6 +2,7 @@ package memcache
 
 import (
 	"context"
+	"mlb/backend"
 	"mlb/misc"
 	"sync"
 	"time"
@@ -11,6 +12,7 @@ import (
 // It ensures that a minimum number of connections are maintained for each active backend.
 type MemcacheBackendConnectionPool struct {
 	pools       map[string][]*MemcacheBackendConnection
+	backends    map[string]*backend.Backend
 	indices     map[string]uint64
 	mutex       sync.RWMutex
 	updateMutex sync.Mutex
@@ -22,9 +24,10 @@ type MemcacheBackendConnectionPool struct {
 // NewMemcacheBackendConnectionPool creates a new MemcacheBackendConnectionPool.
 func NewMemcacheBackendConnectionPool(proxy *MemcacheProxy) *MemcacheBackendConnectionPool {
 	mbcp := &MemcacheBackendConnectionPool{
-		pools:   make(map[string][]*MemcacheBackendConnection),
-		indices: make(map[string]uint64),
-		proxy:   proxy,
+		pools:    make(map[string][]*MemcacheBackendConnection),
+		backends: make(map[string]*backend.Backend),
+		indices:  make(map[string]uint64),
+		proxy:    proxy,
 	}
 	mbcp.ctx, mbcp.cancel = context.WithCancel(proxy.ctx)
 	return mbcp
@@ -33,16 +36,59 @@ func NewMemcacheBackendConnectionPool(proxy *MemcacheProxy) *MemcacheBackendConn
 // Get returns an available connection from the pool for the given address using round-robin.
 func (mbcp *MemcacheBackendConnectionPool) Get(address string) *MemcacheBackendConnection {
 	mbcp.mutex.Lock()
-	defer mbcp.mutex.Unlock()
 
 	pool := mbcp.pools[address]
 	if len(pool) == 0 {
+		mbcp.mutex.Unlock()
 		return nil
 	}
 
+	// 1. Try to find a non-full connection using round-robin
+	startIdx := mbcp.indices[address] % uint64(len(pool))
+	for i := 0; i < len(pool); i++ {
+		idx := (startIdx + uint64(i)) % uint64(len(pool))
+		mbc := pool[idx]
+		if !mbc.IsFull() {
+			mbcp.indices[address] = idx + 1
+			mbcp.mutex.Unlock()
+			return mbc
+		}
+	}
+
+	// 2. All connections are full. Try to grow if below max.
+	if len(pool) < mbcp.proxy.backendMaxConnections {
+		backend := mbcp.backends[address]
+		mbcp.mutex.Unlock()
+
+		// ponytail: growth is synchronous to ensure the current request can benefit from the new connection.
+		mbc, err := NewMemcacheBackendConnection(mbcp, backend)
+		if err != nil {
+			// Failed to open a new one, fallback to round-robin on existing (even if full)
+			mbcp.mutex.Lock()
+			pool = mbcp.pools[address]
+			if len(pool) == 0 {
+				mbcp.mutex.Unlock()
+				return nil
+			}
+			idx := mbcp.indices[address] % uint64(len(pool))
+			mbc = pool[idx]
+			mbcp.indices[address] = idx + 1
+			mbcp.mutex.Unlock()
+			return mbc
+		}
+
+		mbcp.mutex.Lock()
+		mbcp.pools[address] = append(mbcp.pools[address], mbc)
+		mbcp.indices[address] = uint64(len(mbcp.pools[address])) // point to next after new one
+		mbcp.mutex.Unlock()
+		return mbc
+	}
+
+	// 3. Already at max connections and all are full. Fallback to round-robin.
 	idx := mbcp.indices[address] % uint64(len(pool))
 	mbc := pool[idx]
 	mbcp.indices[address] = idx + 1
+	mbcp.mutex.Unlock()
 	return mbc
 }
 
@@ -79,6 +125,7 @@ func (mbcp *MemcacheBackendConnectionPool) Update() {
 	validAddresses := make(map[string]bool)
 	for _, b := range backends {
 		validAddresses[b.Address] = true
+		mbcp.backends[b.Address] = b
 	}
 
 	// Remove pools for backends that are no longer active
@@ -88,6 +135,7 @@ func (mbcp *MemcacheBackendConnectionPool) Update() {
 				conn.cancel()
 			}
 			delete(mbcp.pools, addr)
+			delete(mbcp.backends, addr)
 			delete(mbcp.indices, addr)
 		}
 	}
@@ -103,7 +151,7 @@ func (mbcp *MemcacheBackendConnectionPool) Update() {
 			poolLen := len(mbcp.pools[backend.Address])
 			mbcp.mutex.Unlock()
 
-			if poolLen >= mbcp.proxy.backendConnectionPoolSize {
+			if poolLen >= mbcp.proxy.backendMinConnections {
 				break
 			}
 

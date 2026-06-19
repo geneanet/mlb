@@ -43,7 +43,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 	rbc = &RedisBackendConnection{
 		pool:          pool,
 		backend:       backend,
-		inputChan:     make(chan RedisQuery),
+		inputChan:     make(chan RedisQuery, pool.proxy.backendInputQueueSize), // ponytail: buffered to allow saturation check
 		inputChanStop: make(chan struct{}),
 		inFlight:      make(chan RedisQuery, pool.proxy.backendInflightQueueSize),
 	}
@@ -143,6 +143,11 @@ func (rbc *RedisBackendConnection) Query(q RedisQuery) (retError error) {
 	case <-rbc.inputChanStop:
 		return fmt.Errorf("backend input channel is closed")
 	}
+}
+
+// IsFull returns true if the connection's input channel is full.
+func (rbc *RedisBackendConnection) IsFull() bool {
+	return len(rbc.inputChan) >= cap(rbc.inputChan)
 }
 
 // AbortInflightQueries aborts all queries that are currently waiting for a response from the backend.

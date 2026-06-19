@@ -24,7 +24,8 @@ func TestMemcacheProxyConfigAndInit(t *testing.T) {
 	addresses = ["127.0.0.1:0"]
 	connect_timeout = "2s"
 	close_timeout = "2s"
-	backend_connection_pool_size = 5
+	backend_min_connections = 5
+	backend_max_connections = 5
 	`
 
 	// Test validation
@@ -65,8 +66,11 @@ func TestMemcacheProxyConfigAndInit(t *testing.T) {
 	if p2.connectTimeout != 0 {
 		t.Errorf("Expected default 0s connect timeout, got %v", p2.connectTimeout)
 	}
-	if p2.backendConnectionPoolSize != 1 {
-		t.Errorf("Expected default 1 pool size, got %d", p2.backendConnectionPoolSize)
+	if p2.backendMinConnections != 1 {
+		t.Errorf("Expected default 1 min pool size, got %d", p2.backendMinConnections)
+	}
+	if p2.backendMaxConnections != 1 {
+		t.Errorf("Expected default 1 max pool size, got %d", p2.backendMaxConnections)
 	}
 	if p2.backendInflightQueueSize != 512 {
 		t.Errorf("Expected default 512 inflight queue size, got %d", p2.backendInflightQueueSize)
@@ -92,6 +96,80 @@ func TestMemcacheProxyConfigAndInit(t *testing.T) {
 	}
 	if p3.backendInflightQueueSize != 1024 {
 		t.Errorf("Expected 1024 inflight queue size, got %d", p3.backendInflightQueueSize)
+	}
+}
+
+func TestMemcacheConfigValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  string
+		wantErr bool
+	}{
+		{
+			name: "Valid min/max",
+			config: `
+				source = "s1"
+				backend_min_connections = 2
+				backend_max_connections = 5
+			`,
+			wantErr: false,
+		},
+		{
+			name: "Min equals max",
+			config: `
+				source = "s1"
+				backend_min_connections = 2
+				backend_max_connections = 2
+			`,
+			wantErr: false,
+		},
+		{
+			name: "Max less than min",
+			config: `
+				source = "s1"
+				backend_min_connections = 5
+				backend_max_connections = 2
+			`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, diags := hclsyntax.ParseConfig([]byte(tt.config), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+			if diags.HasErrors() {
+				t.Fatalf("Parse failed: %v", diags)
+			}
+			tc := &module.Config{
+				Config: f.Body,
+				Ctx:    &hcl.EvalContext{},
+			}
+			vDiags := validateMemcacheProxyConfig(tc)
+			if (vDiags.HasErrors()) != tt.wantErr {
+				t.Errorf("validateMemcacheProxyConfig() error = %v, wantErr %v", vDiags.HasErrors(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestMemcacheConfigParsing(t *testing.T) {
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	configStr := `
+		source = "s1"
+		backend_min_connections = 3
+	`
+	f, _ := hclsyntax.ParseConfig([]byte(configStr), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+	tc := &module.Config{Config: f.Body, Ctx: &hcl.EvalContext{}}
+
+	p := newMemcacheProxy(tc, wg, ctx).(*MemcacheProxy)
+	if p.backendMinConnections != 3 {
+		t.Errorf("Expected min 3, got %d", p.backendMinConnections)
+	}
+	if p.backendMaxConnections != 3 {
+		t.Errorf("Expected max 3 (defaulted from min), got %d", p.backendMaxConnections)
 	}
 }
 
@@ -210,7 +288,8 @@ func TestMemcacheProxyScatterGather(t *testing.T) {
 		wg:                 wg,
 		connectTimeout:     time.Second,
 		closeTimeout:       time.Second,
-		backendConnectionPoolSize: 2,
+		backendMinConnections:     2,
+		backendMaxConnections:     2,
 		backends:           backend.NewRegistry(),
 		ring:               newMemcacheHashRing(),
 		backendUpdatesChan: make(chan backend.BackendUpdate, 10),
@@ -298,7 +377,8 @@ func TestMemcacheProxyEmptyBackends(t *testing.T) {
 		wg:                        wg,
 		connectTimeout:            time.Second,
 		closeTimeout:              time.Second,
-		backendConnectionPoolSize: 2,
+		backendMinConnections:     2,
+		backendMaxConnections:     2,
 		backends:                  backend.NewRegistry(),
 		ring:                      newMemcacheHashRing(),
 		backendUpdatesChan:        make(chan backend.BackendUpdate, 10),
@@ -406,7 +486,8 @@ func TestMemcacheProxyProtocol(t *testing.T) {
 		wg:                        wg,
 		connectTimeout:            time.Second,
 		closeTimeout:              time.Second,
-		backendConnectionPoolSize: 2,
+		backendMinConnections:     2,
+		backendMaxConnections:     2,
 		backends:                  backend.NewRegistry(),
 		ring:                      newMemcacheHashRing(),
 		backendUpdatesChan:        make(chan backend.BackendUpdate, 10),
@@ -504,13 +585,15 @@ func TestMemcacheProxy_HandleConnection_GracefulShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	proxy := &MemcacheProxy{
-		id:             "test_graceful",
-		log:            log.Logger,
-		closeTimeout:   100 * time.Millisecond,
-		connectTimeout: time.Second,
-		wg:             wg,
-		ctx:            ctx,
-		cancel:         cancel,
+		id:                    "test_graceful",
+		log:                   log.Logger,
+		closeTimeout:          100 * time.Millisecond,
+		connectTimeout:        time.Second,
+		backendMinConnections: 1,
+		backendMaxConnections: 1,
+		wg:                    wg,
+		ctx:                   ctx,
+		cancel:                cancel,
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -557,13 +640,15 @@ func TestMemcacheProxy_ForwardSingle_Errors(t *testing.T) {
 	defer cancel()
 
 	proxy := &MemcacheProxy{
-		id:                 "test_errors",
-		log:                log.Logger,
-		backends:           backend.NewRegistry(),
-		ring:               newMemcacheHashRing(),
-		backendUpdatesChan: make(chan backend.BackendUpdate, 10),
-		ctx:                ctx,
-		cancel:             cancel,
+		id:                    "test_errors",
+		log:                   log.Logger,
+		backends:              backend.NewRegistry(),
+		ring:                  newMemcacheHashRing(),
+		backendUpdatesChan:    make(chan backend.BackendUpdate, 10),
+		ctx:                   ctx,
+		cancel:                cancel,
+		backendMinConnections: 1,
+		backendMaxConnections: 1,
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -656,7 +741,8 @@ func TestMemcachePipelining(t *testing.T) {
 		cancel:                    cancel,
 		backends:                  backend.NewRegistry(),
 		ring:                      newMemcacheHashRing(),
-		backendConnectionPoolSize: 1,
+		backendMinConnections:     1,
+		backendMaxConnections:     1,
 		bufferSize:                16384,
 		clientQueueSize:           64,
 		fieldsPool: &sync.Pool{

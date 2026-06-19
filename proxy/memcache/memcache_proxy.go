@@ -38,7 +38,8 @@ type MemcacheProxyConfig struct {
 	ClientQueueSize           int      `hcl:"client_queue_size,optional"`
 	BackendInputQueueSize     int      `hcl:"backend_input_queue_size,optional"`
 	BackendInflightQueueSize  int      `hcl:"backend_inflight_queue_size,optional"`
-	BackendConnectionPoolSize int      `hcl:"backend_connection_pool_size,optional"`
+	BackendMinConnections     int      `hcl:"backend_min_connections,optional"`
+	BackendMaxConnections     int      `hcl:"backend_max_connections,optional"`
 	MaxFieldsPerCommand       int      `hcl:"max_fields_per_command,optional"`
 }
 
@@ -65,12 +66,13 @@ type MemcacheProxy struct {
 	backendUpdatesChanClosed chan struct{}
 	backendConnectionPool    *MemcacheBackendConnectionPool
 
-	bufferSize                int
-	clientQueueSize           int
-	backendInputQueueSize     int
-	backendInflightQueueSize  int
-	backendConnectionPoolSize int
-	fieldsPool                *sync.Pool
+	bufferSize               int
+	clientQueueSize          int
+	backendInputQueueSize    int
+	backendInflightQueueSize int
+	backendMinConnections    int
+	backendMaxConnections    int
+	fieldsPool               *sync.Pool
 }
 
 // validateMemcacheProxyConfig validates the Memcache proxy configuration.
@@ -79,6 +81,13 @@ func validateMemcacheProxyConfig(tc *module.Config) hcl.Diagnostics {
 	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
 	config.CheckDuration(&diags, configBody.ConnectTimeout, "connect_timeout")
 	config.CheckDuration(&diags, configBody.CloseTimeout, "close_timeout")
+	if configBody.BackendMinConnections > 0 && configBody.BackendMaxConnections > 0 && configBody.BackendMaxConnections < configBody.BackendMinConnections {
+		diags = append(diags, &hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "Invalid connection pool configuration",
+			Detail:   "backend_max_connections must be greater than or equal to backend_min_connections",
+		})
+	}
 	return diags
 }
 
@@ -107,8 +116,14 @@ func parseMemcacheProxyConfig(tc *module.Config) *MemcacheProxyConfig {
 	if config.BackendInflightQueueSize == 0 {
 		config.BackendInflightQueueSize = 512
 	}
-	if config.BackendConnectionPoolSize == 0 {
-		config.BackendConnectionPoolSize = 1
+	if config.BackendMinConnections == 0 {
+		config.BackendMinConnections = 1
+	}
+	if config.BackendMaxConnections == 0 {
+		config.BackendMaxConnections = config.BackendMinConnections
+	}
+	if config.BackendMaxConnections < config.BackendMinConnections {
+		config.BackendMaxConnections = config.BackendMinConnections
 	}
 	if config.MaxFieldsPerCommand == 0 {
 		config.MaxFieldsPerCommand = 16
@@ -120,18 +135,19 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 	config := parseMemcacheProxyConfig(tc)
 
 	p := &MemcacheProxy{
-		id:                        config.ID,
-		source:                    config.Source,
-		addresses:                 config.Addresses,
-		bufferSize:                config.BufferSize,
-		clientQueueSize:           config.ClientQueueSize,
-		backendInputQueueSize:     config.BackendInputQueueSize,
-		backendInflightQueueSize:  config.BackendInflightQueueSize,
-		backendConnectionPoolSize: config.BackendConnectionPoolSize,
-		log:                       log.With().Str("id", config.ID).Logger(),
-		wg:                        wg,
-		backends:                  backend.NewRegistry(),
-		ring:                      newMemcacheHashRing(),
+		id:                       config.ID,
+		source:                   config.Source,
+		addresses:                config.Addresses,
+		bufferSize:               config.BufferSize,
+		clientQueueSize:          config.ClientQueueSize,
+		backendInputQueueSize:    config.BackendInputQueueSize,
+		backendInflightQueueSize: config.BackendInflightQueueSize,
+		backendMinConnections:    config.BackendMinConnections,
+		backendMaxConnections:    config.BackendMaxConnections,
+		log:                      log.With().Str("id", config.ID).Logger(),
+		wg:                       wg,
+		backends:                 backend.NewRegistry(),
+		ring:                     newMemcacheHashRing(),
 		backendUpdatesChan:        make(chan backend.BackendUpdate, 100),
 		backendUpdatesChanClosed:  make(chan struct{}),
 		fieldsPool: &sync.Pool{

@@ -87,7 +87,6 @@ func (rbcp *RedisBackendConnectionPool) Wait(ctx context.Context) error {
 // If wait is true and the pool is empty, it will wait for a connection or timeout.
 func (rbcp *RedisBackendConnectionPool) GetRandom(wait bool) *RedisBackendConnection {
 	rbcp.mutex.RLock()
-	defer rbcp.mutex.RUnlock()
 
 	// Wait for a connection to be added to the pool or a timeout to occur
 	if len(rbcp.pool) == 0 && rbcp.waitBackendsTimeout > 0 && wait {
@@ -98,9 +97,50 @@ func (rbcp *RedisBackendConnectionPool) GetRandom(wait bool) *RedisBackendConnec
 		rbcp.mutex.RLock()
 	}
 
-	for rbc := range rbcp.pool { // Range over map is guaranteed to be random
+	if len(rbcp.pool) == 0 {
+		rbcp.mutex.RUnlock()
+		return nil
+	}
+
+	// 1. Try to find a non-full connection
+	for rbc := range rbcp.pool {
+		if !rbc.IsFull() {
+			rbcp.mutex.RUnlock()
+			return rbc
+		}
+	}
+
+	// 2. All connections are full. Try to grow if below max.
+	if len(rbcp.pool) < rbcp.proxy.backendMaxConnections {
+		// Pick a backend from the pool's existing connections to stay on the same service
+		// Or pick the first from the sorted list if we want to be more consistent
+		var backend *backend.Backend
+		for rbc := range rbcp.pool {
+			backend = rbc.backend
+			break
+		}
+		rbcp.mutex.RUnlock()
+
+		if backend != nil {
+			rbc, err := NewRedisBackendConnection(rbcp, backend)
+			if err == nil {
+				rbcp.mutex.Lock()
+				rbcp.pool[rbc] = struct{}{}
+				rbcp.updateWaitState()
+				rbcp.mutex.Unlock()
+				return rbc
+			}
+		}
+
+		// Fallback to random if growth fails
+		rbcp.mutex.RLock()
+	}
+
+	for rbc := range rbcp.pool {
+		rbcp.mutex.RUnlock()
 		return rbc
 	}
+	rbcp.mutex.RUnlock()
 	return nil
 }
 
@@ -138,7 +178,7 @@ func (rbcp *RedisBackendConnectionPool) Update() {
 		poolLen := len(rbcp.pool)
 		rbcp.mutex.Unlock()
 
-		if poolLen >= rbcp.proxy.backendConnectionPoolSize {
+		if poolLen >= rbcp.proxy.backendMinConnections {
 			break
 		}
 

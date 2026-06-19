@@ -32,7 +32,8 @@ func TestMemcacheBackendConnection_QueryAndAbort(t *testing.T) {
 	proxy := &MemcacheProxy{
 		id:                        "test_proxy",
 		connectTimeout:            time.Second,
-		backendConnectionPoolSize: 1,
+		backendMinConnections:     1,
+		backendMaxConnections:     1,
 		ctx:                       ctx,
 		cancel:                    cancel,
 		backends:                  backend.NewRegistry(),
@@ -89,7 +90,8 @@ func TestMemcacheBackendConnection_ReadFull(t *testing.T) {
 	proxy := &MemcacheProxy{
 		id:                        "test_proxy",
 		connectTimeout:            time.Second,
-		backendConnectionPoolSize: 1,
+		backendMinConnections:     1,
+		backendMaxConnections:     1,
 		ctx:                       ctx,
 		cancel:                    cancel,
 		backends:                  backend.NewRegistry(),
