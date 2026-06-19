@@ -57,10 +57,6 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 
 	mbc.conn = connBack
 
-	if tcpConn, ok := mbc.conn.(*net.TCPConn); ok {
-		tcpConn.SetNoDelay(true)
-	}
-
 	context.AfterFunc(mbc.ctx, func() {
 		mbc.pool.proxy.log.Debug().Str("peer", mbc.backend.Address).Msg("Closing Backend connection")
 		mbc.conn.Close()

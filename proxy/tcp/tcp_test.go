@@ -103,7 +103,6 @@ func TestTCPProxyFactory(t *testing.T) {
 		close_timeout = "1s"
 		timeout_margin = "1s"
 		buffer_size = 1024
-		nodelay = true
 	`
 	file, diags := hclsyntax.ParseConfig([]byte(hclText), "test.hcl", hcl.Pos{Line: 1, Column: 1})
 	if diags.HasErrors() {
@@ -140,9 +139,6 @@ func TestTCPProxyFactory(t *testing.T) {
 	}
 	if p.bufferSize != 1024 {
 		t.Errorf("expected bufferSize 1024, got %d", p.bufferSize)
-	}
-	if !p.nodelay {
-		t.Errorf("expected nodelay to be true")
 	}
 
 	// Ensure the buffer pool initializes correctly
@@ -230,7 +226,6 @@ func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 		addresses:      []string{proxyAddr},
 		log:            zerolog.Nop(),
 		bufferSize:     32768,
-		nodelay:        true,
 		source:         "primary_backend",
 		backupSource:   "backup_backend",
 		wg:             wg,
@@ -333,7 +328,6 @@ func TestTCPProxy_NoBackendPanic(t *testing.T) {
 		addresses:      []string{proxyAddr},
 		log:            zerolog.Nop(),
 		bufferSize:     32768,
-		nodelay:        true,
 		source:         "missing_backend",
 		wg:             wg,
 		ctx:            ctx,
@@ -402,7 +396,6 @@ func TestTCPProxy_TimeoutAndContextCancel(t *testing.T) {
 		addresses:      []string{proxyAddr},
 		log:            zerolog.Nop(),
 		bufferSize:     32768,
-		nodelay:        true,
 		source:         "test_backend",
 		wg:             wg,
 		ctx:            ctx,
@@ -496,7 +489,6 @@ func TestTCPProxy_PipeErrors(t *testing.T) {
 		addresses:      []string{proxyAddr},
 		log:            zerolog.Nop(),
 		bufferSize:     32768,
-		nodelay:        true,
 		source:         "test_backend",
 		wg:             wg,
 		ctx:            ctx,
@@ -559,7 +551,6 @@ func TestTCPProxy_PipeClosedErr(t *testing.T) {
 		addresses:  []string{proxyAddr},
 		log:        zerolog.Nop(),
 		bufferSize: 32768,
-		nodelay:    true,
 		source:     "test_backend",
 		wg:         wg,
 		ctx:        ctx,
@@ -722,7 +713,6 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 		addresses:      []string{proxyAddr},
 		log:            zerolog.Nop(),
 		bufferSize:     32768,
-		nodelay:        true,
 		source:         "test_backend",
 		wg:             wg,
 		ctx:            ctx,
@@ -798,7 +788,6 @@ func TestTCPProxy_CloseOnBackendRemoval(t *testing.T) {
 		addresses:             []string{proxyAddr},
 		log:                   zerolog.Nop(),
 		bufferSize:            32768,
-		nodelay:               true,
 		source:                "test_backend",
 		wg:                    wg,
 		ctx:                   ctx,

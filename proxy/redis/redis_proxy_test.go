@@ -814,9 +814,6 @@ func (c *errorConnRedis) Write(b []byte) (n int, err error) {
 func (c *errorConnRedis) Close() error {
 	return nil
 }
-func (c *errorConnRedis) SetNoDelay(noDelay bool) error {
-	return nil
-}
 
 // TestRedisProxyFactory_InvalidDurations verifies that ValidateConfig catches invalid duration strings.
 func TestRedisProxyFactory_InvalidDurations(t *testing.T) {

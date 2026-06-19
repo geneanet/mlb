@@ -63,12 +63,6 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 
 	rbc.conn = connBack
 
-	// Set TCPNoDelay
-	err = rbc.conn.(*net.TCPConn).SetNoDelay(true)
-	if err != nil {
-		panic(err)
-	}
-
 	// Cleanup routine: If the connection context is closed, ensure the connection is closed, abort all in flight request and notify the pool
 	context.AfterFunc(rbc.ctx, func() {
 		// Ensure the connection is closed

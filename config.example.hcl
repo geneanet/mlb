@@ -108,7 +108,6 @@ proxy "tcp" "mysql_main_ro" {
   // client_timeout = "0s"
   // server_timeout = "0s"
   // buffer_size = 16384
-  // nodelay = false
   // close_on_backend_removal = false
 }
 

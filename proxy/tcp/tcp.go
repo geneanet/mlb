@@ -45,7 +45,6 @@ type ProxyTCP struct {
 	log                   zerolog.Logger
 	wg                    *sync.WaitGroup
 	bufferSize            int
-	nodelay               bool
 	bufferPool            sync.Pool
 	beMetricsCache        map[string]*Metrics
 	beMetricsMutex        sync.RWMutex
@@ -73,7 +72,6 @@ type TCPProxyConfig struct {
 	CloseTimeout          string   `hcl:"close_timeout,optional"`
 	TimeoutMargin         string   `hcl:"timeout_margin,optional"`
 	BufferSize            int      `hcl:"buffer_size,optional"`
-	NoDelay               bool     `hcl:"nodelay,optional"`
 	CloseOnBackendRemoval bool     `hcl:"close_on_backend_removal,optional"`
 }
 
@@ -127,7 +125,6 @@ func newTCPProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any
 		addresses:             config.Addresses,
 		log:                   log.With().Str("id", config.ID).Logger(),
 		bufferSize:            config.BufferSize,
-		nodelay:               config.NoDelay,
 		source:                config.Source,
 		backupSource:          config.BackupSource,
 		wg:                    wg,
@@ -333,13 +330,6 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	})
 	defer stopGracefulClosing()
 
-	if p.nodelay {
-		err := connFront.(*net.TCPConn).SetNoDelay(true)
-		if err != nil {
-			panic(err)
-		}
-	}
-
 	// Prometheus
 	feMetrics.processed.Inc()
 	feMetrics.active.Inc()
@@ -395,13 +385,6 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	}
 	defer connBack.Close()
 	defer p.log.Debug().Str("peer", backendAddress).Msg("Closing Backend connection")
-
-	if p.nodelay {
-		err = connBack.(*net.TCPConn).SetNoDelay(true)
-		if err != nil {
-			panic(err)
-		}
-	}
 
 	// Pipe the connections both ways
 	doneFrontBack := make(chan struct{})

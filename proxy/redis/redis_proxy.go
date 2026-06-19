@@ -293,12 +293,6 @@ func (p *RedisProxy) handleConnection(connFront net.Conn) {
 		}
 	}()
 
-	// Set TCPNoDelay
-	err := connFront.(*net.TCPConn).SetNoDelay(true)
-	if err != nil {
-		panic(err)
-	}
-
 	// Prometheus
 	metrics.FeCnxProcessed.WithLabelValues(frontendAddress, p.id).Inc()
 	metrics.FeActCnx.WithLabelValues(frontendAddress, p.id).Inc()
