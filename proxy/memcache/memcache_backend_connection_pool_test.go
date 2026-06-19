@@ -4,6 +4,7 @@ import (
 	"context"
 	"mlb/backend"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +30,12 @@ func TestMemcacheBackendConnectionPool_Del(t *testing.T) {
 		cancel:                    cancel,
 		backends:                  backend.NewRegistry(),
 		log:                       zerolog.Nop(),
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
 	}
 	proxy.backends.Add(b1)
 
@@ -66,6 +73,12 @@ func TestMemcacheBackendConnectionPool_UpdateRemovesDeadBackends(t *testing.T) {
 		cancel:                    cancel,
 		backends:                  backend.NewRegistry(),
 		log:                       zerolog.Nop(),
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
 	}
 	proxy.backends.Add(b1)
 

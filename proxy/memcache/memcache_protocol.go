@@ -83,17 +83,10 @@ var bufferPool = sync.Pool{
 	},
 }
 
-var fieldsPool = sync.Pool{
-	New: func() any {
-		f := make([][]byte, 0, 16)
-		return &f
-	},
-}
-
 // getFields splits a line into fields by spaces, reusing a slice from a pool.
 // It mimics bytes.Fields but with zero allocations if the pooled slice is large enough.
-func getFields(line []byte) *[][]byte {
-	dst := fieldsPool.Get().(*[][]byte)
+func (p *MemcacheProxy) getFields(line []byte) *[][]byte {
+	dst := p.fieldsPool.Get().(*[][]byte)
 	*dst = (*dst)[:0]
 	start := 0
 	for i, b := range line {
@@ -110,6 +103,6 @@ func getFields(line []byte) *[][]byte {
 	return dst
 }
 
-func releaseFields(f *[][]byte) {
-	fieldsPool.Put(f)
+func (p *MemcacheProxy) releaseFields(f *[][]byte) {
+	p.fieldsPool.Put(f)
 }

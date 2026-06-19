@@ -4,6 +4,7 @@ import (
 	"context"
 	"mlb/backend"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -36,6 +37,12 @@ func TestMemcacheBackendConnection_QueryAndAbort(t *testing.T) {
 		cancel:                    cancel,
 		backends:                  backend.NewRegistry(),
 		log:                       zerolog.Nop(),
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
 	}
 
 	pool := NewMemcacheBackendConnectionPool(proxy)
@@ -87,6 +94,12 @@ func TestMemcacheBackendConnection_ReadFull(t *testing.T) {
 		cancel:                    cancel,
 		backends:                  backend.NewRegistry(),
 		log:                       zerolog.Nop(),
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
 	}
 
 	pool := NewMemcacheBackendConnectionPool(proxy)

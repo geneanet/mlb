@@ -19,26 +19,26 @@ type MemcacheBackendConnection struct {
 	pool          *MemcacheBackendConnectionPool
 	backend       *backend.Backend
 	conn          net.Conn
-	inputChanStop chan struct{}  // Signal to stop the input loop
+	inputChanStop chan struct{}      // Signal to stop the input loop
 	inputChan     chan MemcacheQuery // Buffer for incoming queries from the proxy
 	inFlight      chan MemcacheQuery // Queue of queries waiting for backend response
 	ctx           context.Context
 	cancel        context.CancelFunc
 }
 
-// NewMemcacheBackendConnection creates a new MemcacheBackendConnection and starts its 
+// NewMemcacheBackendConnection creates a new MemcacheBackendConnection and starts its
 // background goroutines for reading and writing. It returns an error if the initial
 // connection to the backend fails.
 func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *backend.Backend) (*MemcacheBackendConnection, error) {
 	queueSize := pool.proxy.backendInflightQueueSize
-	if queueSize == 0 {
+	if queueSize == 0 { // TODO: that should not be useful except for the tests ?
 		queueSize = 512
 	}
 
 	mbc := &MemcacheBackendConnection{
 		pool:          pool,
 		backend:       backend,
-		inputChan:     make(chan MemcacheQuery, 1024),
+		inputChan:     make(chan MemcacheQuery, pool.proxy.backendInputQueueSize),
 		inputChanStop: make(chan struct{}),
 		inFlight:      make(chan MemcacheQuery, queueSize),
 	}
@@ -97,7 +97,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 		for {
 			respBuffer := bufferPool.Get().(*bytes.Buffer)
 			respBuffer.Reset()
-			err := readMemcacheResponseFull(reader, respBuffer)
+			err := mbc.pool.proxy.readMemcacheResponseFull(reader, respBuffer)
 			if err != nil {
 				bufferPool.Put(respBuffer)
 				if err != io.EOF && !errors.Is(err, net.ErrClosed) {
@@ -151,7 +151,7 @@ func (mbc *MemcacheBackendConnection) AbortInflightQueries() {
 
 // readMemcacheResponseFull reads a complete memcache response into a buffer.
 // It handles both simple responses (STORED, END, etc.) and complex responses with data (VALUE).
-func readMemcacheResponseFull(r *MemcacheProtocolReader, w io.Writer) error {
+func (p *MemcacheProxy) readMemcacheResponseFull(r *MemcacheProtocolReader, w io.Writer) error {
 	for {
 		line, err := r.ReadLine()
 		if err != nil {
@@ -167,7 +167,7 @@ func readMemcacheResponseFull(r *MemcacheProtocolReader, w io.Writer) error {
 
 		// Data block: VALUE <key> <flags> <bytes> [<cas unique>]\r\n<data>\r\n
 		if bytes.HasPrefix(line, []byte("VALUE ")) {
-			fieldsPtr := getFields(line)
+			fieldsPtr := p.getFields(line)
 			fields := *fieldsPtr
 			if len(fields) >= 4 {
 				// size is fields[3]
@@ -179,12 +179,12 @@ func readMemcacheResponseFull(r *MemcacheProtocolReader, w io.Writer) error {
 				}
 				buf, err := r.ReadFull(size + 2) // data + \r\n
 				if err != nil {
-					releaseFields(fieldsPtr)
+					p.releaseFields(fieldsPtr)
 					return err
 				}
 				w.Write(buf)
 			}
-			releaseFields(fieldsPtr)
+			p.releaseFields(fieldsPtr)
 		} else if bytes.HasPrefix(line, []byte("STORED")) || bytes.HasPrefix(line, []byte("NOT_STORED")) || bytes.HasPrefix(line, []byte("EXISTS")) || bytes.HasPrefix(line, []byte("NOT_FOUND")) || bytes.HasPrefix(line, []byte("DELETED")) || bytes.HasPrefix(line, []byte("ERROR")) || bytes.HasPrefix(line, []byte("CLIENT_ERROR")) || bytes.HasPrefix(line, []byte("SERVER_ERROR")) || bytes.HasPrefix(line, []byte("OK")) {
 			// One-line responses
 			return nil

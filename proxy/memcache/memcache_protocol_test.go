@@ -3,6 +3,7 @@ package memcache
 import (
 	"bytes"
 	"io"
+	"sync"
 	"testing"
 )
 
@@ -55,10 +56,18 @@ func TestMemcacheProtocolReader_ReadFull(t *testing.T) {
 }
 
 func TestGetFields(t *testing.T) {
+	p := &MemcacheProxy{
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
+	}
 	line := []byte("get key1 key2  key3\r\n")
-	fieldsPtr := getFields(line)
+	fieldsPtr := p.getFields(line)
 	fields := *fieldsPtr
-	defer releaseFields(fieldsPtr)
+	defer p.releaseFields(fieldsPtr)
 
 	expected := []string{"get", "key1", "key2", "key3"}
 	if len(fields) != len(expected) {
@@ -73,6 +82,14 @@ func TestGetFields(t *testing.T) {
 }
 
 func TestReadMemcacheResponseFull(t *testing.T) {
+	p := &MemcacheProxy{
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
+	}
 	tests := []struct {
 		name     string
 		input    string
@@ -89,7 +106,7 @@ func TestReadMemcacheResponseFull(t *testing.T) {
 			r := NewMemcacheProtocolReader(bytes.NewReader([]byte(tt.input)), 1024)
 			defer r.Release()
 			buf := new(bytes.Buffer)
-			err := readMemcacheResponseFull(r, buf)
+			err := p.readMemcacheResponseFull(r, buf)
 			if err != nil {
 				t.Fatal(err)
 			}

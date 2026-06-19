@@ -96,6 +96,7 @@ func (mbcp *MemcacheBackendConnectionPool) Update() {
 	backoff := misc.NewExponentialBackoff(100*time.Millisecond, 1*time.Second, 1.5)
 
 	// Ensure each backend has the required number of connections
+	// TODO: Ensure one faulty backend does not prevent the others to reach the wanted number of connections (give up after a few tries ?)
 	for _, backend := range backends {
 		for {
 			mbcp.mutex.Lock()

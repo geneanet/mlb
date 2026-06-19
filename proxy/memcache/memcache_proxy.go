@@ -36,8 +36,10 @@ type MemcacheProxyConfig struct {
 	CloseTimeout              string   `hcl:"close_timeout,optional"`
 	BufferSize                int      `hcl:"buffer_size,optional"`
 	ClientQueueSize           int      `hcl:"client_queue_size,optional"`
+	BackendInputQueueSize     int      `hcl:"backend_input_queue_size,optional"`
 	BackendInflightQueueSize  int      `hcl:"backend_inflight_queue_size,optional"`
 	BackendConnectionPoolSize int      `hcl:"backend_connection_pool_size,optional"`
+	MaxFieldsPerCommand       int      `hcl:"max_fields_per_command,optional"`
 }
 
 // MemcacheProxy implements a Memcache-compatible proxy with consistent hashing support.
@@ -65,8 +67,10 @@ type MemcacheProxy struct {
 
 	bufferSize                int
 	clientQueueSize           int
+	backendInputQueueSize     int
 	backendInflightQueueSize  int
 	backendConnectionPoolSize int
+	fieldsPool                *sync.Pool
 }
 
 // validateMemcacheProxyConfig validates the Memcache proxy configuration.
@@ -97,11 +101,17 @@ func parseMemcacheProxyConfig(tc *module.Config) *MemcacheProxyConfig {
 	if config.ClientQueueSize == 0 {
 		config.ClientQueueSize = 64
 	}
+	if config.BackendInputQueueSize == 0 {
+		config.BackendInputQueueSize = 1024
+	}
 	if config.BackendInflightQueueSize == 0 {
 		config.BackendInflightQueueSize = 512
 	}
 	if config.BackendConnectionPoolSize == 0 {
 		config.BackendConnectionPoolSize = 1
+	}
+	if config.MaxFieldsPerCommand == 0 {
+		config.MaxFieldsPerCommand = 16
 	}
 	return config
 }
@@ -115,6 +125,7 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 		addresses:                 config.Addresses,
 		bufferSize:                config.BufferSize,
 		clientQueueSize:           config.ClientQueueSize,
+		backendInputQueueSize:     config.BackendInputQueueSize,
 		backendInflightQueueSize:  config.BackendInflightQueueSize,
 		backendConnectionPoolSize: config.BackendConnectionPoolSize,
 		log:                       log.With().Str("id", config.ID).Logger(),
@@ -123,6 +134,12 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 		ring:                      newMemcacheHashRing(),
 		backendUpdatesChan:        make(chan backend.BackendUpdate, 100),
 		backendUpdatesChanClosed:  make(chan struct{}),
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, config.MaxFieldsPerCommand)
+				return &f
+			},
+		},
 	}
 
 	var err error
@@ -333,10 +350,10 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 			panic("Unexpected error while reading from the client")
 		}
 
-		fieldsPtr := getFields(line)
+		fieldsPtr := p.getFields(line)
 		fields := *fieldsPtr
 		if len(fields) == 0 {
-			releaseFields(fieldsPtr)
+			p.releaseFields(fieldsPtr)
 			continue
 		}
 
@@ -349,7 +366,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 		}
 
 		if bytes.Equal(cmd, []byte("quit")) {
-			releaseFields(fieldsPtr)
+			p.releaseFields(fieldsPtr)
 			return
 		}
 
@@ -361,7 +378,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 		case futureChan <- reqRespChan:
 		case <-ctx.Done():
 			responseChanPool.Put(reqRespChan)
-			releaseFields(fieldsPtr)
+			p.releaseFields(fieldsPtr)
 			return
 		}
 
@@ -372,19 +389,19 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 		if bytes.Equal(cmd, []byte("set")) || bytes.Equal(cmd, []byte("add")) || bytes.Equal(cmd, []byte("replace")) || bytes.Equal(cmd, []byte("append")) || bytes.Equal(cmd, []byte("prepend")) || bytes.Equal(cmd, []byte("cas")) {
 			if len(fields) < 5 {
 				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
-				releaseFields(fieldsPtr)
+				p.releaseFields(fieldsPtr)
 				continue
 			}
 			size, err := util.ParseSize(fields[4])
 			if err != nil {
 				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
-				releaseFields(fieldsPtr)
+				p.releaseFields(fieldsPtr)
 				continue
 			}
 			// Data + \r\n
 			payload, err := reader.ReadFull(size + 2)
 			if err != nil {
-				releaseFields(fieldsPtr)
+				p.releaseFields(fieldsPtr)
 				return
 			}
 			// ponytail: using pooled buffer instead of bytes.Clone
@@ -395,7 +412,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 			query.item = buf.Bytes()
 			query.buffer = buf
 			p.forwardSingle(query, fields[1])
-			releaseFields(fieldsPtr)
+			p.releaseFields(fieldsPtr)
 			continue
 		}
 
@@ -403,11 +420,11 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 		if bytes.Equal(cmd, []byte("get")) || bytes.Equal(cmd, []byte("gets")) || bytes.Equal(cmd, []byte("gat")) || bytes.Equal(cmd, []byte("gats")) {
 			if len(fields) < 2 {
 				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
-				releaseFields(fieldsPtr)
+				p.releaseFields(fieldsPtr)
 				continue
 			}
 			p.handleMultiGet(query, string(cmd), fields[1:])
-			releaseFields(fieldsPtr)
+			p.releaseFields(fieldsPtr)
 			continue
 		}
 
@@ -430,7 +447,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 			query.buffer = buf
 			p.forwardSingle(query, nil)
 		}
-		releaseFields(fieldsPtr)
+		p.releaseFields(fieldsPtr)
 	}
 }
 
@@ -440,7 +457,7 @@ func (p *MemcacheProxy) forwardSingle(q MemcacheQuery, key []byte) {
 	if key != nil {
 		b = p.ring.getBackend(key)
 	} else {
-		lst := p.backends.GetList()
+		lst := p.backends.GetList() // TODO: Randomize selection
 		if len(lst) > 0 {
 			b = lst[0]
 		}

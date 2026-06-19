@@ -71,6 +71,28 @@ func TestMemcacheProxyConfigAndInit(t *testing.T) {
 	if p2.backendInflightQueueSize != 512 {
 		t.Errorf("Expected default 512 inflight queue size, got %d", p2.backendInflightQueueSize)
 	}
+	if p2.backendInputQueueSize != 1024 {
+		t.Errorf("Expected default 1024 input queue size, got %d", p2.backendInputQueueSize)
+	}
+
+	// Test with custom queue sizes
+	configStrCustom := `
+	source = "static"
+	backend_input_queue_size = 2048
+	backend_inflight_queue_size = 1024
+	`
+	f3, diags := hclsyntax.ParseConfig([]byte(configStrCustom), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		t.Fatalf("Parse failed: %v", diags)
+	}
+	tc3 := &module.Config{Config: f3.Body, Ctx: &hcl.EvalContext{}}
+	p3 := newMemcacheProxy(tc3, wg, ctx).(*MemcacheProxy)
+	if p3.backendInputQueueSize != 2048 {
+		t.Errorf("Expected 2048 input queue size, got %d", p3.backendInputQueueSize)
+	}
+	if p3.backendInflightQueueSize != 1024 {
+		t.Errorf("Expected 1024 inflight queue size, got %d", p3.backendInflightQueueSize)
+	}
 }
 
 func TestMemcacheProxyFactory_InvalidDurations(t *testing.T) {
@@ -192,6 +214,12 @@ func TestMemcacheProxyScatterGather(t *testing.T) {
 		backends:           backend.NewRegistry(),
 		ring:               newMemcacheHashRing(),
 		backendUpdatesChan: make(chan backend.BackendUpdate, 10),
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
 	}
 	proxy.backendConnectionPool = NewMemcacheBackendConnectionPool(proxy)
 
@@ -274,6 +302,12 @@ func TestMemcacheProxyEmptyBackends(t *testing.T) {
 		backends:                  backend.NewRegistry(),
 		ring:                      newMemcacheHashRing(),
 		backendUpdatesChan:        make(chan backend.BackendUpdate, 10),
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
 	}
 	proxy.backendConnectionPool = NewMemcacheBackendConnectionPool(proxy)
 
@@ -376,6 +410,12 @@ func TestMemcacheProxyProtocol(t *testing.T) {
 		backends:                  backend.NewRegistry(),
 		ring:                      newMemcacheHashRing(),
 		backendUpdatesChan:        make(chan backend.BackendUpdate, 10),
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
 	}
 	proxy.backendConnectionPool = NewMemcacheBackendConnectionPool(proxy)
 
@@ -471,6 +511,12 @@ func TestMemcacheProxy_HandleConnection_GracefulShutdown(t *testing.T) {
 		wg:             wg,
 		ctx:            ctx,
 		cancel:         cancel,
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
 	}
 
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
@@ -518,6 +564,12 @@ func TestMemcacheProxy_ForwardSingle_Errors(t *testing.T) {
 		backendUpdatesChan: make(chan backend.BackendUpdate, 10),
 		ctx:                ctx,
 		cancel:             cancel,
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
 	}
 	proxy.backendConnectionPool = NewMemcacheBackendConnectionPool(proxy)
 
@@ -607,6 +659,12 @@ func TestMemcachePipelining(t *testing.T) {
 		backendConnectionPoolSize: 1,
 		bufferSize:                16384,
 		clientQueueSize:           64,
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
 	}
 	p.backends.Add(&backend.Backend{Address: backendAddr})
 	p.ring.update(p.backends.GetList())
