@@ -1,7 +1,6 @@
 package memcache
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -318,6 +317,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 				if response.item != nil {
 					p.log.Debug().Uint64("queryId", response.query.id).Msg("Received valid response")
 					_, err := connFront.Write(response.item)
+					response.Release() // ponytail: return pooled buffer
 					if err != nil {
 						p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
 						cancel()
@@ -332,9 +332,12 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 		}
 	}()
 
-	reader := bufio.NewReaderSize(connFront, p.bufferSize)
+	// Read queries
+	reader := NewMemcacheProtocolReader(connFront, p.bufferSize)
+	defer reader.Release()
+
 	for {
-		line, err := reader.ReadBytes('\n')
+		line, err := reader.ReadLine()
 		if err == io.EOF || errors.Is(err, net.ErrClosed) {
 			return
 		} else if err != nil {
@@ -367,11 +370,17 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 				continue
 			}
 			// Data + \r\n
-			payload := make([]byte, size+2)
-			if _, err := io.ReadFull(reader, payload); err != nil {
+			payload, err := reader.ReadFull(size + 2)
+			if err != nil {
 				return
 			}
-			query.item = append(line, payload...)
+			// ponytail: using pooled buffer instead of bytes.Clone
+			buf := bufferPool.Get().(*bytes.Buffer)
+			buf.Reset()
+			buf.Write(line)
+			buf.Write(payload)
+			query.item = buf.Bytes()
+			query.buffer = buf
 			p.forwardSingle(query, fields[1])
 			continue
 		}
@@ -388,11 +397,21 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 
 		// Other commands with a key
 		if len(fields) > 1 && (bytes.Equal(cmd, []byte("delete")) || bytes.Equal(cmd, []byte("incr")) || bytes.Equal(cmd, []byte("decr")) || bytes.Equal(cmd, []byte("touch"))) {
-			query.item = line
+			// ponytail: using pooled buffer instead of bytes.Clone
+			buf := bufferPool.Get().(*bytes.Buffer)
+			buf.Reset()
+			buf.Write(line)
+			query.item = buf.Bytes()
+			query.buffer = buf
 			p.forwardSingle(query, fields[1])
 		} else {
 			// Commands without a key or unknown commands are forwarded to a random backend
-			query.item = line
+			// ponytail: using pooled buffer instead of bytes.Clone
+			buf := bufferPool.Get().(*bytes.Buffer)
+			buf.Reset()
+			buf.Write(line)
+			query.item = buf.Bytes()
+			query.buffer = buf
 			p.forwardSingle(query, nil)
 		}
 	}
@@ -437,7 +456,7 @@ func (p *MemcacheProxy) forwardSingle(q MemcacheQuery, key []byte) {
 	resp := <-respChan
 	if resp.item != nil {
 		p.log.Debug().Uint64("queryId", bq.id).Msg("Received backend response")
-		q.Reply(resp.item)
+		q.ReplyWithBuffer(resp.item, resp.buffer)
 	} else {
 		p.log.Debug().Uint64("queryId", bq.id).Msg("Backend query failed")
 		q.Reply([]byte("SERVER_ERROR backend failure\r\n"))
@@ -509,6 +528,7 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 		} else {
 			p.log.Debug().Uint64("queryId", resp.query.id).Msg("Received failed sub-response")
 		}
+		resp.Release() // ponytail: return pooled buffer
 	}
 
 	combinedResponse.Write([]byte("END\r\n"))

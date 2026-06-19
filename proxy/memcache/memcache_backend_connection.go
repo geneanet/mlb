@@ -1,7 +1,6 @@
 package memcache
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -82,6 +81,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 			case query := <-mbc.inputChan:
 				mbc.inFlight <- query
 				_, err := mbc.conn.Write(query.item)
+				query.Release() // ponytail: release pooled query buffer if any
 				if err != nil {
 					if err != io.EOF && !errors.Is(err, net.ErrClosed) {
 						mbc.pool.proxy.log.Error().Str("peer", mbc.backend.Address).Err(err).Msg("Unexpected error while sending query to the backend")
@@ -98,12 +98,15 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 
 	// Read backend responses and send them to the client
 	go func() {
-		reader := bufio.NewReader(mbc.conn)
+		reader := NewMemcacheProtocolReader(mbc.conn, mbc.pool.proxy.bufferSize)
+		defer reader.Release()
 
 		for {
-			var respBuffer bytes.Buffer
-			err := readMemcacheResponseFull(reader, &respBuffer)
+			respBuffer := bufferPool.Get().(*bytes.Buffer)
+			respBuffer.Reset()
+			err := readMemcacheResponseFull(reader, respBuffer)
 			if err != nil {
+				bufferPool.Put(respBuffer)
 				if err != io.EOF && !errors.Is(err, net.ErrClosed) {
 					mbc.pool.proxy.log.Error().Str("peer", mbc.backend.Address).Err(err).Msg("Unexpected error while reading from the backend")
 				}
@@ -115,10 +118,12 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 			select {
 			case query = <-mbc.inFlight:
 			case <-mbc.ctx.Done():
+				bufferPool.Put(respBuffer)
 				return
 			}
 
-			err = query.Reply(respBuffer.Bytes())
+			// ponytail: pass buffer ownership to avoid bytes.Clone
+			err = query.ReplyWithBuffer(respBuffer.Bytes(), respBuffer)
 			if err != nil {
 				mbc.pool.proxy.log.Warn().Uint64("queryId", query.id).Err(err).Msg("Unable to reply to client")
 			}
@@ -153,9 +158,9 @@ func (mbc *MemcacheBackendConnection) AbortInflightQueries() {
 
 // readMemcacheResponseFull reads a complete memcache response into a buffer.
 // It handles both simple responses (STORED, END, etc.) and complex responses with data (VALUE).
-func readMemcacheResponseFull(r *bufio.Reader, w io.Writer) error {
+func readMemcacheResponseFull(r *MemcacheProtocolReader, w io.Writer) error {
 	for {
-		line, err := r.ReadBytes('\n')
+		line, err := r.ReadLine()
 		if err != nil {
 			return err
 		}
@@ -178,8 +183,8 @@ func readMemcacheResponseFull(r *bufio.Reader, w io.Writer) error {
 						size = size*10 + int(b-'0')
 					}
 				}
-				buf := make([]byte, size+2) // data + \r\n
-				if _, err := io.ReadFull(r, buf); err != nil {
+				buf, err := r.ReadFull(size + 2) // data + \r\n
+				if err != nil {
 					return err
 				}
 				w.Write(buf)

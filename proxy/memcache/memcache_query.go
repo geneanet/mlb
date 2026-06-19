@@ -1,6 +1,7 @@
 package memcache
 
 import (
+	"bytes"
 	"fmt"
 	"sync/atomic"
 )
@@ -11,6 +12,7 @@ var MemcacheQueryCounter atomic.Uint64
 type MemcacheQuery struct {
 	id               uint64
 	item             []byte
+	buffer           *bytes.Buffer // ponytail: optional pooled buffer to be released
 	responseChan     chan MemcacheResponse
 	responseChanStop chan struct{}
 }
@@ -25,15 +27,32 @@ func NewMemcacheQuery(item []byte, responseChan chan MemcacheResponse, responseC
 	}
 }
 
+// Release releases resources associated with the query.
+func (q *MemcacheQuery) Release() {
+	if q.buffer != nil {
+		bufferPool.Put(q.buffer)
+		q.buffer = nil
+	}
+}
+
 // Reply sends the backend response back to the client.
 func (q MemcacheQuery) Reply(item []byte) error {
+	return q.ReplyWithBuffer(item, nil)
+}
+
+// ReplyWithBuffer sends the backend response back to the client with a pooled buffer.
+func (q MemcacheQuery) ReplyWithBuffer(item []byte, buffer *bytes.Buffer) error {
 	select {
 	case q.responseChan <- MemcacheResponse{
-		query: q,
-		item:  item,
+		query:  q,
+		item:   item,
+		buffer: buffer,
 	}:
 		return nil
 	case <-q.responseChanStop:
+		if buffer != nil {
+			bufferPool.Put(buffer)
+		}
 		return fmt.Errorf("response channel is closed")
 	}
 }
@@ -45,6 +64,15 @@ func (q MemcacheQuery) Abort() error {
 
 // MemcacheResponse represents a response from a Memcache backend for a specific query.
 type MemcacheResponse struct {
-	query MemcacheQuery
-	item  []byte
+	query  MemcacheQuery
+	item   []byte
+	buffer *bytes.Buffer // ponytail: optional pooled buffer to be released
+}
+
+// Release releases resources associated with the response.
+func (r *MemcacheResponse) Release() {
+	if r.buffer != nil {
+		bufferPool.Put(r.buffer)
+		r.buffer = nil
+	}
 }
