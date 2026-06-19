@@ -15,10 +15,13 @@ type memcacheRingNode struct {
 
 // memcacheHashRing implements Ketama consistent hashing.
 // It maps keys to backends by hashing them and finding the closest node on the ring.
+// This implementation provides efficient distribution and minimal redistribution
+// when backends are added or removed.
 type memcacheHashRing struct {
-	nodes atomic.Value
+	nodes atomic.Value // holds []memcacheRingNode
 }
 
+// newMemcacheHashRing creates an empty hash ring.
 func newMemcacheHashRing() *memcacheHashRing {
 	r := &memcacheHashRing{}
 	r.nodes.Store([]memcacheRingNode(nil))
@@ -26,7 +29,9 @@ func newMemcacheHashRing() *memcacheHashRing {
 }
 
 // update rebuilds the hash ring with the given list of backends.
-// It creates 160 virtual nodes (40 hashes * 4 uint32) per backend for better distribution.
+// It creates 160 virtual nodes (40 MD5 hashes * 4 uint32 each) per backend 
+// to ensure a smooth and uniform distribution of keys across the available backends.
+// This follows the Ketama algorithm implementation.
 func (r *memcacheHashRing) update(backends []*backend.Backend) {
 	var nodes []memcacheRingNode
 	for _, b := range backends {

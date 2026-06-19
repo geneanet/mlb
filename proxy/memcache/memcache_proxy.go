@@ -296,25 +296,30 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 	metrics.FeActCnx.WithLabelValues(frontendAddress, p.id).Inc()
 	defer metrics.FeActCnx.WithLabelValues(frontendAddress, p.id).Dec()
 
-	// Read response queue and write responses
-	responseChan := make(chan MemcacheResponse, p.clientQueueSize)
-	responseChanStop := make(chan struct{})
-	defer close(responseChanStop) // Ensure no backend will block trying to send replies if the client connection is closed
+	// Read response queue and write responses in order
+	futureChan := make(chan chan MemcacheResponse, p.clientQueueSize)
+	futureChanStop := make(chan struct{})
+	defer close(futureChanStop) // Ensure no backend will block trying to send replies if the client connection is closed
 	go func() {
 		for {
 			select {
-			case response := <-responseChan:
-				if response.item != nil {
-					p.log.Debug().Uint64("queryId", response.query.id).Msg("Received valid response")
-					_, err := connFront.Write(response.item)
-					response.Release() // ponytail: return pooled buffer
-					if err != nil {
-						p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
+			case respChan := <-futureChan:
+				select {
+				case response := <-respChan:
+					if response.item != nil {
+						_, err := connFront.Write(response.item)
+						response.Release() // ponytail: return pooled buffer
+						if err != nil {
+							p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
+							cancel()
+						}
+					} else {
 						cancel()
 					}
-				} else {
-					p.log.Debug().Uint64("queryId", response.query.id).Msg("Received failed response")
-					cancel()
+					// ponytail: return channel to pool
+					responseChanPool.Put(respChan)
+				case <-ctx.Done():
+					return
 				}
 			case <-ctx.Done():
 				return
@@ -341,15 +346,33 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 			continue
 		}
 
+		// ponytail: in-place lowercase for the command
 		cmd := fields[0]
+		for i := 0; i < len(cmd); i++ {
+			if cmd[i] >= 'A' && cmd[i] <= 'Z' {
+				cmd[i] += 'a' - 'A'
+			}
+		}
 
 		if bytes.Equal(cmd, []byte("quit")) {
 			releaseFields(fieldsPtr)
 			return
 		}
 
-		// Create a query that will eventually reply to our responseChan
-		query := NewMemcacheQuery(nil, responseChan, responseChanStop)
+		// Create a channel for this specific query's response (from pool)
+		reqRespChan := responseChanPool.Get().(chan MemcacheResponse)
+
+		// Enqueue the future for the response writer
+		select {
+		case futureChan <- reqRespChan:
+		case <-ctx.Done():
+			responseChanPool.Put(reqRespChan)
+			releaseFields(fieldsPtr)
+			return
+		}
+
+		// Create a query that will eventually reply to our reqRespChan
+		query := NewMemcacheQuery(nil, reqRespChan, futureChanStop)
 
 		// Storage commands: <command> <key> <flags> <exptime> <bytes> [noreply]\r\n<data>\r\n
 		if bytes.Equal(cmd, []byte("set")) || bytes.Equal(cmd, []byte("add")) || bytes.Equal(cmd, []byte("replace")) || bytes.Equal(cmd, []byte("append")) || bytes.Equal(cmd, []byte("prepend")) || bytes.Equal(cmd, []byte("cas")) {
@@ -440,26 +463,10 @@ func (p *MemcacheProxy) forwardSingle(q MemcacheQuery, key []byte) {
 		return
 	}
 
-	respChan := make(chan MemcacheResponse, 1)
-	respStopChan := make(chan struct{})
-	defer close(respStopChan)
-
-	bq := NewMemcacheQuery(q.item, respChan, respStopChan)
-	p.log.Debug().Uint64("queryId", bq.id).Msg("Forwarding query to backend")
-
-	err := conn.Query(bq)
+	err := conn.Query(q)
 	if err != nil {
 		q.Reply([]byte("SERVER_ERROR backend failure\r\n"))
 		return
-	}
-
-	resp := <-respChan
-	if resp.item != nil {
-		p.log.Debug().Uint64("queryId", bq.id).Msg("Received backend response")
-		q.ReplyWithBuffer(resp.item, resp.buffer)
-	} else {
-		p.log.Debug().Uint64("queryId", bq.id).Msg("Backend query failed")
-		q.Reply([]byte("SERVER_ERROR backend failure\r\n"))
 	}
 }
 
@@ -502,7 +509,6 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 		respChan := make(chan MemcacheResponse, 1)
 		respStopChan := make(chan struct{})
 		bq := NewMemcacheQuery(payload, respChan, respStopChan)
-		p.log.Debug().Uint64("queryId", bq.id).Msg("Forwarding sub-query to backend")
 
 		if err := conn.Query(bq); err != nil {
 			close(respStopChan)
@@ -517,7 +523,6 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 		resp := <-req.respChan
 		close(req.stopChan)
 		if resp.item != nil {
-			p.log.Debug().Uint64("queryId", resp.query.id).Msg("Received valid sub-response")
 			// Strip the END\r\n from intermediate responses to combine them properly
 			idx := bytes.LastIndex(resp.item, []byte("END\r\n"))
 			if idx != -1 {
@@ -525,8 +530,6 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 			} else {
 				combinedResponse.Write(resp.item)
 			}
-		} else {
-			p.log.Debug().Uint64("queryId", resp.query.id).Msg("Received failed sub-response")
 		}
 		resp.Release() // ponytail: return pooled buffer
 	}

@@ -10,12 +10,15 @@ import (
 var protocolReaderPool sync.Pool
 
 // MemcacheProtocolReader handles reading from a memcache connection with minimal allocations.
-// ponytail: reusing the whole reader struct and its internal buffer.
+// It uses an internal buffer to accumulate data and provides methods for reading
+// lines and fixed-size payloads efficiently.
+// ponytail: reusing the whole reader struct and its internal buffer via sync.Pool.
 type MemcacheProtocolReader struct {
 	br     *bufio.Reader
 	buffer []byte
 }
 
+// NewMemcacheProtocolReader acquires a MemcacheProtocolReader from the pool or creates a new one.
 func NewMemcacheProtocolReader(r io.Reader, bufferSize int) *MemcacheProtocolReader {
 	var pr *MemcacheProtocolReader
 	if v := protocolReaderPool.Get(); v != nil {
@@ -31,6 +34,7 @@ func NewMemcacheProtocolReader(r io.Reader, bufferSize int) *MemcacheProtocolRea
 	return pr
 }
 
+// Release returns the reader to the pool.
 func (r *MemcacheProtocolReader) Release() {
 	if r.br != nil {
 		r.br.Reset(nil)
@@ -38,8 +42,8 @@ func (r *MemcacheProtocolReader) Release() {
 	protocolReaderPool.Put(r)
 }
 
-// ReadLine reads a CRLF terminated line and returns it.
-// The returned slice is valid until the next read call.
+// ReadLine reads a line terminated by LF (and optionally CR) and returns it.
+// The returned slice is valid until the next read call on the same reader.
 func (r *MemcacheProtocolReader) ReadLine() ([]byte, error) {
 	r.buffer = r.buffer[:0]
 	for {
@@ -51,7 +55,8 @@ func (r *MemcacheProtocolReader) ReadLine() ([]byte, error) {
 	}
 }
 
-// ReadFull reads exactly n bytes into the internal buffer.
+// ReadFull reads exactly n bytes into the internal buffer and returns a slice.
+// It handles buffer growth if necessary.
 func (r *MemcacheProtocolReader) ReadFull(n int) ([]byte, error) {
 	start := len(r.buffer)
 	// ponytail: grow buffer without allocations using cap
@@ -64,6 +69,12 @@ func (r *MemcacheProtocolReader) ReadFull(n int) ([]byte, error) {
 	r.buffer = r.buffer[:start+n]
 	_, err := io.ReadFull(r.br, r.buffer[start:])
 	return r.buffer[start:], err
+}
+
+var responseChanPool = sync.Pool{
+	New: func() any {
+		return make(chan MemcacheResponse, 1)
+	},
 }
 
 var bufferPool = sync.Pool{

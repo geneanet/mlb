@@ -12,27 +12,35 @@ import (
 )
 
 // MemcacheBackendConnection represents a single persistent connection to a Memcache backend.
-// It uses a multiplexed approach where multiple queries can be sent to the backend
-// while waiting for responses.
+// It implements a multiplexed protocol where multiple queries can be sent to the backend
+// concurrently without waiting for each response. Responses are matched back to queries
+// using a FIFO queue (inFlight), which is compatible with the Memcache ASCII protocol.
 type MemcacheBackendConnection struct {
 	pool          *MemcacheBackendConnectionPool
 	backend       *backend.Backend
 	conn          net.Conn
-	inputChanStop chan struct{}
-	inputChan     chan MemcacheQuery
-	inFlight      chan MemcacheQuery
+	inputChanStop chan struct{}  // Signal to stop the input loop
+	inputChan     chan MemcacheQuery // Buffer for incoming queries from the proxy
+	inFlight      chan MemcacheQuery // Queue of queries waiting for backend response
 	ctx           context.Context
 	cancel        context.CancelFunc
 }
 
-// NewMemcacheBackendConnection creates a new MemcacheBackendConnection and starts its lifecycle.
+// NewMemcacheBackendConnection creates a new MemcacheBackendConnection and starts its 
+// background goroutines for reading and writing. It returns an error if the initial
+// connection to the backend fails.
 func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *backend.Backend) (*MemcacheBackendConnection, error) {
+	queueSize := pool.proxy.backendInflightQueueSize
+	if queueSize == 0 {
+		queueSize = 512
+	}
+
 	mbc := &MemcacheBackendConnection{
 		pool:          pool,
 		backend:       backend,
-		inputChan:     make(chan MemcacheQuery),
+		inputChan:     make(chan MemcacheQuery, 1024),
 		inputChanStop: make(chan struct{}),
-		inFlight:      make(chan MemcacheQuery, 1024), // TODO: move to config if needed
+		inFlight:      make(chan MemcacheQuery, queueSize),
 	}
 
 	mbc.ctx, mbc.cancel = context.WithCancel(context.Background())

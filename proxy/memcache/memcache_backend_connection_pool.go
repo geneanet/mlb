@@ -10,7 +10,8 @@ import (
 // MemcacheBackendConnectionPool manages a pool of multiplexed connections to Memcache backends.
 // It ensures that a minimum number of connections are maintained for each active backend.
 type MemcacheBackendConnectionPool struct {
-	pools       map[string]map[*MemcacheBackendConnection]struct{}
+	pools       map[string][]*MemcacheBackendConnection
+	indices     map[string]uint64
 	mutex       sync.RWMutex
 	updateMutex sync.Mutex
 	ctx         context.Context
@@ -21,30 +22,41 @@ type MemcacheBackendConnectionPool struct {
 // NewMemcacheBackendConnectionPool creates a new MemcacheBackendConnectionPool.
 func NewMemcacheBackendConnectionPool(proxy *MemcacheProxy) *MemcacheBackendConnectionPool {
 	mbcp := &MemcacheBackendConnectionPool{
-		pools: make(map[string]map[*MemcacheBackendConnection]struct{}),
-		proxy: proxy,
+		pools:   make(map[string][]*MemcacheBackendConnection),
+		indices: make(map[string]uint64),
+		proxy:   proxy,
 	}
 	mbcp.ctx, mbcp.cancel = context.WithCancel(proxy.ctx)
 	return mbcp
 }
 
-// Get returns an available connection from the pool for the given address.
+// Get returns an available connection from the pool for the given address using round-robin.
 func (mbcp *MemcacheBackendConnectionPool) Get(address string) *MemcacheBackendConnection {
-	mbcp.mutex.RLock()
-	defer mbcp.mutex.RUnlock()
+	mbcp.mutex.Lock()
+	defer mbcp.mutex.Unlock()
 
-	for mbc := range mbcp.pools[address] {
-		return mbc
+	pool := mbcp.pools[address]
+	if len(pool) == 0 {
+		return nil
 	}
-	return nil
+
+	idx := mbcp.indices[address] % uint64(len(pool))
+	mbc := pool[idx]
+	mbcp.indices[address] = idx + 1
+	return mbc
 }
 
 // Del removes a connection from the pool.
 func (mbcp *MemcacheBackendConnectionPool) Del(mbc *MemcacheBackendConnection) {
 	mbcp.mutex.Lock()
 	defer mbcp.mutex.Unlock()
-	if mbcp.pools[mbc.backend.Address] != nil {
-		delete(mbcp.pools[mbc.backend.Address], mbc)
+	addr := mbc.backend.Address
+	pool := mbcp.pools[addr]
+	for i, c := range pool {
+		if c == mbc {
+			mbcp.pools[addr] = append(pool[:i], pool[i+1:]...)
+			break
+		}
 	}
 }
 
@@ -72,10 +84,11 @@ func (mbcp *MemcacheBackendConnectionPool) Update() {
 	// Remove pools for backends that are no longer active
 	for addr, pool := range mbcp.pools {
 		if !validAddresses[addr] {
-			for conn := range pool {
+			for _, conn := range pool {
 				conn.cancel()
 			}
 			delete(mbcp.pools, addr)
+			delete(mbcp.indices, addr)
 		}
 	}
 	mbcp.mutex.Unlock()
@@ -99,10 +112,7 @@ func (mbcp *MemcacheBackendConnectionPool) Update() {
 				backoff.Sleep(mbcp.ctx)
 			} else {
 				mbcp.mutex.Lock()
-				if mbcp.pools[backend.Address] == nil {
-					mbcp.pools[backend.Address] = make(map[*MemcacheBackendConnection]struct{})
-				}
-				mbcp.pools[backend.Address][mbc] = struct{}{}
+				mbcp.pools[backend.Address] = append(mbcp.pools[backend.Address], mbc)
 				mbcp.mutex.Unlock()
 				backoff.Reset()
 			}

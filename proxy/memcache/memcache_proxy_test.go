@@ -68,6 +68,9 @@ func TestMemcacheProxyConfigAndInit(t *testing.T) {
 	if p2.backendConnectionPoolSize != 1 {
 		t.Errorf("Expected default 1 pool size, got %d", p2.backendConnectionPoolSize)
 	}
+	if p2.backendInflightQueueSize != 512 {
+		t.Errorf("Expected default 512 inflight queue size, got %d", p2.backendInflightQueueSize)
+	}
 }
 
 func TestMemcacheProxyFactory_InvalidDurations(t *testing.T) {
@@ -536,10 +539,132 @@ func TestMemcacheProxy_ForwardSingle_Errors(t *testing.T) {
 	proxy.ring.update(proxy.backends.GetList())
 
 	q2 := NewMemcacheQuery([]byte("get key\r\n"), responseChan, responseChanStop)
-	proxy.forwardSingle(q2, []byte("key"))
+	proxy.forwardSingle(q2, []byte("key") )
 	resp2 := <-responseChan
 	if string(resp2.item) != "SERVER_ERROR backend failure\r\n" {
 		t.Errorf("Expected SERVER_ERROR backend failure, got %s", string(resp2.item))
+	}
+}
+
+func TestMemcachePipelining(t *testing.T) {
+	// Setup a dummy backend
+	backendAddr := "127.0.0.1:11215"
+	lBack, err := net.Listen("tcp", backendAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lBack.Close()
+
+	go func() {
+		for {
+			conn, err := lBack.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				reader := bufio.NewReader(c)
+				for {
+					line, err := reader.ReadString('\n')
+					if err != nil {
+						return
+					}
+					// Artificial delay
+					time.Sleep(10 * time.Millisecond)
+					if line == "get k1\r\n" {
+						c.Write([]byte("VALUE k1 0 2\r\nv1\r\nEND\r\n"))
+					} else if line == "get k2\r\n" {
+						c.Write([]byte("VALUE k2 0 2\r\nv2\r\nEND\r\n"))
+					} else if bytes.HasPrefix([]byte(line), []byte("set ")) {
+						// Read payload: v2\r\n (6 bytes for "v2\r\n")
+						// ponytail: simplistic for test
+						p := make([]byte, 4)
+						io.ReadFull(reader, p)
+						c.Write([]byte("STORED\r\n"))
+					} else {
+						c.Write([]byte("STORED\r\n"))
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	// Setup proxy
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p := &MemcacheProxy{
+		id:                        "test-pipeline",
+		log:                       log.Logger,
+		connectTimeout:            time.Second,
+		closeTimeout:              time.Second,
+		wg:                        wg,
+		ctx:                       ctx,
+		cancel:                    cancel,
+		backends:                  backend.NewRegistry(),
+		ring:                      newMemcacheHashRing(),
+		backendConnectionPoolSize: 1,
+		bufferSize:                16384,
+		clientQueueSize:           64,
+	}
+	p.backends.Add(&backend.Backend{Address: backendAddr})
+	p.ring.update(p.backends.GetList())
+	p.backendConnectionPool = NewMemcacheBackendConnectionPool(p)
+	p.backendConnectionPool.Update()
+
+	// Frontend listener
+	lFront, _ := net.Listen("tcp", "127.0.0.1:0")
+	defer lFront.Close()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		conn, err := lFront.Accept()
+		if err == nil {
+			p.connectionsWG.Add(1)
+			p.handleConnection(conn)
+		}
+	}()
+
+	// Client
+	client, err := net.Dial("tcp", lFront.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	// Pipeline multiple requests
+	requests := []string{
+		"set k1 0 0 2\r\nv1\r\n",
+		"set k2 0 0 2\r\nv2\r\n",
+		"set k3 0 0 2\r\nv3\r\n",
+		"delete k1\r\n",
+	}
+
+	for _, req := range requests {
+		client.Write([]byte(req))
+	}
+
+	// Read responses
+	expectedResponses := []string{
+		"STORED\r\n",
+		"STORED\r\n",
+		"STORED\r\n",
+		"STORED\r\n",
+	}
+
+	reader := bufio.NewReader(client)
+	for i, expected := range expectedResponses {
+		client.SetDeadline(time.Now().Add(2 * time.Second))
+		resp := make([]byte, len(expected))
+		_, err := io.ReadFull(reader, resp)
+		if err != nil {
+			t.Fatalf("Failed to read response %d: %v", i, err)
+		}
+		if string(resp) != expected {
+			t.Errorf("Response %d: expected %q, got %q", i, expected, string(resp))
+		}
 	}
 }
 
