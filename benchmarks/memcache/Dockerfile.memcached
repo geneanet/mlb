@@ -1,0 +1,18 @@
+FROM alpine:3.19
+
+RUN apk add --no-cache \
+    curl \
+    build-base \
+    libevent-dev \
+    linux-headers \
+    bsd-compat-headers \
+    openssl-dev
+
+RUN curl -O https://memcached.org/files/memcached-1.6.28.tar.gz && \
+    tar -zxf memcached-1.6.28.tar.gz && \
+    cd memcached-1.6.28 && \
+    ./configure --enable-proxy && \
+    make -j$(nproc) && \
+    make install
+
+CMD ["memcached", "-o", "proxy_config=/proxy.lua"]

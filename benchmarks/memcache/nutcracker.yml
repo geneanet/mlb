@@ -1,0 +1,11 @@
+alpha:
+  listen: 0.0.0.0:11213
+  hash: md5
+  distribution: ketama
+  auto_eject_hosts: false
+  server_retry_timeout: 2000
+  server_failure_limit: 1
+  preconnect: true
+  servers:
+   - memcached1:11211:1
+   - memcached2:11211:1

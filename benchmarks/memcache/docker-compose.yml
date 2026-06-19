@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  memcached1:
+    image: memcached:1.6.21
+    command: ["memcached", "-m", "128", "-p", "11211"]
+
+  memcached2:
+    image: memcached:1.6.21
+    command: ["memcached", "-m", "128", "-p", "11211"]
+
+  mlb:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    volumes:
+      - ./mlb-config.hcl:/config.hcl
+    command: ["/mlb", "-config", "/config.hcl"]
+    ports:
+      - "11212:11212"
+    depends_on:
+      - memcached1
+      - memcached2
+
+  twemproxy:
+    image: malexer/twemproxy:latest
+    volumes:
+      - ./nutcracker.yml:/etc/nutcracker/nutcracker.yml
+    command: ["nutcracker", "-c", "/etc/nutcracker/nutcracker.yml"]
+    ports:
+      - "11213:11213"
+    depends_on:
+      - memcached1
+      - memcached2
+
+  memcached-proxy:
+    image: memcached:1.6.21-alpine
+    volumes:
+      - ./proxy.lua:/proxy.lua
+    command: ["memcached", "-L", "/proxy.lua", "-X", "-p", "11214", "-U", "0"]
+    ports:
+      - "11214:11214"
+    depends_on:
+      - memcached1
+      - memcached2
+
+  bench-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.bench-client
