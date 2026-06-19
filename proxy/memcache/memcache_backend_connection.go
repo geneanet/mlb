@@ -26,19 +26,8 @@ type MemcacheBackendConnection struct {
 }
 
 // NewMemcacheBackendConnection creates a new MemcacheBackendConnection and starts its lifecycle.
-func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *backend.Backend) (mbc *MemcacheBackendConnection, e error) {
-	defer func() {
-		if r := recover(); r != nil {
-			if err, ok := r.(error); ok {
-				e = err
-			} else {
-				e = fmt.Errorf("%v", r)
-			}
-			mbc = nil
-		}
-	}()
-
-	mbc = &MemcacheBackendConnection{
+func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *backend.Backend) (*MemcacheBackendConnection, error) {
+	mbc := &MemcacheBackendConnection{
 		pool:          pool,
 		backend:       backend,
 		inputChan:     make(chan MemcacheQuery),
@@ -55,7 +44,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 	mbc.pool.proxy.log.Debug().Str("peer", mbc.backend.Address).Msg("Opening Backend connection")
 	connBack, err := net.DialTimeout("tcp", mbc.backend.Address, mbc.pool.proxy.connectTimeout)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	mbc.conn = connBack

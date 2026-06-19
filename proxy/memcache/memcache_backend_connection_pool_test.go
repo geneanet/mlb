@@ -10,7 +10,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func TestMemcacheBackendConnectionPool_DelAndWait(t *testing.T) {
+func TestMemcacheBackendConnectionPool_Del(t *testing.T) {
 	b1L, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer b1L.Close()
 	go dummyMemcacheServer(b1L, "v1")
@@ -35,22 +35,16 @@ func TestMemcacheBackendConnectionPool_DelAndWait(t *testing.T) {
 	pool := NewMemcacheBackendConnectionPool(proxy)
 	pool.Update()
 
-	conn := pool.Get(b1.Address, false)
+	conn := pool.Get(b1.Address)
 	if conn == nil {
 		t.Fatalf("Expected connection, got nil")
 	}
 
 	pool.Del(conn)
 
-	conn2 := pool.Get(b1.Address, false)
+	conn2 := pool.Get(b1.Address)
 	if conn2 != nil {
 		t.Fatalf("Expected nil connection after Del, got %v", conn2)
-	}
-
-	// Test Wait timeout
-	conn3 := pool.Get(b1.Address, true)
-	if conn3 != nil {
-		t.Fatalf("Expected nil connection on timeout, got %v", conn3)
 	}
 }
 
@@ -78,7 +72,7 @@ func TestMemcacheBackendConnectionPool_UpdateRemovesDeadBackends(t *testing.T) {
 	pool := NewMemcacheBackendConnectionPool(proxy)
 	pool.Update()
 
-	conn := pool.Get(b1.Address, false)
+	conn := pool.Get(b1.Address)
 	if conn == nil {
 		t.Fatalf("Expected connection")
 	}
@@ -86,7 +80,7 @@ func TestMemcacheBackendConnectionPool_UpdateRemovesDeadBackends(t *testing.T) {
 	proxy.backends.Remove(b1.Address)
 	pool.Update()
 
-	conn2 := pool.Get(b1.Address, false)
+	conn2 := pool.Get(b1.Address)
 	if conn2 != nil {
 		t.Fatalf("Expected connection to be removed, but got one")
 	}

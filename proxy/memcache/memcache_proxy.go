@@ -34,7 +34,6 @@ type MemcacheProxyConfig struct {
 	Addresses                 []string `hcl:"addresses,optional"`
 	ConnectTimeout            string   `hcl:"connect_timeout,optional"`
 	CloseTimeout              string   `hcl:"close_timeout,optional"`
-	BackendWaitTimeout        string   `hcl:"backend_wait_timeout,optional"`
 	BufferSize                int      `hcl:"buffer_size,optional"`
 	ClientQueueSize           int      `hcl:"client_queue_size,optional"`
 	BackendInflightQueueSize  int      `hcl:"backend_inflight_queue_size,optional"`
@@ -45,12 +44,11 @@ type MemcacheProxyConfig struct {
 // It handles client connections, parses the Memcache protocol, and routes requests
 // to backends based on the key using Ketama consistent hashing.
 type MemcacheProxy struct {
-	id                 string
-	source             string
-	addresses          []string
-	closeTimeout       time.Duration
-	connectTimeout     time.Duration
-	backendWaitTimeout time.Duration
+	id             string
+	source         string
+	addresses      []string
+	closeTimeout   time.Duration
+	connectTimeout time.Duration
 
 	connectionsWG sync.WaitGroup
 
@@ -77,7 +75,6 @@ func validateMemcacheProxyConfig(tc *module.Config) hcl.Diagnostics {
 	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
 	config.CheckDuration(&diags, configBody.ConnectTimeout, "connect_timeout")
 	config.CheckDuration(&diags, configBody.CloseTimeout, "close_timeout")
-	config.CheckDuration(&diags, configBody.BackendWaitTimeout, "backend_wait_timeout")
 	return diags
 }
 
@@ -93,9 +90,6 @@ func parseMemcacheProxyConfig(tc *module.Config) *MemcacheProxyConfig {
 	}
 	if config.CloseTimeout == "" {
 		config.CloseTimeout = "0s"
-	}
-	if config.BackendWaitTimeout == "" {
-		config.BackendWaitTimeout = "0s"
 	}
 	if config.BufferSize == 0 {
 		config.BufferSize = 16384
@@ -137,10 +131,6 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 		panic(err)
 	}
 	p.closeTimeout, err = time.ParseDuration(config.CloseTimeout)
-	if err != nil {
-		panic(err)
-	}
-	p.backendWaitTimeout, err = time.ParseDuration(config.BackendWaitTimeout)
 	if err != nil {
 		panic(err)
 	}
@@ -434,7 +424,7 @@ func (p *MemcacheProxy) forwardSingle(q MemcacheQuery, key []byte) {
 		return
 	}
 
-	conn := p.backendConnectionPool.Get(b.Address, true)
+	conn := p.backendConnectionPool.Get(b.Address)
 	if conn == nil {
 		q.Reply([]byte("SERVER_ERROR backend failure\r\n"))
 		return
@@ -487,7 +477,7 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 	requests := make([]req, 0, len(groups))
 
 	for b, bKeys := range groups {
-		conn := p.backendConnectionPool.Get(b.Address, true)
+		conn := p.backendConnectionPool.Get(b.Address)
 		if conn == nil {
 			continue
 		}
