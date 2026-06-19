@@ -163,21 +163,24 @@ func readMemcacheResponseFull(r *MemcacheProtocolReader, w io.Writer) error {
 
 		// Data block: VALUE <key> <flags> <bytes> [<cas unique>]\r\n<data>\r\n
 		if bytes.HasPrefix(line, []byte("VALUE ")) {
-			parts := bytes.Fields(line)
-			if len(parts) >= 4 {
-				// size is parts[3]
+			fieldsPtr := getFields(line)
+			fields := *fieldsPtr
+			if len(fields) >= 4 {
+				// size is fields[3]
 				size := 0
-				for _, b := range parts[3] {
+				for _, b := range fields[3] {
 					if b >= '0' && b <= '9' {
 						size = size*10 + int(b-'0')
 					}
 				}
 				buf, err := r.ReadFull(size + 2) // data + \r\n
 				if err != nil {
+					releaseFields(fieldsPtr)
 					return err
 				}
 				w.Write(buf)
 			}
+			releaseFields(fieldsPtr)
 		} else if bytes.HasPrefix(line, []byte("STORED")) || bytes.HasPrefix(line, []byte("NOT_STORED")) || bytes.HasPrefix(line, []byte("EXISTS")) || bytes.HasPrefix(line, []byte("NOT_FOUND")) || bytes.HasPrefix(line, []byte("DELETED")) || bytes.HasPrefix(line, []byte("ERROR")) || bytes.HasPrefix(line, []byte("CLIENT_ERROR")) || bytes.HasPrefix(line, []byte("SERVER_ERROR")) || bytes.HasPrefix(line, []byte("OK")) {
 			// One-line responses
 			return nil

@@ -334,14 +334,17 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 			panic("Unexpected error while reading from the client")
 		}
 
-		fields := bytes.Fields(line)
+		fieldsPtr := getFields(line)
+		fields := *fieldsPtr
 		if len(fields) == 0 {
+			releaseFields(fieldsPtr)
 			continue
 		}
 
-		cmd := bytes.ToLower(fields[0])
+		cmd := fields[0]
 
 		if bytes.Equal(cmd, []byte("quit")) {
+			releaseFields(fieldsPtr)
 			return
 		}
 
@@ -352,16 +355,19 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 		if bytes.Equal(cmd, []byte("set")) || bytes.Equal(cmd, []byte("add")) || bytes.Equal(cmd, []byte("replace")) || bytes.Equal(cmd, []byte("append")) || bytes.Equal(cmd, []byte("prepend")) || bytes.Equal(cmd, []byte("cas")) {
 			if len(fields) < 5 {
 				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
+				releaseFields(fieldsPtr)
 				continue
 			}
 			size, err := util.ParseSize(fields[4])
 			if err != nil {
 				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
+				releaseFields(fieldsPtr)
 				continue
 			}
 			// Data + \r\n
 			payload, err := reader.ReadFull(size + 2)
 			if err != nil {
+				releaseFields(fieldsPtr)
 				return
 			}
 			// ponytail: using pooled buffer instead of bytes.Clone
@@ -372,6 +378,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 			query.item = buf.Bytes()
 			query.buffer = buf
 			p.forwardSingle(query, fields[1])
+			releaseFields(fieldsPtr)
 			continue
 		}
 
@@ -379,9 +386,11 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 		if bytes.Equal(cmd, []byte("get")) || bytes.Equal(cmd, []byte("gets")) || bytes.Equal(cmd, []byte("gat")) || bytes.Equal(cmd, []byte("gats")) {
 			if len(fields) < 2 {
 				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
+				releaseFields(fieldsPtr)
 				continue
 			}
 			p.handleMultiGet(query, string(cmd), fields[1:])
+			releaseFields(fieldsPtr)
 			continue
 		}
 
@@ -404,6 +413,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 			query.buffer = buf
 			p.forwardSingle(query, nil)
 		}
+		releaseFields(fieldsPtr)
 	}
 }
 
