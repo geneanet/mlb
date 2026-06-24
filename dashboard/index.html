@@ -62,7 +62,7 @@
                     <div id="mermaid-container" class="mermaid w-full h-full flex items-center justify-center" x-ref="mermaid">
                         <!-- Mermaid graph will be rendered here -->
                     </div>
-                    <div x-show="loading" class="absolute inset-0 bg-white/50 flex items-center justify-center">
+                    <div x-show="loading" class="absolute inset-0 bg-white flex items-center justify-center">
                         <svg class="animate-spin h-8 w-8 text-blue-600" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                     </div>
                 </div>
@@ -283,7 +283,7 @@
                         this.topology = await topRes.json();
                         this.backends = await beRes.json();
                         this.proxyMetrics = await metRes.json();
-                        this.renderGraph();
+                        await this.renderGraph();
                         this.lastRefresh = Date.now();
                         this.updateRefreshText();
                     } catch (e) {
@@ -306,7 +306,7 @@
                     }
                 },
 
-                renderGraph() {
+                async renderGraph() {
                     let definition = 'graph TD\n';
                     
                     // Colors for categories
@@ -344,14 +344,18 @@
                     });
 
                     const container = document.getElementById('mermaid-container');
-                    container.removeAttribute('data-processed');
-                    container.innerHTML = definition;
-                    container.classList.add('mermaid');
                     
-                    // Use mermaid.init instead of mermaid.render for better click binding
-                    setTimeout(() => {
-                        mermaid.init(undefined, container);
-                    }, 50);
+                    try {
+                        // ponytail: use mermaid.render for atomic swap to avoid FOUC of raw graph definition
+                        const { svg, bindFunctions } = await mermaid.render('mermaid-svg-' + Math.random().toString(36).substring(2, 11), definition);
+                        container.innerHTML = svg;
+                        if (bindFunctions) {
+                            bindFunctions(container);
+                        }
+                    } catch (e) {
+                        console.error("Mermaid rendering failed", e);
+                        container.innerHTML = '<div class="text-red-500 p-4">Failed to render topology graph</div>';
+                    }
                 },
 
                 selectModule(node) {
