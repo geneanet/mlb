@@ -68,7 +68,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 			select {
 			case query := <-mbc.inputChan:
 				mbc.inFlight <- query
-				_, err := mbc.conn.Write(query.item)
+				n, err := mbc.conn.Write(query.item)
 				query.Release() // ponytail: release pooled query buffer if any
 				if err != nil {
 					if err != io.EOF && !errors.Is(err, net.ErrClosed) {
@@ -78,6 +78,8 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 					mbc.AbortInflightQueries()
 					return
 				}
+				metrics.BeRequests.WithLabelValues(mbc.backend.Address, mbc.pool.proxy.id).Inc()
+				metrics.BeBytesOut.WithLabelValues(mbc.backend.Address, mbc.pool.proxy.id).Add(float64(n))
 			case <-mbc.ctx.Done():
 				return
 			}
@@ -101,6 +103,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 				mbc.cancel()
 				return
 			}
+			metrics.BeBytesIn.WithLabelValues(mbc.backend.Address, mbc.pool.proxy.id).Add(float64(respBuffer.Len()))
 
 			var query MemcacheQuery
 			select {

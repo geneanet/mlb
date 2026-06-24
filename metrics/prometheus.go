@@ -86,4 +86,22 @@ var (
 		},
 		[]string{"address", "proxy"},
 	)
+
+	// FeRequests counts total requests received from frontend.
+	FeRequests = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mlb_frontend_requests_total",
+			Help: "The total number of requests received from frontend",
+		},
+		[]string{"address", "proxy"},
+	)
+
+	// BeRequests counts total requests sent to backends.
+	BeRequests = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mlb_backend_requests_total",
+			Help: "The total number of requests sent to backend",
+		},
+		[]string{"address", "proxy"},
+	)
 )

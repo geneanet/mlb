@@ -65,4 +65,16 @@ func TestMetricsInitializationAndUsage(t *testing.T) {
 	if val := testutil.ToFloat64(BeBytesOut.WithLabelValues("127.0.0.1:8080", "proxy-1")); val != 1 {
 		t.Errorf("Expected BeBytesOut to be 1, got %v", val)
 	}
+
+	// 10. Verify FeRequests (Frontend Requests - Counter)
+	FeRequests.WithLabelValues("0.0.0.0:6379", "proxy-1").Inc()
+	if val := testutil.ToFloat64(FeRequests.WithLabelValues("0.0.0.0:6379", "proxy-1")); val != 1 {
+		t.Errorf("Expected FeRequests to be 1, got %v", val)
+	}
+
+	// 11. Verify BeRequests (Backend Requests - Counter)
+	BeRequests.WithLabelValues("127.0.0.1:8080", "proxy-1").Inc()
+	if val := testutil.ToFloat64(BeRequests.WithLabelValues("127.0.0.1:8080", "proxy-1")); val != 1 {
+		t.Errorf("Expected BeRequests to be 1, got %v", val)
+	}
 }

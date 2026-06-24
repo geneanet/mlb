@@ -337,11 +337,12 @@ func (p *RedisProxy) handleConnection(connFront net.Conn) {
 			case response := <-responseChan:
 				if response.item != nil {
 					p.log.Debug().Uint64("queryId", response.query.id).Msg("Received valid response")
-					_, err := connFront.Write(response.item)
+					n, err := connFront.Write(response.item)
 					if err != nil {
 						p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
 						cancel()
 					}
+					metrics.FeBytesOut.WithLabelValues(frontendAddress, p.id).Add(float64(n))
 				} else {
 					p.log.Debug().Uint64("queryId", response.query.id).Msg("Received failed response")
 					cancel()
@@ -363,6 +364,9 @@ func (p *RedisProxy) handleConnection(connFront net.Conn) {
 		} else if err != nil {
 			panic("Unexpected error while reading from the client")
 		}
+
+		metrics.FeRequests.WithLabelValues(frontendAddress, p.id).Inc()
+		metrics.FeBytesIn.WithLabelValues(frontendAddress, p.id).Add(float64(len(item)))
 
 		query := NewRedisQuery(item, responseChan, responseChanStop)
 		p.log.Debug().Uint64("queryId", query.id).Msg("Received query")

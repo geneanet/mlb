@@ -89,7 +89,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 			select {
 			case query := <-rbc.inputChan:
 				rbc.inFlight <- query
-				_, err := rbc.conn.Write(query.item)
+				n, err := rbc.conn.Write(query.item)
 				if err != nil {
 					if err != io.EOF && !errors.Is(err, net.ErrClosed) {
 						rbc.pool.proxy.log.Error().Str("peer", rbc.backend.Address).Err(err).Msg("Unexpected error while sending query to the backend")
@@ -98,6 +98,8 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 					rbc.AbortInflightQueries() // Extra call to AbortInflightQueries in case the query we were processing has not been aborted by the "cleanup" goroutine
 					return
 				}
+				metrics.BeRequests.WithLabelValues(rbc.backend.Address, rbc.pool.proxy.id).Inc()
+				metrics.BeBytesOut.WithLabelValues(rbc.backend.Address, rbc.pool.proxy.id).Add(float64(n))
 			case <-rbc.ctx.Done():
 				return
 			}
@@ -118,6 +120,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 				rbc.cancel()
 				return
 			}
+			metrics.BeBytesIn.WithLabelValues(rbc.backend.Address, rbc.pool.proxy.id).Add(float64(len(item)))
 			var query RedisQuery
 			select {
 			case query = <-rbc.inFlight:

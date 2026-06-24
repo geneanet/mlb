@@ -378,12 +378,13 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 				select {
 				case response := <-respChan:
 					if response.item != nil {
-						_, err := connFront.Write(response.item)
+						n, err := connFront.Write(response.item)
 						response.Release() // ponytail: return pooled buffer
 						if err != nil {
 							p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
 							cancel()
 						}
+						metrics.FeBytesOut.WithLabelValues(frontendAddress, p.id).Add(float64(n))
 					} else {
 						cancel()
 					}
@@ -416,6 +417,9 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 			p.releaseFields(fieldsPtr)
 			continue
 		}
+
+		metrics.FeRequests.WithLabelValues(frontendAddress, p.id).Inc()
+		metrics.FeBytesIn.WithLabelValues(frontendAddress, p.id).Add(float64(len(line)))
 
 		// ponytail: in-place lowercase for the command
 		cmd := fields[0]
@@ -466,6 +470,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 				p.releaseFields(fieldsPtr)
 				return
 			}
+			metrics.FeBytesIn.WithLabelValues(frontendAddress, p.id).Add(float64(len(payload)))
 			// Forward the full command (header + payload) to the appropriate backend
 			// ponytail: using pooled buffer instead of bytes.Clone
 			buf := bufferPool.Get().(*bytes.Buffer)
@@ -501,6 +506,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 				p.releaseFields(fieldsPtr)
 				return
 			}
+			metrics.FeBytesIn.WithLabelValues(frontendAddress, p.id).Add(float64(len(payload)))
 			// Forward to backend based on key
 			buf := bufferPool.Get().(*bytes.Buffer)
 			buf.Reset()
