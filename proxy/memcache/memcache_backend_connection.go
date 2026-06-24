@@ -214,11 +214,11 @@ func (p *MemcacheProxy) readMemcacheResponseFull(r *MemcacheProtocolReader, w io
 			// ponytail: Meta protocol commands are usually single-line or single-payload,
 			// unlike multi-get which requires END.
 			return nil
-		} else if bytes.HasPrefix(line, []byte("STORED")) || bytes.HasPrefix(line, []byte("NOT_STORED")) || bytes.HasPrefix(line, []byte("EXISTS")) || bytes.HasPrefix(line, []byte("NOT_FOUND")) || bytes.HasPrefix(line, []byte("DELETED")) || bytes.HasPrefix(line, []byte("ERROR")) || bytes.HasPrefix(line, []byte("CLIENT_ERROR")) || bytes.HasPrefix(line, []byte("SERVER_ERROR")) || bytes.HasPrefix(line, []byte("OK")) || bytes.HasPrefix(line, []byte("HD")) || bytes.HasPrefix(line, []byte("NF")) || bytes.HasPrefix(line, []byte("EX")) || bytes.HasPrefix(line, []byte("NS")) || bytes.HasPrefix(line, []byte("EN")) {
+		} else if bytes.HasPrefix(line, []byte("STORED")) || bytes.HasPrefix(line, []byte("NOT_STORED")) || bytes.HasPrefix(line, []byte("EXISTS")) || bytes.HasPrefix(line, []byte("NOT_FOUND")) || bytes.HasPrefix(line, []byte("DELETED")) || bytes.HasPrefix(line, []byte("ERROR")) || bytes.HasPrefix(line, []byte("CLIENT_ERROR")) || bytes.HasPrefix(line, []byte("SERVER_ERROR")) || bytes.HasPrefix(line, []byte("OK")) || bytes.HasPrefix(line, []byte("HD")) || bytes.HasPrefix(line, []byte("NF")) || bytes.HasPrefix(line, []byte("EX")) || bytes.HasPrefix(line, []byte("NS")) || bytes.HasPrefix(line, []byte("EN")) || bytes.HasPrefix(line, []byte("VERSION ")) {
 			// One-line responses (standard and meta) indicate completion of a command.
 			return nil
-		} else if bytes.HasPrefix(line, []byte("STAT ")) || bytes.HasPrefix(line, []byte("VERSION ")) {
-			// Multi-line responses (STAT) or single line (VERSION) - keep reading until END or next relevant prefix
+		} else if bytes.HasPrefix(line, []byte("STAT ")) {
+			// Multi-line responses (STAT) - keep reading until END
 			continue
 		} else {
 			// Catch-all for unknown or unexpected responses
