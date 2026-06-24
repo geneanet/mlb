@@ -276,7 +276,11 @@ func (p *MemcacheProxy) ReceiveUpdate(upd backend.BackendUpdate) {
 	}
 }
 
-// handleConnection parses the Memcache ASCII protocol for a single client connection.
+// handleConnection parses the Memcache protocol for a single client connection.
+// It supports both the traditional ASCII protocol and the newer Meta Text protocol.
+// Commands are routed to backends using Ketama consistent hashing based on the key.
+// Storage commands with payloads (set, ms, etc.) are handled by reading the specified 
+// number of bytes before forwarding.
 func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 	frontendAddress := connFront.LocalAddr().String()
 	peerAddress := connFront.RemoteAddr().String()
@@ -402,25 +406,62 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 		query := NewMemcacheQuery(nil, reqRespChan, futureChanStop)
 
 		// Storage commands: <command> <key> <flags> <exptime> <bytes> [noreply]\r\n<data>\r\n
+		// Supported: set, add, replace, append, prepend, cas
 		if bytes.Equal(cmd, []byte("set")) || bytes.Equal(cmd, []byte("add")) || bytes.Equal(cmd, []byte("replace")) || bytes.Equal(cmd, []byte("append")) || bytes.Equal(cmd, []byte("prepend")) || bytes.Equal(cmd, []byte("cas")) {
 			if len(fields) < 5 {
 				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
 				p.releaseFields(fieldsPtr)
 				continue
 			}
+			// Parse the expected data size (fields[4])
 			size, err := util.ParseSize(fields[4])
 			if err != nil {
 				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
 				p.releaseFields(fieldsPtr)
 				continue
 			}
-			// Data + \r\n
+			// Read the data payload + trailing \r\n
 			payload, err := reader.ReadFull(size + 2)
 			if err != nil {
 				p.releaseFields(fieldsPtr)
 				return
 			}
+			// Forward the full command (header + payload) to the appropriate backend
 			// ponytail: using pooled buffer instead of bytes.Clone
+			buf := bufferPool.Get().(*bytes.Buffer)
+			buf.Reset()
+			buf.Write(line)
+			buf.Write(payload)
+			query.item = buf.Bytes()
+			query.buffer = buf
+			p.forwardSingle(query, fields[1])
+			p.releaseFields(fieldsPtr)
+			continue
+		}
+
+		// Meta Set command: ms <key> <datalen> [flags]... \r\n<data>\r\n
+		// The 'ms' command is part of the Memcache Meta Text protocol.
+		// ponytail: ms uses field[2] for size, unlike standard storage commands.
+		if bytes.Equal(cmd, []byte("ms")) {
+			if len(fields) < 3 {
+				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
+				p.releaseFields(fieldsPtr)
+				continue
+			}
+			// Parse the expected data size (fields[2])
+			size, err := util.ParseSize(fields[2])
+			if err != nil {
+				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
+				p.releaseFields(fieldsPtr)
+				continue
+			}
+			// Read the data payload + trailing \r\n
+			payload, err := reader.ReadFull(size + 2)
+			if err != nil {
+				p.releaseFields(fieldsPtr)
+				return
+			}
+			// Forward to backend based on key
 			buf := bufferPool.Get().(*bytes.Buffer)
 			buf.Reset()
 			buf.Write(line)
@@ -444,8 +485,10 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 			continue
 		}
 
-		// Other commands with a key
-		if len(fields) > 1 && (bytes.Equal(cmd, []byte("delete")) || bytes.Equal(cmd, []byte("incr")) || bytes.Equal(cmd, []byte("decr")) || bytes.Equal(cmd, []byte("touch"))) {
+		// Other commands with a key (standard and meta)
+		// Supported: delete, incr, decr, touch, mg (Meta Get), md (Meta Delete), ma (Meta Arithmetic), me (Meta Debug)
+		if len(fields) > 1 && (bytes.Equal(cmd, []byte("delete")) || bytes.Equal(cmd, []byte("incr")) || bytes.Equal(cmd, []byte("decr")) || bytes.Equal(cmd, []byte("touch")) || bytes.Equal(cmd, []byte("mg")) || bytes.Equal(cmd, []byte("md")) || bytes.Equal(cmd, []byte("ma")) || bytes.Equal(cmd, []byte("me"))) {
+			// Commands with a key are routed using the hash ring.
 			// ponytail: using pooled buffer instead of bytes.Clone
 			buf := bufferPool.Get().(*bytes.Buffer)
 			buf.Reset()
@@ -454,7 +497,8 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 			query.buffer = buf
 			p.forwardSingle(query, fields[1])
 		} else {
-			// Commands without a key or unknown commands are forwarded to a random backend
+			// Commands without a key or unknown commands (e.g., stats, version, mn)
+			// are forwarded to a random backend.
 			// ponytail: using pooled buffer instead of bytes.Clone
 			buf := bufferPool.Get().(*bytes.Buffer)
 			buf.Reset()

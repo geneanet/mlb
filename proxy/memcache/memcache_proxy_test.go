@@ -450,6 +450,20 @@ func dummyMemcacheServer(l net.Listener, val string) {
 						io.ReadFull(reader, buf)
 					}
 					c.Write([]byte("STORED\r\n"))
+				} else if cmd == "ms" {
+					if len(fields) >= 3 {
+						size := 0
+						for _, b := range fields[2] {
+							if b >= '0' && b <= '9' {
+								size = size*10 + int(b-'0')
+							}
+						}
+						buf := make([]byte, size+2)
+						io.ReadFull(reader, buf)
+					}
+					c.Write([]byte("HD\r\n"))
+				} else if cmd == "mg" {
+					c.Write([]byte("VA 2\r\nv1\r\n"))
 				} else if cmd == "get" {
 					for _, k := range fields[1:] {
 						c.Write([]byte(fmt.Sprintf("VALUE %s 0 %d\r\n%s\r\n", string(k), len(val), val)))
@@ -813,3 +827,189 @@ func TestMemcachePipelining(t *testing.T) {
 }
 
 
+
+func TestMemcacheProxyMetaProtocol(t *testing.T) {
+	b1L, _ := net.Listen("tcp", "127.0.0.1:0")
+	defer b1L.Close()
+	go dummyMemcacheServer(b1L, "v1")
+
+	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}
+
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	proxy := &MemcacheProxy{
+		id:                    "test_meta_proxy",
+		source:                "mock",
+		addresses:             []string{"127.0.0.1:0"},
+		ctx:                   ctx,
+		cancel:                cancel,
+		wg:                    wg,
+		connectTimeout:        time.Second,
+		closeTimeout:          time.Second,
+		backendMinConnections: 1,
+		backendMaxConnections: 1,
+		backends:              backend.NewRegistry(),
+		ring:                  newMemcacheHashRing(),
+		backendUpdatesChan:    make(chan backend.BackendUpdate, 10),
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
+	}
+	proxy.backendConnectionPool = NewMemcacheBackendConnectionPool(proxy)
+	proxy.backends.Add(b1)
+	proxy.ring.update(proxy.backends.GetList())
+	proxy.backendConnectionPool.Update()
+
+	l, _ := net.Listen("tcp", "127.0.0.1:0")
+	defer l.Close()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		conn, _ := l.Accept()
+		if conn != nil {
+			proxy.connectionsWG.Add(1)
+			go proxy.handleConnection(conn)
+		}
+	}()
+
+	client, err := net.Dial("tcp", l.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	reader := bufio.NewReader(client)
+
+	// Test mg
+	client.Write([]byte("mg key1 v\r\n"))
+	resp, _ := reader.ReadBytes('\n')
+	if string(resp) != "VA 2\r\n" {
+		t.Errorf("Expected VA 2\\r\\n, got %q", string(resp))
+	}
+	payload := make([]byte, 4) // v1\r\n
+	io.ReadFull(reader, payload)
+
+	// Test ms
+	client.Write([]byte("ms key1 2\r\nhi\r\n"))
+	resp, _ = reader.ReadBytes('\n')
+	if string(resp) != "HD\r\n" {
+		t.Errorf("Expected HD\\r\\n, got %q", string(resp))
+	}
+}
+
+func TestMemcacheProxyMetaProtocolExpanded(t *testing.T) {
+	b1L, _ := net.Listen("tcp", "127.0.0.1:0")
+	defer b1L.Close()
+	
+	// Dummy server for meta protocol
+	go func() {
+		for {
+			conn, err := b1L.Accept()
+			if err != nil { return }
+			go func(c net.Conn) {
+				defer c.Close()
+				r := bufio.NewReader(c)
+				for {
+					line, err := r.ReadBytes('\n')
+					if err != nil { return }
+					fields := bytes.Fields(line)
+					if len(fields) == 0 { continue }
+					cmd := string(fields[0])
+					switch cmd {
+					case "md": c.Write([]byte("HD\r\n"))
+					case "ma": c.Write([]byte("HD\r\n"))
+					case "me": c.Write([]byte("EN\r\n"))
+					case "mn": c.Write([]byte("HD\r\n"))
+					case "ms":
+						size := 0
+						fmt.Sscanf(string(fields[2]), "%d", &size)
+						payload := make([]byte, size+2)
+						io.ReadFull(r, payload)
+						c.Write([]byte("HD\r\n"))
+					case "mg":
+						c.Write([]byte("VA 2\r\nok\r\n"))
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}
+
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	proxy := &MemcacheProxy{
+		id:                    "test_meta_expanded",
+		source:                "mock",
+		addresses:             []string{"127.0.0.1:0"},
+		ctx:                   ctx,
+		cancel:                cancel,
+		wg:                    wg,
+		connectTimeout:        time.Second,
+		closeTimeout:          time.Second,
+		backendMinConnections: 1,
+		backends:              backend.NewRegistry(),
+		ring:                  newMemcacheHashRing(),
+		backendUpdatesChan:    make(chan backend.BackendUpdate, 10),
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
+	}
+	proxy.backendConnectionPool = NewMemcacheBackendConnectionPool(proxy)
+	proxy.backends.Add(b1)
+	proxy.ring.update(proxy.backends.GetList())
+	proxy.backendConnectionPool.Update()
+
+	l, _ := net.Listen("tcp", "127.0.0.1:0")
+	defer l.Close()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		conn, _ := l.Accept()
+		if conn != nil {
+			proxy.connectionsWG.Add(1)
+			go proxy.handleConnection(conn)
+		}
+	}()
+
+	client, err := net.Dial("tcp", l.Addr().String())
+	if err != nil { t.Fatal(err) }
+	defer client.Close()
+
+	reader := bufio.NewReader(client)
+
+	tests := []struct {
+		req  string
+		resp string
+	}{
+		{"md key1\r\n", "HD\r\n"},
+		{"ma key1\r\n", "HD\r\n"},
+		{"me key1\r\n", "EN\r\n"},
+		{"mn\r\n", "HD\r\n"},
+		{"ms key1 2\r\nhi\r\n", "HD\r\n"},
+		{"mg key1\r\n", "VA 2\r\nok\r\n"},
+		{"ms key1\r\n", "CLIENT_ERROR bad command line format\r\n"},
+		{"ms key1 bad\r\n", "CLIENT_ERROR bad command line format\r\n"},
+	}
+
+	for _, tt := range tests {
+		client.Write([]byte(tt.req))
+		if tt.resp != "" {
+			resp := make([]byte, len(tt.resp))
+			io.ReadFull(reader, resp)
+			if string(resp) != tt.resp {
+				t.Errorf("For %q, expected %q, got %q", tt.req, tt.resp, string(resp))
+			}
+		}
+	}
+}

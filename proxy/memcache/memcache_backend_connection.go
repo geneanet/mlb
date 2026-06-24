@@ -155,7 +155,11 @@ func (mbc *MemcacheBackendConnection) AbortInflightQueries() {
 }
 
 // readMemcacheResponseFull reads a complete memcache response into a buffer.
-// It handles both simple responses (STORED, END, etc.) and complex responses with data (VALUE).
+// It handles:
+// 1. Simple one-line responses (STORED, END, HD, etc.)
+// 2. Data blocks (VALUE <key> ... \r\n<data>\r\n)
+// 3. Meta data blocks (VA <size> ... \r\n<data>\r\n)
+// 4. Multi-line responses like STATS.
 func (p *MemcacheProxy) readMemcacheResponseFull(r *MemcacheProtocolReader, w io.Writer) error {
 	for {
 		line, err := r.ReadLine()
@@ -165,17 +169,17 @@ func (p *MemcacheProxy) readMemcacheResponseFull(r *MemcacheProtocolReader, w io
 
 		w.Write(line)
 
-		// End of retrieval command
+		// End of retrieval command (ASCII protocol)
 		if bytes.HasPrefix(line, []byte("END\r\n")) {
 			return nil
 		}
 
-		// Data block: VALUE <key> <flags> <bytes> [<cas unique>]\r\n<data>\r\n
+		// Data block (ASCII protocol): VALUE <key> <flags> <bytes> [<cas unique>]\r\n<data>\r\n
 		if bytes.HasPrefix(line, []byte("VALUE ")) {
 			fieldsPtr := p.getFields(line)
 			fields := *fieldsPtr
 			if len(fields) >= 4 {
-				// size is fields[3]
+				// size is fields[3] in ASCII protocol
 				size := 0
 				for _, b := range fields[3] {
 					if b >= '0' && b <= '9' {
@@ -190,8 +194,33 @@ func (p *MemcacheProxy) readMemcacheResponseFull(r *MemcacheProtocolReader, w io
 				w.Write(buf)
 			}
 			p.releaseFields(fieldsPtr)
-		} else if bytes.HasPrefix(line, []byte("STORED")) || bytes.HasPrefix(line, []byte("NOT_STORED")) || bytes.HasPrefix(line, []byte("EXISTS")) || bytes.HasPrefix(line, []byte("NOT_FOUND")) || bytes.HasPrefix(line, []byte("DELETED")) || bytes.HasPrefix(line, []byte("ERROR")) || bytes.HasPrefix(line, []byte("CLIENT_ERROR")) || bytes.HasPrefix(line, []byte("SERVER_ERROR")) || bytes.HasPrefix(line, []byte("OK")) {
-			// One-line responses
+		} else if bytes.HasPrefix(line, []byte("VA ")) {
+			// Meta data block: VA <size> [flags]... \r\n<data>\r\n
+			// ponytail: Meta Value (VA) uses fields[1] for size.
+			fieldsPtr := p.getFields(line)
+			fields := *fieldsPtr
+			if len(fields) >= 2 {
+				// size is fields[1] in Meta protocol
+				size := 0
+				for _, b := range fields[1] {
+					if b >= '0' && b <= '9' {
+						size = size*10 + int(b-'0')
+					}
+				}
+				buf, err := r.ReadFull(size + 2) // data + \r\n
+				if err != nil {
+					p.releaseFields(fieldsPtr)
+					return err
+				}
+				w.Write(buf)
+			}
+			p.releaseFields(fieldsPtr)
+			// VA is a final response for a single mg command
+			// ponytail: Meta protocol commands are usually single-line or single-payload, 
+			// unlike multi-get which requires END.
+			return nil
+		} else if bytes.HasPrefix(line, []byte("STORED")) || bytes.HasPrefix(line, []byte("NOT_STORED")) || bytes.HasPrefix(line, []byte("EXISTS")) || bytes.HasPrefix(line, []byte("NOT_FOUND")) || bytes.HasPrefix(line, []byte("DELETED")) || bytes.HasPrefix(line, []byte("ERROR")) || bytes.HasPrefix(line, []byte("CLIENT_ERROR")) || bytes.HasPrefix(line, []byte("SERVER_ERROR")) || bytes.HasPrefix(line, []byte("OK")) || bytes.HasPrefix(line, []byte("HD")) || bytes.HasPrefix(line, []byte("NF")) || bytes.HasPrefix(line, []byte("EX")) || bytes.HasPrefix(line, []byte("NS")) || bytes.HasPrefix(line, []byte("EN")) {
+			// One-line responses (standard and meta) indicate completion of a command.
 			return nil
 		} else if bytes.HasPrefix(line, []byte("STAT ")) || bytes.HasPrefix(line, []byte("VERSION ")) {
 			// Multi-line responses (STAT) or single line (VERSION) - keep reading until END or next relevant prefix
