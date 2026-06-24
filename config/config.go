@@ -136,28 +136,27 @@ func LoadConfig(path string) (*Config, hcl.Diagnostics) {
 
 	// Second pass to actually parse the blocks contents
 	for _, block := range content.Blocks {
+		var config *module.Config
+		var blockDiags hcl.Diagnostics
+
 		switch block.Type {
 		case "backends_inventory":
-			config, diagsBackendsInventory := module.DecodeConfigBlock(block, ctx, "backends_inventory")
-			diags = append(diags, diagsBackendsInventory...)
+			config, blockDiags = module.DecodeConfigBlock(block, ctx, "backends_inventory")
 			if config != nil {
 				c.BackendsInventoryList = append(c.BackendsInventoryList, config)
 			}
 		case "backends_processor":
-			config, diagsBackendsProcessor := module.DecodeConfigBlock(block, ctx, "backends_processor")
-			diags = append(diags, diagsBackendsProcessor...)
+			config, blockDiags = module.DecodeConfigBlock(block, ctx, "backends_processor")
 			if config != nil {
 				c.BackendsProcessorList = append(c.BackendsProcessorList, config)
 			}
 		case "balancer":
-			config, diagsBalancer := module.DecodeConfigBlock(block, ctx, "balancer")
-			diags = append(diags, diagsBalancer...)
+			config, blockDiags = module.DecodeConfigBlock(block, ctx, "balancer")
 			if config != nil {
 				c.BalancerList = append(c.BalancerList, config)
 			}
 		case "proxy":
-			config, diagsProxy := module.DecodeConfigBlock(block, ctx, "proxy")
-			diags = append(diags, diagsProxy...)
+			config, blockDiags = module.DecodeConfigBlock(block, ctx, "proxy")
 			if config != nil {
 				c.ProxyList = append(c.ProxyList, config)
 			}
@@ -170,6 +169,15 @@ func LoadConfig(path string) (*Config, hcl.Diagnostics) {
 			c.System, systemDiags = system.DecodeConfigBlock(block, ctx)
 			diags = append(diags, systemDiags...)
 		}
+
+		if config != nil {
+			endByte := block.DefRange.End.Byte
+			if r, ok := block.Body.(interface{ Range() hcl.Range }); ok {
+				endByte = r.Range().End.Byte
+			}
+			config.RawHCL = string(hclfile.Bytes[block.DefRange.Start.Byte:endByte])
+		}
+		diags = append(diags, blockDiags...)
 	}
 
 	return c, diags

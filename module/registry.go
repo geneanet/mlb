@@ -16,6 +16,7 @@ type Config struct {
 	Name     string
 	Config   hcl.Body
 	Ctx      *hcl.EvalContext
+	RawHCL   string
 }
 
 // FullID returns the canonical identifier for the module, prefixed by its category.

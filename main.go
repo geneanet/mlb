@@ -3,9 +3,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
-	"mlb/backend"
 	_ "mlb/backends_inventory/consul"
 	_ "mlb/backends_inventory/static"
 	_ "mlb/backends_processor/consul_kv"
@@ -14,6 +12,7 @@ import (
 	_ "mlb/backends_processor/simple_filter"
 	_ "mlb/balancer/wrr"
 	"mlb/config"
+	"mlb/dashboard"
 	"mlb/metrics"
 	"mlb/module"
 	_ "mlb/proxy/memcache"
@@ -104,24 +103,11 @@ func main() {
 			}
 		}
 
-		// HTTP Metrics
-		http.HandleFunc("/backends", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Add("Content-Type", "application/json")
-			backendListProviders := module.Filter[backend.BackendListProvider](ml)
-			backendsByProvider := make(map[string]backend.BackendsList, len(backendListProviders))
-			for id := range backendListProviders {
-				backendsByProvider[id] = module.Get[backend.BackendListProvider](backendListProviders, id).GetBackendList()
-			}
-			out, err := json.Marshal(backendsByProvider)
-			if err != nil {
-				http.Error(w, "serialization error", http.StatusInternalServerError)
-				return
-			}
-			if _, err := w.Write(out); err != nil {
-				log.Warn().Err(err).Msg("Failed to write /backends response")
-			}
-		})
+		// Metrics
 		http.Handle("/metrics", metrics.HttpLogWrapper(promhttp.Handler()))
+
+		// Dashboard and API handlers
+		dashboard.RegisterHandlers(http.DefaultServeMux, ml, conf)
 
 		if conf.Metrics != nil {
 			if err := metrics.NewHTTPServer(conf.Metrics.Address, &wg, ctx); err != nil {

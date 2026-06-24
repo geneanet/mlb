@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MLB Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.14.1/cdn.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss-browser/4.1.13/index.global.min.js"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+        .mermaid svg { max-width: 100%; height: auto; }
+        .node:hover { cursor: pointer; filter: brightness(0.9); }
+        
+        /* Module labels in graph */
+        .mod-label { font-size: 9px; font-weight: 700; padding: 2px 5px; border-radius: 4px; text-transform: uppercase; line-height: 1; }
+        .mod-label-cat { background: rgba(0,0,0,0.1); color: #475569; border: 1px solid rgba(0,0,0,0.1); }
+        .mod-label-type { background: #e4eeff; color: white; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-900 font-sans h-screen flex flex-col" x-data="dashboard()">
+    <!-- Header -->
+    <header class="bg-slate-800 text-white p-4 shadow-md flex justify-between items-center">
+        <div class="flex items-center space-x-3">
+            <div class="bg-blue-500 p-2 rounded-lg">
+                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+            </div>
+            <h1 class="text-xl font-bold tracking-tight">MLB Service Dashboard</h1>
+        </div>
+        <div class="flex items-center space-x-6">
+            <span class="text-xs font-mono bg-slate-700 px-2 py-1 rounded text-slate-300" 
+                  x-text="'Last refresh: ' + lastRefreshText"></span>
+            
+            <!-- Auto Refresh Toggle -->
+            <label class="flex items-center cursor-pointer space-x-2 group">
+                <span class="text-xs font-medium text-slate-400 group-hover:text-slate-300 transition-colors">Auto-Refresh</span>
+                <div class="relative">
+                    <input type="checkbox" x-model="autoRefresh" class="sr-only">
+                    <div class="block bg-slate-700 w-10 h-6 rounded-full transition-colors" :class="autoRefresh ? 'bg-blue-600' : 'bg-slate-700'"></div>
+                    <div class="dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform duration-200 ease-in-out" :class="autoRefresh ? 'translate-x-4' : ''"></div>
+                </div>
+            </label>
+
+            <button @click="refresh()" 
+                    class="bg-slate-700 hover:bg-slate-600 border border-slate-600 px-3 py-1 rounded text-sm transition-all flex items-center space-x-2"
+                    :class="loading ? 'opacity-50 cursor-not-allowed' : ''">
+                <svg class="w-3.5 h-3.5" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                <span>Refresh</span>
+            </button>
+        </div>
+    </header>
+
+    <div class="flex-1 flex overflow-hidden">
+        <!-- Main Content: Graph -->
+        <main class="flex-1 overflow-auto p-6 flex flex-col">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex-1 flex flex-col">
+                <div class="p-4 border-b border-gray-100 flex justify-between items-center">
+                    <h2 class="font-semibold text-gray-700">Service Topology</h2>
+                    <span class="text-xs text-gray-400">Click on a module to inspect its backends</span>
+                </div>
+                <div class="flex-1 flex items-center justify-center p-4 relative">
+                    <div id="mermaid-container" class="mermaid w-full h-full flex items-center justify-center" x-ref="mermaid">
+                        <!-- Mermaid graph will be rendered here -->
+                    </div>
+                    <div x-show="loading" class="absolute inset-0 bg-white/50 flex items-center justify-center">
+                        <svg class="animate-spin h-8 w-8 text-blue-600" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Sidebar: Module Details -->
+        <aside class="bg-white border-l border-gray-200 flex flex-col shadow-xl transform transition-transform duration-300 ease-in-out relative z-40" 
+               :class="selectedModule ? 'translate-x-0' : 'translate-x-full absolute right-0 inset-y-0 shadow-none border-l-0'"
+               :style="selectedModule ? 'width: ' + sidebarWidth + 'px; transition: ' + (isResizing ? 'none' : 'transform 0.3s ease-in-out') : ''"
+               x-cloak>
+            
+            <!-- Resize Handle -->
+            <div @mousedown="startResizing" 
+                 class="absolute inset-y-0 left-0 w-1.5 cursor-col-resize hover:bg-blue-400 group transition-colors flex items-center justify-center">
+                <div class="w-0.5 h-8 bg-gray-200 group-hover:bg-white rounded-full"></div>
+            </div>
+
+            <template x-if="selectedModule">
+                <div class="flex flex-col h-full">
+                    <div class="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                        <div>
+                            <h3 class="font-bold text-gray-800" x-text="selectedModule.name"></h3>
+                            <div class="flex space-x-2 mt-1">
+                                <span class="px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-600 font-bold uppercase tracking-wider border border-slate-200" x-text="selectedModule.category.split('_').pop()"></span>
+                                <span class="px-1.5 py-0.5 rounded text-[10px] bg-blue-100 text-blue-700 font-bold uppercase tracking-wider border border-blue-200" x-text="selectedModule.type"></span>
+                            </div>
+                        </div>
+                        <button @click="selectedModule = null" class="text-gray-400 hover:text-gray-600">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+                    </div>
+
+                    <div class="flex-1 overflow-auto p-4 space-y-6">
+                        <!-- Module Info -->
+                        <section>
+                            <h4 class="text-xs font-semibold text-gray-400 uppercase mb-2">Configuration</h4>
+                            <div class="space-y-2">
+                                <div class="bg-gray-50 rounded p-3 text-sm font-mono break-all border border-gray-100">
+                                    <span class="text-blue-600 font-bold">ID:</span> <span x-text="selectedModule.id"></span>
+                                </div>
+                                <div class="bg-slate-800 rounded p-3 text-xs font-mono text-blue-300 border border-slate-700 shadow-inner overflow-x-auto">
+                                    <h5 class="text-[10px] font-bold text-slate-500 uppercase mb-2 border-b border-slate-700 pb-1">Raw HCL</h5>
+                                    <pre x-text="selectedModule.hcl" class="leading-relaxed"></pre>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- Proxy Metrics -->
+                        <template x-if="selectedModule.category === 'proxy' && currentProxyMetrics">
+                            <section>
+                                <h4 class="text-xs font-semibold text-gray-400 uppercase mb-3">Frontend Metrics</h4>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div class="bg-gray-50 p-3 rounded-lg border border-gray-100">
+                                        <div class="text-[10px] uppercase text-gray-400 font-bold mb-1">Active Cnx</div>
+                                        <div class="text-lg font-bold text-gray-700" x-text="currentProxyMetrics.active_connections"></div>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded-lg border border-gray-100">
+                                        <div class="text-[10px] uppercase text-gray-400 font-bold mb-1">Total Cnx</div>
+                                        <div class="text-lg font-bold text-gray-700" x-text="currentProxyMetrics.processed_connections"></div>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded-lg border border-gray-100">
+                                        <div class="text-[10px] uppercase text-gray-400 font-bold mb-1">Requests</div>
+                                        <div class="text-lg font-bold text-gray-700" x-text="currentProxyMetrics.requests"></div>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded-lg border border-gray-100">
+                                        <div class="text-[10px] uppercase text-gray-400 font-bold mb-1">Errors</div>
+                                        <div class="text-lg font-bold text-red-600" x-text="currentProxyMetrics.errors"></div>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded-lg border border-gray-100">
+                                        <div class="text-[10px] uppercase text-gray-400 font-bold mb-1">Bytes In</div>
+                                        <div class="text-sm font-bold text-gray-700" x-text="formatBytes(currentProxyMetrics.bytes_in)"></div>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded-lg border border-gray-100">
+                                        <div class="text-[10px] uppercase text-gray-400 font-bold mb-1">Bytes Out</div>
+                                        <div class="text-sm font-bold text-gray-700" x-text="formatBytes(currentProxyMetrics.bytes_out)"></div>
+                                    </div>
+                                </div>
+                            </section>
+                        </template>
+
+                        <!-- Backends List -->
+                        <section>
+                            <div class="flex justify-between items-center mb-2">
+                                <h4 class="text-xs font-semibold text-gray-400 uppercase">Active Backends</h4>
+                                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full" x-text="currentBackends.length"></span>
+                            </div>
+                            
+                            <div class="space-y-2">
+                                <template x-for="be in currentBackends" :key="be.address">
+                                    <div class="border border-gray-100 rounded-lg overflow-hidden transition-all hover:border-blue-200">
+                                        <button @click="toggleBackend(be.address)" 
+                                                class="w-full text-left p-3 flex justify-between items-center bg-white hover:bg-blue-50/30">
+                                            <span class="font-medium text-sm text-gray-700" x-text="be.address"></span>
+                                            <svg class="w-4 h-4 text-gray-400 transition-transform" :class="expandedBackend === be.address ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                                        </button>
+                                        <div x-show="expandedBackend === be.address" x-collapse class="bg-gray-50 p-3 border-t border-gray-100">
+                                            <h5 class="text-[10px] font-bold text-gray-400 uppercase mb-2">Metadata</h5>
+                                            <div class="bg-white border border-gray-200 rounded overflow-hidden shadow-sm">
+                                                <table class="min-w-full divide-y divide-gray-200 text-[11px]">
+                                                    <thead class="bg-gray-50">
+                                                        <tr>
+                                                            <th class="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wider">Bucket</th>
+                                                            <th class="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wider">Key</th>
+                                                            <th class="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wider">Value</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody class="divide-y divide-gray-200 bg-white">
+                                                        <template x-for="(bucketContent, bucketName) in be.meta" :key="bucketName">
+                                                            <template x-for="(value, key) in bucketContent" :key="key">
+                                                                <tr>
+                                                                    <td class="px-3 py-2 text-gray-400 break-all whitespace-normal" x-text="bucketName"></td>
+                                                                    <td class="px-3 py-2 font-medium text-gray-900 break-all whitespace-normal" x-text="key"></td>
+                                                                    <td class="px-3 py-2 text-gray-600 break-all whitespace-normal">
+                                                                        <template x-if="typeof value === 'object' && value !== null">
+                                                                            <pre class="text-[10px] text-blue-600 font-mono" x-text="JSON.stringify(value)"></pre>
+                                                                        </template>
+                                                                        <template x-if="typeof value !== 'object' || value === null">
+                                                                            <span x-text="value"></span>
+                                                                        </template>
+                                                                    </td>
+                                                                </tr>
+                                                            </template>
+                                                        </template>
+                                                        <template x-if="!be.meta || Object.keys(be.meta).length === 0">
+                                                            <tr>
+                                                                <td colspan="3" class="px-3 py-4 text-center text-gray-400 italic">No metadata available</td>
+                                                            </tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                                <div x-show="currentBackends.length === 0" class="text-center py-8 text-gray-400 italic text-sm border-2 border-dashed border-gray-100 rounded-lg">
+                                    No active backends found
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            </template>
+        </aside>
+    </div>
+
+    <script>
+        function dashboard() {
+            return {
+                topology: [],
+                backends: {},
+                proxyMetrics: {},
+                selectedModule: null,
+                expandedBackend: null,
+                loading: true,
+                lastRefreshText: 'never',
+                lastRefresh: null,
+                sidebarWidth: 500,
+                isResizing: false,
+                autoRefresh: false,
+
+                async init() {
+                    mermaid.initialize({ 
+                        startOnLoad: false,
+                        theme: 'neutral',
+                        securityLevel: 'loose',
+                        flowchart: { useMaxWidth: true, curve: 'basis', htmlLabels: true }
+                    });
+                    
+                    await this.refresh();
+                    
+                    // Relative time counter
+                    setInterval(() => {
+                        this.updateRefreshText();
+                    }, 1000);
+
+                    // Auto refresh loop (5 seconds)
+                    setInterval(async () => {
+                        if (this.autoRefresh && !this.loading) {
+                            await this.refresh();
+                        }
+                    }, 5000);
+
+                    // Handle resizing
+                    window.addEventListener('mousemove', (e) => {
+                        if (!this.isResizing) return;
+                        const newWidth = window.innerWidth - e.clientX;
+                        if (newWidth > 300 && newWidth < window.innerWidth * 0.9) {
+                            this.sidebarWidth = newWidth;
+                        }
+                    });
+
+                    window.addEventListener('mouseup', () => {
+                        this.isResizing = false;
+                    });
+
+                    // Global callback for Mermaid clicks
+                    window.mermaidClick = (id) => {
+                        console.log("Mermaid clicked:", id);
+                        const node = this.topology.find(n => n.id.replace(/\./g, '_') === id);
+                        if (node) this.selectModule(node);
+                        else console.warn("Node not found for ID:", id);
+                    };
+                },
+
+                startResizing() {
+                    this.isResizing = true;
+                },
+
+                async refresh() {
+                    this.loading = true;
+                    try {
+                        const [topRes, beRes, metRes] = await Promise.all([
+                            fetch('/topology'),
+                            fetch('/backends'),
+                            fetch('/proxy_metrics')
+                        ]);
+                        this.topology = await topRes.json();
+                        this.backends = await beRes.json();
+                        this.proxyMetrics = await metRes.json();
+                        this.renderGraph();
+                        this.lastRefresh = Date.now();
+                        this.updateRefreshText();
+                    } catch (e) {
+                        console.error("Failed to fetch dashboard data", e);
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                updateRefreshText() {
+                    if (!this.lastRefresh) {
+                        this.lastRefreshText = 'never';
+                        return;
+                    }
+                    const diff = Math.floor((Date.now() - this.lastRefresh) / 1000);
+                    if (diff < 5) {
+                        this.lastRefreshText = 'just now';
+                    } else {
+                        this.lastRefreshText = `${diff}s ago`;
+                    }
+                },
+
+                renderGraph() {
+                    let definition = 'graph TD\n';
+                    
+                    // Colors for categories
+                    const colors = {
+                        backends_inventory: '#E0F2FE', // blue-100
+                        backends_processor: '#F0FDF4', // green-100
+                        balancer: '#FEF9C3',          // yellow-100
+                        proxy: '#F3F4F6'             // gray-100
+                    };
+
+                    this.topology.forEach(node => {
+                        const safeId = node.id.replace(/\./g, '_');
+                        const shortId = node.id.split('.').pop();
+                        const color = colors[node.category] || '#ffffff';
+                        const catShort = node.category.split('_').pop().toUpperCase();
+                        const typeName = node.type.toUpperCase();
+
+                        const labelHtml = `
+                            <div style="text-align: center; padding: 5px;">
+                                <div style="font-weight: bold; margin-bottom: 8px; color: #1e293b; font-size: 13px;">${shortId}</div>
+                                <div style="display: flex; gap: 4px; justify-content: center; align-items: center;">
+                                    <span class="mod-label mod-label-cat">${catShort}</span>
+                                    <span class="mod-label mod-label-type">${typeName}</span>
+                                </div>
+                            </div>
+                        `.replace(/\n/g, ' ').replace(/\s+/g, ' ');
+
+                        definition += `  ${safeId}("${labelHtml}")\n`;
+                        definition += `  style ${safeId} fill:${color},stroke:#94a3b8,stroke-width:1px,rx:8,ry:8\n`;
+                        definition += `  click ${safeId} call mermaidClick("${safeId}")\n`;
+                        
+                        if (node.source) {
+                            definition += `  ${node.source.replace(/\./g, '_')} --> ${safeId}\n`;
+                        }
+                    });
+
+                    const container = document.getElementById('mermaid-container');
+                    container.removeAttribute('data-processed');
+                    container.innerHTML = definition;
+                    container.classList.add('mermaid');
+                    
+                    // Use mermaid.init instead of mermaid.render for better click binding
+                    setTimeout(() => {
+                        mermaid.init(undefined, container);
+                    }, 50);
+                },
+
+                selectModule(node) {
+                    this.selectedModule = node;
+                    this.expandedBackend = null;
+                },
+
+                get currentBackends() {
+                    if (!this.selectedModule) return [];
+                    return this.backends[this.selectedModule.id] || [];
+                },
+
+                get currentProxyMetrics() {
+                    if (!this.selectedModule || this.selectedModule.category !== 'proxy') return null;
+                    return this.proxyMetrics[this.selectedModule.id] || {
+                        active_connections: 0,
+                        processed_connections: 0,
+                        bytes_in: 0,
+                        bytes_out: 0,
+                        requests: 0,
+                        errors: 0
+                    };
+                },
+
+                formatBytes(bytes) {
+                    if (bytes === 0) return '0 B';
+                    const k = 1024;
+                    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+                },
+
+                toggleBackend(address) {
+                    this.expandedBackend = this.expandedBackend === address ? null : address;
+                }
+            }
+        }
+    </script>
+</body>
+</html>
