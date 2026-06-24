@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math/rand"
 	"mlb/backend"
 	"mlb/config"
 	"mlb/metrics"
@@ -29,19 +30,19 @@ func init() {
 
 // MemcacheProxyConfig defines the HCL configuration for the Memcache proxy.
 type MemcacheProxyConfig struct {
-	ID                        string   `hcl:"id,label"`
-	Source                    string   `hcl:"source"`
-	Addresses                 []string `hcl:"addresses,optional"`
-	ConnectTimeout            string   `hcl:"connect_timeout,optional"`
-	CloseTimeout              string   `hcl:"close_timeout,optional"`
-	BufferSize                int      `hcl:"buffer_size,optional"`
-	ClientQueueSize           int      `hcl:"client_queue_size,optional"`
-	BackendInputQueueSize     int      `hcl:"backend_input_queue_size,optional"`
-	BackendInflightQueueSize  int      `hcl:"backend_inflight_queue_size,optional"`
-	BackendMinConnections     int      `hcl:"backend_min_connections,optional"`
-	BackendMaxConnections     int      `hcl:"backend_max_connections,optional"`
-	MaxFieldsPerCommand       int      `hcl:"max_fields_per_command,optional"`
-	FlushBackendWhenAdded     bool     `hcl:"flush_backend_when_added,optional"`
+	ID                       string   `hcl:"id,label"`
+	Source                   string   `hcl:"source"`
+	Addresses                []string `hcl:"addresses,optional"`
+	ConnectTimeout           string   `hcl:"connect_timeout,optional"`
+	CloseTimeout             string   `hcl:"close_timeout,optional"`
+	BufferSize               int      `hcl:"buffer_size,optional"`
+	ClientQueueSize          int      `hcl:"client_queue_size,optional"`
+	BackendInputQueueSize    int      `hcl:"backend_input_queue_size,optional"`
+	BackendInflightQueueSize int      `hcl:"backend_inflight_queue_size,optional"`
+	BackendMinConnections    int      `hcl:"backend_min_connections,optional"`
+	BackendMaxConnections    int      `hcl:"backend_max_connections,optional"`
+	MaxFieldsPerCommand      int      `hcl:"max_fields_per_command,optional"`
+	FlushBackendWhenAdded    bool     `hcl:"flush_backend_when_added,optional"`
 }
 
 // MemcacheProxy implements a Memcache-compatible proxy with consistent hashing support.
@@ -151,8 +152,8 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 		wg:                       wg,
 		backends:                 backend.NewRegistry(),
 		ring:                     newMemcacheHashRing(),
-		backendUpdatesChan:        make(chan backend.BackendUpdate, 100),
-		backendUpdatesChanClosed:  make(chan struct{}),
+		backendUpdatesChan:       make(chan backend.BackendUpdate, 100),
+		backendUpdatesChanClosed: make(chan struct{}),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, config.MaxFieldsPerCommand)
@@ -318,7 +319,7 @@ func (p *MemcacheProxy) ReceiveUpdate(upd backend.BackendUpdate) {
 // handleConnection parses the Memcache protocol for a single client connection.
 // It supports both the traditional ASCII protocol and the newer Meta Text protocol.
 // Commands are routed to backends using Ketama consistent hashing based on the key.
-// Storage commands with payloads (set, ms, etc.) are handled by reading the specified 
+// Storage commands with payloads (set, ms, etc.) are handled by reading the specified
 // number of bytes before forwarding.
 func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 	frontendAddress := connFront.LocalAddr().String()
@@ -556,9 +557,10 @@ func (p *MemcacheProxy) forwardSingle(q MemcacheQuery, key []byte) {
 	if key != nil {
 		b = p.ring.getBackend(key)
 	} else {
-		lst := p.backends.GetList() // TODO: Randomize selection
+		lst := p.backends.GetList()
 		if len(lst) > 0 {
-			b = lst[0]
+			// random selection for commands without a key
+			b = lst[rand.Intn(len(lst))]
 		}
 	}
 

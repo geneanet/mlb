@@ -1084,3 +1084,135 @@ func TestMemcacheProxyFlushOnConnectFunctional(t *testing.T) {
 		t.Fatal("Timeout waiting for flush_all")
 	}
 }
+
+func TestMemcacheProxyRandomization(t *testing.T) {
+	b1L, _ := net.Listen("tcp", "127.0.0.1:0")
+	defer b1L.Close()
+	b2L, _ := net.Listen("tcp", "127.0.0.1:0")
+	defer b2L.Close()
+
+	counts := make(map[string]int)
+	var mu sync.Mutex
+
+	handler := func(l net.Listener, name string) {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				reader := bufio.NewReader(c)
+				for {
+					line, _, err := reader.ReadLine()
+					if err != nil {
+						return
+					}
+					if bytes.HasPrefix(line, []byte("stats")) {
+						mu.Lock()
+						counts[name]++
+						mu.Unlock()
+						c.Write([]byte("END\r\n"))
+					} else if string(line) == "quit" {
+						return
+					}
+				}
+			}(conn)
+		}
+	}
+
+	go handler(b1L, "b1")
+	go handler(b2L, "b2")
+
+	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}
+	b2 := &backend.Backend{Address: b2L.Addr().String(), Meta: backend.NewMetaMap(nil)}
+
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	proxy := &MemcacheProxy{
+		id:                    "test_proxy_random",
+		source:                "mock",
+		ctx:                   ctx,
+		cancel:                cancel,
+		wg:                    wg,
+		backendMinConnections: 2,
+		backendMaxConnections: 2,
+		backends:              backend.NewRegistry(),
+		ring:                  newMemcacheHashRing(),
+		backendUpdatesChan:    make(chan backend.BackendUpdate, 10),
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
+	}
+	proxy.backendConnectionPool = NewMemcacheBackendConnectionPool(proxy)
+
+	go func() {
+		for {
+			select {
+			case <-proxy.ctx.Done():
+				return
+			case upd := <-proxy.backendUpdatesChan:
+				switch upd.Kind {
+				case backend.UpdBackendAdded:
+					proxy.backends.Add(upd.Backend.Clone())
+				}
+				proxy.ring.update(proxy.backends.GetList())
+				go proxy.backendConnectionPool.Update()
+			}
+		}
+	}()
+
+	proxy.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Backend: b1, Address: b1.Address})
+	proxy.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Backend: b2, Address: b2.Address})
+
+	time.Sleep(200 * time.Millisecond)
+
+	l, _ := net.Listen("tcp", "127.0.0.1:0")
+	defer l.Close()
+	
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			proxy.connectionsWG.Add(1)
+			go proxy.handleConnection(conn)
+		}
+	}()
+
+	client, err := net.Dial("tcp", l.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 100; i++ {
+		_, err := client.Write([]byte("stats\r\n"))
+		if err != nil {
+			t.Fatalf("Iteration %d: write failed: %v", i, err)
+		}
+		resp := make([]byte, 5)
+		_, err = io.ReadFull(client, resp)
+		if err != nil {
+			t.Fatalf("Iteration %d: read failed: %v", i, err)
+		}
+		if string(resp) != "END\r\n" {
+			t.Fatalf("Iteration %d: expected END\r\n, got %q", i, string(resp))
+		}
+	}
+	client.Write([]byte("quit\r\n"))
+	client.Close()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if counts["b1"] == 0 || counts["b2"] == 0 {
+		t.Errorf("Randomization failed: b1=%d, b2=%d", counts["b1"], counts["b2"])
+	}
+}
