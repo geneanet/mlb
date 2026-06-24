@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"mlb/backend"
-	"mlb/metrics"
 	"net"
 )
 
@@ -24,6 +23,7 @@ type RedisBackendConnection struct {
 	inFlight      chan RedisQuery
 	ctx           context.Context
 	cancel        context.CancelFunc
+	metrics       *Metrics
 }
 
 // NewRedisBackendConnection creates a new RedisBackendConnection and starts its lifecycle.
@@ -46,13 +46,14 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 		inputChan:     make(chan RedisQuery, pool.proxy.backendInputQueueSize), // ponytail: buffered to allow saturation check
 		inputChanStop: make(chan struct{}),
 		inFlight:      make(chan RedisQuery, pool.proxy.backendInflightQueueSize),
+		metrics:       pool.proxy.getBackendMetrics(backend.Address),
 	}
 
 	rbc.ctx, rbc.cancel = context.WithCancel(context.Background())
 
 	// Prometheus
-	metrics.BeCnxProcessed.WithLabelValues(backend.Address, rbc.pool.proxy.id).Inc()
-	metrics.BeActCnx.WithLabelValues(backend.Address, rbc.pool.proxy.id).Inc()
+	rbc.metrics.processed.Inc()
+	rbc.metrics.active.Inc()
 
 	// Open backend connection
 	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Opening Backend connection")
@@ -80,7 +81,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 		rbc.pool.NotifyFailure(rbc)
 
 		// Prometheus
-		metrics.BeActCnx.WithLabelValues(rbc.backend.Address, rbc.pool.proxy.id).Dec()
+		rbc.metrics.active.Dec()
 	})
 
 	// Read queries and send them to the backend
@@ -98,8 +99,8 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 					rbc.AbortInflightQueries() // Extra call to AbortInflightQueries in case the query we were processing has not been aborted by the "cleanup" goroutine
 					return
 				}
-				metrics.BeRequests.WithLabelValues(rbc.backend.Address, rbc.pool.proxy.id).Inc()
-				metrics.BeBytesOut.WithLabelValues(rbc.backend.Address, rbc.pool.proxy.id).Add(float64(n))
+				rbc.metrics.requests.Inc()
+				rbc.metrics.bytesOut.Add(float64(n))
 			case <-rbc.ctx.Done():
 				return
 			}
@@ -120,7 +121,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 				rbc.cancel()
 				return
 			}
-			metrics.BeBytesIn.WithLabelValues(rbc.backend.Address, rbc.pool.proxy.id).Add(float64(len(item)))
+			rbc.metrics.bytesIn.Add(float64(len(item)))
 			var query RedisQuery
 			select {
 			case query = <-rbc.inFlight:

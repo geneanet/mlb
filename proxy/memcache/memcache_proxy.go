@@ -19,6 +19,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sys/unix"
@@ -76,6 +77,18 @@ type MemcacheProxy struct {
 	backendMaxConnections    int
 	flushBackendWhenAdded    bool
 	fieldsPool               *sync.Pool
+	beMetricsCache           map[string]*Metrics
+	beMetricsMutex           sync.RWMutex
+}
+
+// Metrics holds Prometheus metrics for a specific backend or frontend.
+type Metrics struct {
+	processed prometheus.Counter
+	active    prometheus.Gauge
+	bytesIn   prometheus.Counter
+	bytesOut  prometheus.Counter
+	cnxErrors prometheus.Counter
+	requests  prometheus.Counter
 }
 
 // validateMemcacheProxyConfig validates the Memcache proxy configuration.
@@ -148,6 +161,7 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 		backendMinConnections:    config.BackendMinConnections,
 		backendMaxConnections:    config.BackendMaxConnections,
 		flushBackendWhenAdded:    config.FlushBackendWhenAdded,
+		beMetricsCache:           make(map[string]*Metrics),
 		log:                      log.With().Str("id", config.ID).Logger(),
 		wg:                       wg,
 		backends:                 backend.NewRegistry(),
@@ -227,6 +241,15 @@ func (p *MemcacheProxy) Bind(modules module.ModulesRegistry) {
 func (p *MemcacheProxy) listen(address string, wg *sync.WaitGroup) {
 	p.log.Info().Str("address", address).Msg("Opening Frontend")
 
+	feMetrics := &Metrics{
+		processed: metrics.FeCnxProcessed.WithLabelValues(address, p.id),
+		active:    metrics.FeActCnx.WithLabelValues(address, p.id),
+		bytesIn:   metrics.FeBytesIn.WithLabelValues(address, p.id),
+		bytesOut:  metrics.FeBytesOut.WithLabelValues(address, p.id),
+		cnxErrors: metrics.FeCnxErrors.WithLabelValues(address, p.id),
+		requests:  metrics.FeRequests.WithLabelValues(address, p.id),
+	}
+
 	// Set SO_REUSEPORT
 	lc := net.ListenConfig{
 		Control: func(network, address string, conn syscall.RawConn) error {
@@ -270,7 +293,7 @@ func (p *MemcacheProxy) listen(address string, wg *sync.WaitGroup) {
 			}
 			p.connectionsWG.Add(1)
 			p.log.Debug().Str("peer", conn.RemoteAddr().String()).Msg("Accepting Frontend connection")
-			go p.handleConnection(conn)
+			go p.handleConnection(conn, feMetrics)
 		}
 
 		p.connectionsWG.Wait()
@@ -321,8 +344,7 @@ func (p *MemcacheProxy) ReceiveUpdate(upd backend.BackendUpdate) {
 // Commands are routed to backends using Ketama consistent hashing based on the key.
 // Storage commands with payloads (set, ms, etc.) are handled by reading the specified
 // number of bytes before forwarding.
-func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
-	frontendAddress := connFront.LocalAddr().String()
+func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	peerAddress := connFront.RemoteAddr().String()
 
 	defer p.connectionsWG.Done()
@@ -358,14 +380,14 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 		if r := recover(); r != nil {
 			p.log.Error().Str("peer", peerAddress).Interface("error", r).Msg("Error while processing connection")
 			// Prometheus
-			metrics.FeCnxErrors.WithLabelValues(frontendAddress, p.id).Inc()
+			feMetrics.cnxErrors.Inc()
 		}
 	}()
 
 	// Prometheus
-	metrics.FeCnxProcessed.WithLabelValues(frontendAddress, p.id).Inc()
-	metrics.FeActCnx.WithLabelValues(frontendAddress, p.id).Inc()
-	defer metrics.FeActCnx.WithLabelValues(frontendAddress, p.id).Dec()
+	feMetrics.processed.Inc()
+	feMetrics.active.Inc()
+	defer feMetrics.active.Dec()
 
 	// Read response queue and write responses in order
 	futureChan := make(chan chan MemcacheResponse, p.clientQueueSize)
@@ -384,7 +406,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 							p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
 							cancel()
 						}
-						metrics.FeBytesOut.WithLabelValues(frontendAddress, p.id).Add(float64(n))
+						feMetrics.bytesOut.Add(float64(n))
 					} else {
 						cancel()
 					}
@@ -418,8 +440,8 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 			continue
 		}
 
-		metrics.FeRequests.WithLabelValues(frontendAddress, p.id).Inc()
-		metrics.FeBytesIn.WithLabelValues(frontendAddress, p.id).Add(float64(len(line)))
+		feMetrics.requests.Inc()
+		feMetrics.bytesIn.Add(float64(len(line)))
 
 		// ponytail: in-place lowercase for the command
 		cmd := fields[0]
@@ -470,7 +492,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 				p.releaseFields(fieldsPtr)
 				return
 			}
-			metrics.FeBytesIn.WithLabelValues(frontendAddress, p.id).Add(float64(len(payload)))
+			feMetrics.bytesIn.Add(float64(len(payload)))
 			// Forward the full command (header + payload) to the appropriate backend
 			// ponytail: using pooled buffer instead of bytes.Clone
 			buf := bufferPool.Get().(*bytes.Buffer)
@@ -506,7 +528,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn) {
 				p.releaseFields(fieldsPtr)
 				return
 			}
-			metrics.FeBytesIn.WithLabelValues(frontendAddress, p.id).Add(float64(len(payload)))
+			feMetrics.bytesIn.Add(float64(len(payload)))
 			// Forward to backend based on key
 			buf := bufferPool.Get().(*bytes.Buffer)
 			buf.Reset()
@@ -654,4 +676,22 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 
 	combinedResponse.Write([]byte("END\r\n"))
 	q.Reply(combinedResponse.Bytes())
+}
+
+func (p *MemcacheProxy) getBackendMetrics(backendAddress string) *Metrics {
+	p.beMetricsMutex.Lock()
+	defer p.beMetricsMutex.Unlock()
+
+	beM, exists := p.beMetricsCache[backendAddress]
+	if !exists {
+		beM = &Metrics{
+			processed: metrics.BeCnxProcessed.WithLabelValues(backendAddress, p.id),
+			active:    metrics.BeActCnx.WithLabelValues(backendAddress, p.id),
+			bytesIn:   metrics.BeBytesIn.WithLabelValues(backendAddress, p.id),
+			bytesOut:  metrics.BeBytesOut.WithLabelValues(backendAddress, p.id),
+			requests:  metrics.BeRequests.WithLabelValues(backendAddress, p.id),
+		}
+		p.beMetricsCache[backendAddress] = beM
+	}
+	return beM
 }

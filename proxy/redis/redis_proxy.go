@@ -16,6 +16,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sys/unix"
@@ -51,6 +52,18 @@ type RedisProxy struct {
 	retryPeriod               time.Duration
 	retryMaxPeriod            time.Duration
 	retryBackoffFactor        float64
+	beMetricsCache            map[string]*Metrics
+	beMetricsMutex            sync.RWMutex
+}
+
+// Metrics holds Prometheus metrics for a specific backend or frontend.
+type Metrics struct {
+	processed prometheus.Counter
+	active    prometheus.Gauge
+	bytesIn   prometheus.Counter
+	bytesOut  prometheus.Counter
+	cnxErrors prometheus.Counter
+	requests  prometheus.Counter
 }
 
 // RedisProxyConfig defines the HCL configuration for the Redis proxy.
@@ -161,6 +174,7 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) a
 		backendUpdatesChan:        make(chan backend.BackendUpdate, 100),
 		backendUpdatesChanClosed:  make(chan struct{}),
 		backends:                  backend.NewRegistry(),
+		beMetricsCache:            make(map[string]*Metrics),
 	}
 
 	var err error
@@ -225,6 +239,15 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) a
 func (p *RedisProxy) listen(address string, wg *sync.WaitGroup) {
 	p.log.Info().Str("address", address).Msg("Opening Frontend")
 
+	feMetrics := &Metrics{
+		processed: metrics.FeCnxProcessed.WithLabelValues(address, p.id),
+		active:    metrics.FeActCnx.WithLabelValues(address, p.id),
+		bytesIn:   metrics.FeBytesIn.WithLabelValues(address, p.id),
+		bytesOut:  metrics.FeBytesOut.WithLabelValues(address, p.id),
+		cnxErrors: metrics.FeCnxErrors.WithLabelValues(address, p.id),
+		requests:  metrics.FeRequests.WithLabelValues(address, p.id),
+	}
+
 	// Set SO_REUSEPORT
 	lc := net.ListenConfig{
 		Control: func(network, address string, conn syscall.RawConn) error {
@@ -268,15 +291,14 @@ func (p *RedisProxy) listen(address string, wg *sync.WaitGroup) {
 			}
 			p.connectionsWG.Add(1)
 			p.log.Debug().Str("peer", conn.RemoteAddr().String()).Msg("Accepting Frontend connection")
-			go p.handleConnection(conn)
+			go p.handleConnection(conn, feMetrics)
 		}
 
 		p.connectionsWG.Wait()
 	}()
 }
 
-func (p *RedisProxy) handleConnection(connFront net.Conn) {
-	frontendAddress := connFront.LocalAddr().String()
+func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	peerAddress := connFront.RemoteAddr().String()
 
 	defer p.connectionsWG.Done()
@@ -312,14 +334,14 @@ func (p *RedisProxy) handleConnection(connFront net.Conn) {
 		if r := recover(); r != nil {
 			p.log.Error().Str("peer", peerAddress).Interface("error", r).Msg("Error while processing connection")
 			// Prometheus
-			metrics.FeCnxErrors.WithLabelValues(frontendAddress, p.id).Inc()
+			feMetrics.cnxErrors.Inc()
 		}
 	}()
 
 	// Prometheus
-	metrics.FeCnxProcessed.WithLabelValues(frontendAddress, p.id).Inc()
-	metrics.FeActCnx.WithLabelValues(frontendAddress, p.id).Inc()
-	defer metrics.FeActCnx.WithLabelValues(frontendAddress, p.id).Dec()
+	feMetrics.processed.Inc()
+	feMetrics.active.Inc()
+	defer feMetrics.active.Dec()
 
 	// Get Backend Connection
 	backendConnection := p.backendConnectionPool.GetRandom(true)
@@ -342,7 +364,7 @@ func (p *RedisProxy) handleConnection(connFront net.Conn) {
 						p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
 						cancel()
 					}
-					metrics.FeBytesOut.WithLabelValues(frontendAddress, p.id).Add(float64(n))
+					feMetrics.bytesOut.Add(float64(n))
 				} else {
 					p.log.Debug().Uint64("queryId", response.query.id).Msg("Received failed response")
 					cancel()
@@ -365,8 +387,8 @@ func (p *RedisProxy) handleConnection(connFront net.Conn) {
 			panic("Unexpected error while reading from the client")
 		}
 
-		metrics.FeRequests.WithLabelValues(frontendAddress, p.id).Inc()
-		metrics.FeBytesIn.WithLabelValues(frontendAddress, p.id).Add(float64(len(item)))
+		feMetrics.requests.Inc()
+		feMetrics.bytesIn.Add(float64(len(item)))
 
 		query := NewRedisQuery(item, responseChan, responseChanStop)
 		p.log.Debug().Uint64("queryId", query.id).Msg("Received query")
@@ -393,6 +415,24 @@ func (p *RedisProxy) handleConnection(connFront net.Conn) {
 	}
 }
 
+
+func (p *RedisProxy) getBackendMetrics(backendAddress string) *Metrics {
+	p.beMetricsMutex.Lock()
+	defer p.beMetricsMutex.Unlock()
+
+	beM, exists := p.beMetricsCache[backendAddress]
+	if !exists {
+		beM = &Metrics{
+			processed: metrics.BeCnxProcessed.WithLabelValues(backendAddress, p.id),
+			active:    metrics.BeActCnx.WithLabelValues(backendAddress, p.id),
+			bytesIn:   metrics.BeBytesIn.WithLabelValues(backendAddress, p.id),
+			bytesOut:  metrics.BeBytesOut.WithLabelValues(backendAddress, p.id),
+			requests:  metrics.BeRequests.WithLabelValues(backendAddress, p.id),
+		}
+		p.beMetricsCache[backendAddress] = beM
+	}
+	return beM
+}
 
 func (p *RedisProxy) ReceiveUpdate(upd backend.BackendUpdate) {
 	select {

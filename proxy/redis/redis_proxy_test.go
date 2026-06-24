@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"mlb/backend"
+	"mlb/metrics"
 	"mlb/module"
 	"mlb/testutil"
 
@@ -399,6 +400,7 @@ func TestRedisProxy_HandleConnection_NoBackendPanic(t *testing.T) {
 		id:  "test-panic",
 		log: zerolog.Nop(),
 		ctx: ctx,
+		beMetricsCache: make(map[string]*Metrics),
 	}
 	p.backendConnectionPool = NewRedisBackendConnectionPool(p)
 
@@ -429,7 +431,7 @@ func TestRedisProxy_HandleConnection_NoBackendPanic(t *testing.T) {
 			t.Errorf("handleConnection panicked unexpectedly: %v", r)
 		}
 	}()
-	p.handleConnection(conn)
+	p.handleConnection(conn, dummyMetrics())
 }
 
 // TestRedisProxy_HandleConnection_FailedResponse verifies that an aborted response
@@ -445,6 +447,7 @@ func TestRedisProxy_HandleConnection_FailedResponse(t *testing.T) {
 		clientQueueSize: 10,
 		bufferSize:      1024,
 		ctx:             ctx,
+		beMetricsCache:  make(map[string]*Metrics),
 	}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -489,7 +492,7 @@ func TestRedisProxy_HandleConnection_FailedResponse(t *testing.T) {
 	p.connectionsWG.Add(1)
 	done := make(chan struct{})
 	go func() {
-		p.handleConnection(connFront)
+		p.handleConnection(connFront, dummyMetrics())
 		close(done)
 	}()
 
@@ -514,6 +517,7 @@ func TestRedisProxy_HandleConnection_BackendRetrySuccess(t *testing.T) {
 		clientQueueSize: 10,
 		bufferSize:      1024,
 		ctx:             ctx,
+		beMetricsCache:  make(map[string]*Metrics),
 	}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -570,7 +574,7 @@ func TestRedisProxy_HandleConnection_BackendRetrySuccess(t *testing.T) {
 	p.connectionsWG.Add(1)
 	done := make(chan struct{})
 	go func() {
-		p.handleConnection(connFront)
+		p.handleConnection(connFront, dummyMetrics())
 		close(done)
 	}()
 
@@ -594,6 +598,7 @@ func TestRedisProxy_HandleConnection_GracefulShutdownTimeout(t *testing.T) {
 		bufferSize:      1024,
 		closeTimeout:    10 * time.Millisecond,
 		ctx:             ctx,
+		beMetricsCache:  make(map[string]*Metrics),
 	}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -630,7 +635,7 @@ func TestRedisProxy_HandleConnection_GracefulShutdownTimeout(t *testing.T) {
 	p.connectionsWG.Add(1)
 	done := make(chan struct{})
 	go func() {
-		p.handleConnection(connFront)
+		p.handleConnection(connFront, dummyMetrics())
 		close(done)
 	}()
 
@@ -658,6 +663,7 @@ func TestRedisProxy_HandleConnection_ClientWriteError(t *testing.T) {
 		clientQueueSize: 10,
 		bufferSize:      1024,
 		ctx:             ctx,
+		beMetricsCache:  make(map[string]*Metrics),
 	}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -701,7 +707,7 @@ func TestRedisProxy_HandleConnection_ClientWriteError(t *testing.T) {
 	p.connectionsWG.Add(1)
 	done := make(chan struct{})
 	go func() {
-		p.handleConnection(connFront)
+		p.handleConnection(connFront, dummyMetrics())
 		close(done)
 	}()
 
@@ -724,6 +730,7 @@ func TestRedisProxy_HandleConnection_ClientReadError(t *testing.T) {
 		log:        zerolog.Nop(),
 		bufferSize: 1024,
 		ctx:        ctx,
+		beMetricsCache: make(map[string]*Metrics),
 	}
 
 	// Use the errorConnRedis from tcp_test.go (we'll need to define it or similar)
@@ -744,7 +751,7 @@ func TestRedisProxy_HandleConnection_ClientReadError(t *testing.T) {
 	p.connectionsWG.Add(1)
 	// We expect a panic, which is caught by the internal recover() in handleConnection
 	// and logged. We check that it didn't crash the test.
-	p.handleConnection(badConn)
+	p.handleConnection(badConn, dummyMetrics())
 }
 
 // TestRedisProxy_HandleConnection_RetryNoBackendPanic verifies that if a backend fails
@@ -759,6 +766,7 @@ func TestRedisProxy_HandleConnection_RetryNoBackendPanic(t *testing.T) {
 		clientQueueSize: 10,
 		bufferSize:      1024,
 		ctx:             ctx,
+		beMetricsCache:  make(map[string]*Metrics),
 	}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -794,7 +802,7 @@ func TestRedisProxy_HandleConnection_RetryNoBackendPanic(t *testing.T) {
 	p.backendConnectionPool.mutex.Unlock()
 
 	p.connectionsWG.Add(1)
-	p.handleConnection(connFront)
+	p.handleConnection(connFront, dummyMetrics())
 }
 
 // errorConnRedis is a mock net.Conn that returns an error on Read.
@@ -910,5 +918,16 @@ func TestRedisConfigParsing(t *testing.T) {
 	}
 	if p.backendInputQueueSize != 2000 {
 		t.Errorf("Expected input queue size 2000, got %d", p.backendInputQueueSize)
+	}
+}
+
+func dummyMetrics() *Metrics {
+	return &Metrics{
+		processed: metrics.FeCnxProcessed.WithLabelValues("test", "test"),
+		active:    metrics.FeActCnx.WithLabelValues("test", "test"),
+		bytesIn:   metrics.FeBytesIn.WithLabelValues("test", "test"),
+		bytesOut:  metrics.FeBytesOut.WithLabelValues("test", "test"),
+		cnxErrors: metrics.FeCnxErrors.WithLabelValues("test", "test"),
+		requests:  metrics.FeRequests.WithLabelValues("test", "test"),
 	}
 }

@@ -61,6 +61,7 @@ func TestGetFields(t *testing.T) {
 		backendMaxConnections:    1,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
+		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -91,6 +92,7 @@ func TestReadMemcacheResponseFull(t *testing.T) {
 		backendMaxConnections:    1,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
+		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)

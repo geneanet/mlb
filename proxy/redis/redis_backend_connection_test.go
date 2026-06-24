@@ -22,6 +22,7 @@ func TestNewRedisBackendConnection_DialFailure(t *testing.T) {
 		backendInflightQueueSize: 10,
 		connectTimeout:           50 * time.Millisecond,
 		log:                      zerolog.Nop(),
+		beMetricsCache:           make(map[string]*Metrics),
 	}
 	pool := &RedisBackendConnectionPool{
 		proxy:       p,
@@ -60,6 +61,7 @@ func TestNewRedisBackendConnection_Success(t *testing.T) {
 		connectTimeout:           1 * time.Second,
 		bufferSize:               1024,
 		log:                      zerolog.Nop(),
+		beMetricsCache:           make(map[string]*Metrics),
 	}
 	pool := &RedisBackendConnectionPool{
 		proxy:       p,
@@ -153,6 +155,7 @@ func TestRedisBackendConnection_UnexpectedWriteError(t *testing.T) {
 		connectTimeout:           1 * time.Second,
 		bufferSize:               1024,
 		log:                      zerolog.Nop(),
+		beMetricsCache:           make(map[string]*Metrics),
 	}
 	pool := &RedisBackendConnectionPool{
 		proxy:       p,
@@ -223,6 +226,7 @@ func TestRedisBackendConnection_ResetError(t *testing.T) {
 		connectTimeout:           1 * time.Second,
 		bufferSize:               1024,
 		log:                      zerolog.Nop(),
+		beMetricsCache:           make(map[string]*Metrics),
 	}
 	pool := &RedisBackendConnectionPool{
 		proxy:       p,
@@ -274,6 +278,7 @@ func TestRedisBackendConnection_UnexpectedReadError(t *testing.T) {
 		connectTimeout:           1 * time.Second,
 		bufferSize:               1024,
 		log:                      zerolog.Nop(),
+		beMetricsCache:           make(map[string]*Metrics),
 	}
 	pool := &RedisBackendConnectionPool{
 		proxy:       p,
@@ -335,7 +340,8 @@ func TestRedisBackendConnection_AbortInflightQueries(t *testing.T) {
 		inFlight: make(chan RedisQuery, 5),
 		pool: &RedisBackendConnectionPool{
 			proxy: &RedisProxy{
-				log: zerolog.Nop(),
+				log:            zerolog.Nop(),
+				beMetricsCache: make(map[string]*Metrics),
 			},
 		},
 		backend: &backend.Backend{Address: "127.0.0.1:1234"},
@@ -404,6 +410,7 @@ func TestRedisBackendConnection_WriteError(t *testing.T) {
 		connectTimeout:           1 * time.Second,
 		bufferSize:               1024,
 		ctx:                      context.Background(),
+		beMetricsCache:           make(map[string]*Metrics),
 	}
 	pool := NewRedisBackendConnectionPool(p)
 	p.backendConnectionPool = pool
@@ -456,6 +463,7 @@ func TestRedisBackendConnection_ReadError(t *testing.T) {
 		connectTimeout:           1 * time.Second,
 		bufferSize:               1024,
 		ctx:                      context.Background(),
+		beMetricsCache:           make(map[string]*Metrics),
 	}
 	pool := NewRedisBackendConnectionPool(p)
 	p.backendConnectionPool = pool

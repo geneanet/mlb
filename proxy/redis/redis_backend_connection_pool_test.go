@@ -24,6 +24,7 @@ func TestNewRedisBackendConnectionPool(t *testing.T) {
 		log:                zerolog.Nop(),
 		ctx:                ctx,
 		backendWaitTimeout: 10 * time.Millisecond,
+		beMetricsCache:     make(map[string]*Metrics),
 	}
 
 	pool := NewRedisBackendConnectionPool(p)
@@ -58,6 +59,7 @@ func TestRedisBackendConnectionPool_GetRandom(t *testing.T) {
 		log:                zerolog.Nop(),
 		ctx:                ctx,
 		backendWaitTimeout: 50 * time.Millisecond,
+		beMetricsCache:     make(map[string]*Metrics),
 	}
 
 	pool := NewRedisBackendConnectionPool(p)
@@ -99,6 +101,7 @@ func TestRedisBackendConnectionPool_Wait_Cancelled(t *testing.T) {
 		id:  "test-proxy-wait-cancel",
 		log: zerolog.Nop(),
 		ctx: context.Background(),
+		beMetricsCache: make(map[string]*Metrics),
 	}
 
 	pool := NewRedisBackendConnectionPool(p)
@@ -121,6 +124,7 @@ func TestRedisBackendConnectionPool_Wait_Success(t *testing.T) {
 		id:  "test-proxy-wait-success",
 		log: zerolog.Nop(),
 		ctx: context.Background(),
+		beMetricsCache: make(map[string]*Metrics),
 	}
 
 	pool := NewRedisBackendConnectionPool(p)
@@ -146,6 +150,7 @@ func TestRedisBackendConnectionPool_Wait_NotBlocked(t *testing.T) {
 		id:  "test-proxy-wait-not-blocked",
 		log: zerolog.Nop(),
 		ctx: context.Background(),
+		beMetricsCache: make(map[string]*Metrics),
 	}
 
 	pool := NewRedisBackendConnectionPool(p)
@@ -167,8 +172,10 @@ func TestRedisBackendConnectionPool_GetRandom_SuccessWait(t *testing.T) {
 		id:                 "test-proxy-success-wait",
 		log:                zerolog.Nop(),
 		ctx:                ctx,
-		backendWaitTimeout: 500 * time.Millisecond,
-	}
+		backendWaitTimeout: 100 * time.Millisecond,
+		beMetricsCache:     make(map[string]*Metrics),
+		}
+
 
 	pool := NewRedisBackendConnectionPool(p)
 	p.backendConnectionPool = pool
@@ -209,6 +216,7 @@ func TestRedisBackendConnectionPool_Del(t *testing.T) {
 		log:                zerolog.Nop(),
 		ctx:                ctx,
 		backendWaitTimeout: 50 * time.Millisecond,
+		beMetricsCache:     make(map[string]*Metrics),
 	}
 
 	pool := NewRedisBackendConnectionPool(p)
@@ -272,6 +280,7 @@ func TestRedisBackendConnectionPool_Update(t *testing.T) {
 		retryPeriod:               time.Millisecond,
 		retryMaxPeriod:            10 * time.Millisecond,
 		retryBackoffFactor:        1,
+		beMetricsCache:            make(map[string]*Metrics),
 	}
 
 	pool := NewRedisBackendConnectionPool(p)
@@ -318,6 +327,7 @@ func TestRedisBackendConnectionPool_NotifyFailure(t *testing.T) {
 		log:                zerolog.Nop(),
 		ctx:                ctx,
 		backendWaitTimeout: 50 * time.Millisecond,
+		beMetricsCache:     make(map[string]*Metrics),
 	}
 
 	pool := NewRedisBackendConnectionPool(p)
@@ -379,6 +389,7 @@ func TestRedisMinMaxPoolGrowth(t *testing.T) {
 		ctx:                       ctx,
 		cancel:                    cancel,
 		wg:                        wg,
+		beMetricsCache:            make(map[string]*Metrics),
 	}
 	proxy.backends.Add(b1)
 	pool := NewRedisBackendConnectionPool(proxy)

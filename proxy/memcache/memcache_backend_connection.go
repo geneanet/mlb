@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"mlb/backend"
-	"mlb/metrics"
 	"net"
 )
 
@@ -24,6 +23,7 @@ type MemcacheBackendConnection struct {
 	inFlight      chan MemcacheQuery // Queue of queries waiting for backend response
 	ctx           context.Context
 	cancel        context.CancelFunc
+	metrics       *Metrics
 }
 
 // NewMemcacheBackendConnection creates a new MemcacheBackendConnection and starts its
@@ -36,13 +36,14 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 		inputChan:     make(chan MemcacheQuery, pool.proxy.backendInputQueueSize),
 		inputChanStop: make(chan struct{}),
 		inFlight:      make(chan MemcacheQuery, pool.proxy.backendInflightQueueSize),
+		metrics:       pool.proxy.getBackendMetrics(backend.Address),
 	}
 
 	mbc.ctx, mbc.cancel = context.WithCancel(context.Background())
 
 	// Prometheus
-	metrics.BeCnxProcessed.WithLabelValues(backend.Address, mbc.pool.proxy.id).Inc()
-	metrics.BeActCnx.WithLabelValues(backend.Address, mbc.pool.proxy.id).Inc()
+	mbc.metrics.processed.Inc()
+	mbc.metrics.active.Inc()
 
 	mbc.pool.proxy.log.Debug().Str("peer", mbc.backend.Address).Msg("Opening Backend connection")
 	connBack, err := net.DialTimeout("tcp", mbc.backend.Address, mbc.pool.proxy.connectTimeout)
@@ -59,7 +60,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 		mbc.AbortInflightQueries()
 		mbc.pool.proxy.log.Debug().Str("peer", mbc.backend.Address).Msg("Notifying pool")
 		mbc.pool.NotifyFailure(mbc)
-		metrics.BeActCnx.WithLabelValues(mbc.backend.Address, mbc.pool.proxy.id).Dec()
+		mbc.metrics.active.Dec()
 	})
 
 	// Read queries and send them to the backend
@@ -78,8 +79,8 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 					mbc.AbortInflightQueries()
 					return
 				}
-				metrics.BeRequests.WithLabelValues(mbc.backend.Address, mbc.pool.proxy.id).Inc()
-				metrics.BeBytesOut.WithLabelValues(mbc.backend.Address, mbc.pool.proxy.id).Add(float64(n))
+				mbc.metrics.requests.Inc()
+				mbc.metrics.bytesOut.Add(float64(n))
 			case <-mbc.ctx.Done():
 				return
 			}
@@ -103,7 +104,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 				mbc.cancel()
 				return
 			}
-			metrics.BeBytesIn.WithLabelValues(mbc.backend.Address, mbc.pool.proxy.id).Add(float64(respBuffer.Len()))
+			mbc.metrics.bytesIn.Add(float64(respBuffer.Len()))
 
 			var query MemcacheQuery
 			select {

@@ -32,6 +32,7 @@ func TestMemcacheBackendConnectionPool_Del(t *testing.T) {
 		cancel:                    cancel,
 		backends:                  backend.NewRegistry(),
 		log:                       zerolog.Nop(),
+		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -78,6 +79,7 @@ func TestMemcacheBackendConnectionPool_UpdateRemovesDeadBackends(t *testing.T) {
 		cancel:                    cancel,
 		backends:                  backend.NewRegistry(),
 		log:                       zerolog.Nop(),
+		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -131,6 +133,7 @@ func TestMemcacheMinMaxPoolGrowth(t *testing.T) {
 		ctx:                      ctx,
 		cancel:                   cancel,
 		wg:                       wg,
+		beMetricsCache:           make(map[string]*Metrics),
 	}
 	proxy.backends.Add(b1)
 	pool := NewMemcacheBackendConnectionPool(proxy)
@@ -240,10 +243,11 @@ func TestMemcacheBackendConnectionPool_UpdateParallel(t *testing.T) {
 		backendMaxConnections:    1,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		ctx:                      ctx,
+		ctx:                       ctx,
 		cancel:                   cancel,
-		backends:                 backend.NewRegistry(),
-		log:                      zerolog.Nop(),
+		backends:                  backend.NewRegistry(),
+		log:                       zerolog.Nop(),
+		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)

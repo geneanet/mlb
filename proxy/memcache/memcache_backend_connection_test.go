@@ -40,6 +40,7 @@ func TestMemcacheBackendConnection_QueryAndAbort(t *testing.T) {
 		cancel:                    cancel,
 		backends:                  backend.NewRegistry(),
 		log:                       zerolog.Nop(),
+		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -100,6 +101,7 @@ func TestMemcacheBackendConnection_ReadFull(t *testing.T) {
 		cancel:                    cancel,
 		backends:                  backend.NewRegistry(),
 		log:                       zerolog.Nop(),
+		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"mlb/backend"
+	"mlb/metrics"
 	"mlb/module"
 	"net"
 	"sync"
@@ -296,6 +297,7 @@ func TestMemcacheProxyScatterGather(t *testing.T) {
 		backends:           backend.NewRegistry(),
 		ring:               newMemcacheHashRing(),
 		backendUpdatesChan: make(chan backend.BackendUpdate, 10),
+		beMetricsCache:     make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -338,7 +340,7 @@ func TestMemcacheProxyScatterGather(t *testing.T) {
 		conn, err := l.Accept()
 		if err == nil {
 			proxy.connectionsWG.Add(1)
-			go proxy.handleConnection(conn)
+			go proxy.handleConnection(conn, dummyMetrics())
 		}
 	}()
 
@@ -387,6 +389,7 @@ func TestMemcacheProxyEmptyBackends(t *testing.T) {
 		backends:                  backend.NewRegistry(),
 		ring:                      newMemcacheHashRing(),
 		backendUpdatesChan:        make(chan backend.BackendUpdate, 10),
+		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -405,7 +408,7 @@ func TestMemcacheProxyEmptyBackends(t *testing.T) {
 		conn, err := l.Accept()
 		if err == nil {
 			proxy.connectionsWG.Add(1)
-			go proxy.handleConnection(conn)
+			go proxy.handleConnection(conn, dummyMetrics())
 		}
 	}()
 
@@ -512,6 +515,7 @@ func TestMemcacheProxyProtocol(t *testing.T) {
 		backends:                  backend.NewRegistry(),
 		ring:                      newMemcacheHashRing(),
 		backendUpdatesChan:        make(chan backend.BackendUpdate, 10),
+		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -552,7 +556,7 @@ func TestMemcacheProxyProtocol(t *testing.T) {
 		conn, err := l.Accept()
 		if err == nil {
 			proxy.connectionsWG.Add(1)
-			go proxy.handleConnection(conn)
+			go proxy.handleConnection(conn, dummyMetrics())
 		}
 	}()
 
@@ -617,6 +621,7 @@ func TestMemcacheProxy_HandleConnection_GracefulShutdown(t *testing.T) {
 		wg:                    wg,
 		ctx:                   ctx,
 		cancel:                cancel,
+		beMetricsCache:        make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -634,7 +639,7 @@ func TestMemcacheProxy_HandleConnection_GracefulShutdown(t *testing.T) {
 		conn, err := l.Accept()
 		if err == nil {
 			proxy.connectionsWG.Add(1)
-			proxy.handleConnection(conn)
+			proxy.handleConnection(conn, dummyMetrics())
 		}
 	}()
 
@@ -674,6 +679,7 @@ func TestMemcacheProxy_ForwardSingle_Errors(t *testing.T) {
 		backendMaxConnections: 1,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
+		beMetricsCache:        make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -772,6 +778,7 @@ func TestMemcachePipelining(t *testing.T) {
 		backendInflightQueueSize: 512,
 		bufferSize:                16384,
 		clientQueueSize:           64,
+		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -794,7 +801,7 @@ func TestMemcachePipelining(t *testing.T) {
 		conn, err := lFront.Accept()
 		if err == nil {
 			p.connectionsWG.Add(1)
-			p.handleConnection(conn)
+			p.handleConnection(conn, dummyMetrics())
 		}
 	}()
 
@@ -868,6 +875,7 @@ func TestMemcacheProxyMetaProtocol(t *testing.T) {
 		backends:              backend.NewRegistry(),
 		ring:                  newMemcacheHashRing(),
 		backendUpdatesChan:    make(chan backend.BackendUpdate, 10),
+		beMetricsCache:        make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -888,7 +896,7 @@ func TestMemcacheProxyMetaProtocol(t *testing.T) {
 		conn, _ := l.Accept()
 		if conn != nil {
 			proxy.connectionsWG.Add(1)
-			go proxy.handleConnection(conn)
+			go proxy.handleConnection(conn, dummyMetrics())
 		}
 	}()
 
@@ -975,6 +983,7 @@ func TestMemcacheProxyMetaProtocolExpanded(t *testing.T) {
 		backends:              backend.NewRegistry(),
 		ring:                  newMemcacheHashRing(),
 		backendUpdatesChan:    make(chan backend.BackendUpdate, 10),
+		beMetricsCache:        make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -995,7 +1004,7 @@ func TestMemcacheProxyMetaProtocolExpanded(t *testing.T) {
 		conn, _ := l.Accept()
 		if conn != nil {
 			proxy.connectionsWG.Add(1)
-			go proxy.handleConnection(conn)
+			go proxy.handleConnection(conn, dummyMetrics())
 		}
 	}()
 
@@ -1074,6 +1083,7 @@ func TestMemcacheProxyFlushOnConnectFunctional(t *testing.T) {
 		ring:                      newMemcacheHashRing(),
 		backendUpdatesChan:        make(chan backend.BackendUpdate, 10),
 		backendUpdatesChanClosed:  make(chan struct{}),
+		beMetricsCache:            make(map[string]*Metrics),
 	}
 
 	go func() {
@@ -1162,6 +1172,7 @@ func TestMemcacheProxyRandomization(t *testing.T) {
 		backends:              backend.NewRegistry(),
 		ring:                  newMemcacheHashRing(),
 		backendUpdatesChan:    make(chan backend.BackendUpdate, 10),
+		beMetricsCache:        make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -1204,7 +1215,7 @@ func TestMemcacheProxyRandomization(t *testing.T) {
 				return
 			}
 			proxy.connectionsWG.Add(1)
-			go proxy.handleConnection(conn)
+			go proxy.handleConnection(conn, dummyMetrics())
 		}
 	}()
 
@@ -1234,5 +1245,16 @@ func TestMemcacheProxyRandomization(t *testing.T) {
 	defer mu.Unlock()
 	if counts["b1"] == 0 || counts["b2"] == 0 {
 		t.Errorf("Randomization failed: b1=%d, b2=%d", counts["b1"], counts["b2"])
+	}
+}
+
+func dummyMetrics() *Metrics {
+	return &Metrics{
+		processed: metrics.FeCnxProcessed.WithLabelValues("test", "test"),
+		active:    metrics.FeActCnx.WithLabelValues("test", "test"),
+		bytesIn:   metrics.FeBytesIn.WithLabelValues("test", "test"),
+		bytesOut:  metrics.FeBytesOut.WithLabelValues("test", "test"),
+		cnxErrors: metrics.FeCnxErrors.WithLabelValues("test", "test"),
+		requests:  metrics.FeRequests.WithLabelValues("test", "test"),
 	}
 }
