@@ -57,8 +57,10 @@ func TestMemcacheProtocolReader_ReadFull(t *testing.T) {
 
 func TestGetFields(t *testing.T) {
 	p := &MemcacheProxy{
-		backendMinConnections: 1,
-		backendMaxConnections: 1,
+		backendMinConnections:    1,
+		backendMaxConnections:    1,
+		backendInputQueueSize:    1024,
+		backendInflightQueueSize: 512,
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -85,8 +87,10 @@ func TestGetFields(t *testing.T) {
 
 func TestReadMemcacheResponseFull(t *testing.T) {
 	p := &MemcacheProxy{
-		backendMinConnections: 1,
-		backendMaxConnections: 1,
+		backendMinConnections:    1,
+		backendMaxConnections:    1,
+		backendInputQueueSize:    1024,
+		backendInflightQueueSize: 512,
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)

@@ -30,17 +30,12 @@ type MemcacheBackendConnection struct {
 // background goroutines for reading and writing. It returns an error if the initial
 // connection to the backend fails.
 func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *backend.Backend) (*MemcacheBackendConnection, error) {
-	queueSize := pool.proxy.backendInflightQueueSize
-	if queueSize == 0 { // TODO: that should not be useful except for the tests ?
-		queueSize = 512
-	}
-
 	mbc := &MemcacheBackendConnection{
 		pool:          pool,
 		backend:       backend,
 		inputChan:     make(chan MemcacheQuery, pool.proxy.backendInputQueueSize),
 		inputChanStop: make(chan struct{}),
-		inFlight:      make(chan MemcacheQuery, queueSize),
+		inFlight:      make(chan MemcacheQuery, pool.proxy.backendInflightQueueSize),
 	}
 
 	mbc.ctx, mbc.cancel = context.WithCancel(context.Background())
@@ -216,7 +211,7 @@ func (p *MemcacheProxy) readMemcacheResponseFull(r *MemcacheProtocolReader, w io
 			}
 			p.releaseFields(fieldsPtr)
 			// VA is a final response for a single mg command
-			// ponytail: Meta protocol commands are usually single-line or single-payload, 
+			// ponytail: Meta protocol commands are usually single-line or single-payload,
 			// unlike multi-get which requires END.
 			return nil
 		} else if bytes.HasPrefix(line, []byte("STORED")) || bytes.HasPrefix(line, []byte("NOT_STORED")) || bytes.HasPrefix(line, []byte("EXISTS")) || bytes.HasPrefix(line, []byte("NOT_FOUND")) || bytes.HasPrefix(line, []byte("DELETED")) || bytes.HasPrefix(line, []byte("ERROR")) || bytes.HasPrefix(line, []byte("CLIENT_ERROR")) || bytes.HasPrefix(line, []byte("SERVER_ERROR")) || bytes.HasPrefix(line, []byte("OK")) || bytes.HasPrefix(line, []byte("HD")) || bytes.HasPrefix(line, []byte("NF")) || bytes.HasPrefix(line, []byte("EX")) || bytes.HasPrefix(line, []byte("NS")) || bytes.HasPrefix(line, []byte("EN")) {
