@@ -220,3 +220,52 @@ func TestMemcacheMinMaxPoolGrowth(t *testing.T) {
 	}
 	pool.mutex.RUnlock()
 }
+
+func TestMemcacheBackendConnectionPool_UpdateParallel(t *testing.T) {
+	// One good backend, one faulty (not listening)
+	b1L, _ := net.Listen("tcp", "127.0.0.1:0")
+	defer b1L.Close()
+	go dummyMemcacheServer(b1L, "v1")
+
+	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}
+	b2 := &backend.Backend{Address: "127.0.0.1:1", Meta: backend.NewMetaMap(nil)} // Faulty address
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	proxy := &MemcacheProxy{
+		id:                       "test_parallel",
+		connectTimeout:           100 * time.Millisecond,
+		backendMinConnections:    1,
+		backendMaxConnections:    1,
+		backendInputQueueSize:    1024,
+		backendInflightQueueSize: 512,
+		ctx:                      ctx,
+		cancel:                   cancel,
+		backends:                 backend.NewRegistry(),
+		log:                      zerolog.Nop(),
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
+	}
+	proxy.backends.Add(b1)
+	proxy.backends.Add(b2)
+
+	pool := NewMemcacheBackendConnectionPool(proxy)
+
+	// Update should return relatively quickly even if b2 is failing (due to parallelism and try limit)
+	pool.Update()
+
+	// b1 should be ready because it was processed in parallel with b2
+	pool.mutex.Lock()
+	p1Len := len(pool.pools[b1.Address])
+	pool.mutex.Unlock()
+
+	if p1Len < 1 {
+		t.Errorf("Expected backend 1 to be ready, but it has 0 connections")
+	}
+}
+

@@ -141,36 +141,47 @@ func (mbcp *MemcacheBackendConnectionPool) Update() {
 	}
 	mbcp.mutex.Unlock()
 
-	backoff := misc.NewExponentialBackoff(100*time.Millisecond, 1*time.Second, 1.5)
-
 	// Ensure each backend has the required number of connections
-	// TODO: Ensure one faulty backend does not prevent the others to reach the wanted number of connections (give up after a few tries ?)
-	for _, backend := range backends {
-		for {
-			mbcp.mutex.Lock()
-			poolLen := len(mbcp.pools[backend.Address])
-			mbcp.mutex.Unlock()
-
-			if poolLen >= mbcp.proxy.backendMinConnections {
-				break
-			}
-
-			mbc, err := NewMemcacheBackendConnection(mbcp, backend)
-			if err != nil {
-				mbcp.proxy.log.Warn().Err(err).Str("peer", backend.Address).Msg("Unable to connect to backend")
-				backoff.Sleep(mbcp.ctx)
-			} else {
+	// ponytail: backends are processed in parallel to ensure one faulty backend doesn't block others.
+	// We give up after 3 consecutive failures per backend to avoid blocking the update process indefinitely.
+	var wg sync.WaitGroup
+	for _, be := range backends {
+		wg.Add(1)
+		go func(b *backend.Backend) {
+			defer wg.Done()
+			backoff := misc.NewExponentialBackoff(100*time.Millisecond, 1*time.Second, 1.5)
+			tries := 0
+			for tries < 3 {
 				mbcp.mutex.Lock()
-				mbcp.pools[backend.Address] = append(mbcp.pools[backend.Address], mbc)
+				poolLen := len(mbcp.pools[b.Address])
 				mbcp.mutex.Unlock()
-				backoff.Reset()
-			}
 
-			select {
-			case <-mbcp.ctx.Done():
-				return
-			default:
+				if poolLen >= mbcp.proxy.backendMinConnections {
+					break
+				}
+
+				mbc, err := NewMemcacheBackendConnection(mbcp, b)
+				if err != nil {
+					mbcp.proxy.log.Warn().Err(err).Str("peer", b.Address).Msg("Unable to connect to backend")
+					tries++
+					if tries < 3 {
+						backoff.Sleep(mbcp.ctx)
+					}
+				} else {
+					mbcp.mutex.Lock()
+					mbcp.pools[b.Address] = append(mbcp.pools[b.Address], mbc)
+					mbcp.mutex.Unlock()
+					backoff.Reset()
+					tries = 0
+				}
+
+				select {
+				case <-mbcp.ctx.Done():
+					return
+				default:
+				}
 			}
-		}
+		}(be)
 	}
+	wg.Wait()
 }
