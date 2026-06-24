@@ -41,6 +41,7 @@ type MemcacheProxyConfig struct {
 	BackendMinConnections     int      `hcl:"backend_min_connections,optional"`
 	BackendMaxConnections     int      `hcl:"backend_max_connections,optional"`
 	MaxFieldsPerCommand       int      `hcl:"max_fields_per_command,optional"`
+	FlushBackendWhenAdded     bool     `hcl:"flush_backend_when_added,optional"`
 }
 
 // MemcacheProxy implements a Memcache-compatible proxy with consistent hashing support.
@@ -72,6 +73,7 @@ type MemcacheProxy struct {
 	backendInflightQueueSize int
 	backendMinConnections    int
 	backendMaxConnections    int
+	flushBackendWhenAdded    bool
 	fieldsPool               *sync.Pool
 }
 
@@ -144,6 +146,7 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 		backendInflightQueueSize: config.BackendInflightQueueSize,
 		backendMinConnections:    config.BackendMinConnections,
 		backendMaxConnections:    config.BackendMaxConnections,
+		flushBackendWhenAdded:    config.FlushBackendWhenAdded,
 		log:                      log.With().Str("id", config.ID).Logger(),
 		wg:                       wg,
 		backends:                 backend.NewRegistry(),
@@ -187,7 +190,12 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 			select {
 			case upd := <-p.backendUpdatesChan:
 				switch upd.Kind {
-				case backend.UpdBackendAdded, backend.UpdBackendModified:
+				case backend.UpdBackendAdded:
+					if p.flushBackendWhenAdded {
+						p.flushBackend(upd.Backend)
+					}
+					p.backends.Add(upd.Backend.Clone())
+				case backend.UpdBackendModified:
 					p.backends.Add(upd.Backend.Clone())
 				case backend.UpdBackendRemoved:
 					p.backends.Remove(upd.Address)
@@ -266,6 +274,37 @@ func (p *MemcacheProxy) listen(address string, wg *sync.WaitGroup) {
 
 		p.connectionsWG.Wait()
 	}()
+}
+
+// flushBackend sends a flush_all command to the backend upon connection.
+func (p *MemcacheProxy) flushBackend(b *backend.Backend) {
+	conn, err := net.DialTimeout("tcp", b.Address, p.connectTimeout)
+	if err != nil {
+		p.log.Warn().Err(err).Str("peer", b.Address).Msg("Unable to connect to backend for auto-flush")
+		return
+	}
+	defer conn.Close()
+
+	timeout := p.connectTimeout
+	if timeout == 0 {
+		timeout = 5 * time.Second
+	}
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		p.log.Warn().Err(err).Str("peer", b.Address).Msg("Failed to set deadline for auto-flush")
+		return
+	}
+
+	if _, err := conn.Write([]byte("flush_all\r\n")); err != nil {
+		p.log.Warn().Err(err).Str("peer", b.Address).Msg("Failed to send flush_all command")
+		return
+	}
+
+	buf := make([]byte, 8)
+	if _, err := conn.Read(buf); err != nil {
+		p.log.Warn().Err(err).Str("peer", b.Address).Msg("Failed to read flush_all response")
+	} else {
+		p.log.Debug().Str("peer", b.Address).Msg("Backend flushed successfully on connect")
+	}
 }
 
 // ReceiveUpdate receives a backend update and sends it to the background worker.

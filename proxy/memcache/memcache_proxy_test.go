@@ -15,6 +15,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -1011,5 +1012,75 @@ func TestMemcacheProxyMetaProtocolExpanded(t *testing.T) {
 				t.Errorf("For %q, expected %q, got %q", tt.req, tt.resp, string(resp))
 			}
 		}
+	}
+}
+
+func TestMemcacheProxyFlushOnConnectFunctional(t *testing.T) {
+	b1L, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	defer b1L.Close()
+
+	flushReceived := make(chan bool, 1)
+	go func() {
+		conn, err := b1L.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		reader := bufio.NewReader(conn)
+		line, _ := reader.ReadString('\n')
+		if line == "flush_all\r\n" {
+			conn.Write([]byte("OK\r\n"))
+			flushReceived <- true
+		}
+	}()
+
+	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}
+
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	proxy := &MemcacheProxy{
+		id:                        "test_proxy",
+		source:                    "mock",
+		log:                       zerolog.Nop(),
+		ctx:                       ctx,
+		cancel:                    cancel,
+		wg:                        wg,
+		connectTimeout:            time.Second,
+		flushBackendWhenAdded:    true,
+		backends:                  backend.NewRegistry(),
+		ring:                      newMemcacheHashRing(),
+		backendUpdatesChan:        make(chan backend.BackendUpdate, 10),
+		backendUpdatesChanClosed:  make(chan struct{}),
+	}
+
+	go func() {
+		for {
+			select {
+			case <-proxy.ctx.Done():
+				return
+			case upd := <-proxy.backendUpdatesChan:
+				switch upd.Kind {
+				case backend.UpdBackendAdded:
+					if proxy.flushBackendWhenAdded {
+						proxy.flushBackend(upd.Backend)
+					}
+					proxy.backends.Add(upd.Backend.Clone())
+				}
+			}
+		}
+	}()
+
+	proxy.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Backend: b1, Address: b1.Address})
+
+	select {
+	case <-flushReceived:
+		// success
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for flush_all")
 	}
 }
