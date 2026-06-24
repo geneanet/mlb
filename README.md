@@ -5,111 +5,37 @@ It is designed to be easily extensible through its modular architecture and prov
 
 ## Key Features
 
-- **Modular Architecture:** Build your load-balancing stack by composing Inventories, Processors, Balancers, and Proxies.
-- **Service Discovery:** Native support for Consul (health checks and KV) and static configurations.
-- **Deep Health Probing:** Built-in MySQL and Redis health checkers with replication awareness and role detection.
-- **Zero-Downtime Restarts:** Integrated process manager allows for configuration reloads without dropping connections.
-- **Redis & Memcache Protocol Support:** Specialized proxies for Redis and Memcache with command filtering, consistent hashing and connection pooling.
-- **Observability:** Prometheus metrics and structured logging (zerolog).
-- **HCL Configuration:** Human-friendly configuration using HashiCorp Configuration Language.
+- **Multi-protocol Support:** TCP, Redis, and Memcache.
+- **Dynamic Backend Discovery:** Support for Consul and static host lists.
+- **Advanced Health Checking:** Native health checks for MySQL and Redis.
+- **Flexible Filtering:** Filter and sort backends based on rich metadata using HCL expressions.
+- **Load Balancing:** Weighted Round-Robin (WRR) with dynamic weight resolution.
+- **Observability:** Prometheus metrics and a built-in topology dashboard.
+- **Performance:** Designed for high throughput with connection pooling and efficient protocol handling.
 
-## Architecture
+## Documentation
 
-MLB uses a pipeline architecture where backends flow through several stages:
+Comprehensive documentation for MLB is available in the **[docs](docs/README.md)** folder:
 
-1.  **Backends Inventory:** Sources of backend addresses (e.g., `consul`, `static`).
-2.  **Backends Processor:** Enhances or filters backends based on metadata or health checks.
-    - `mysql`, `redis`: Deep health probing with replication awareness and role detection.
-    - `consul_kv`: Dynamic metadata enrichment from Consul KV.
-    - `simple_filter`: Powerful filtering, sorting, and limiting using HCL expressions.
-3.  **Balancer:** Selects a backend from a processed list using a specific algorithm (e.g., `wrr` - Weighted Round Robin).
-4.  **Proxy:** Accepts incoming connections and forwards traffic to the backend selected by the balancer (e.g., `tcp`, `redis`, `memcache`).
+- **[Architecture](docs/architecture.md)**: Core concepts and the pipeline model.
+- **[Operations Guide](docs/operations.md)**: Installation, CLI flags, and zero-downtime restarts.
+- **[Configuration Guide](docs/configuration.md)**: Global settings and HCL expressions.
+- **[Examples](docs/examples.md)**: Practical configuration snippets.
+- **[Monitoring](docs/dashboard.md)**: Dashboard and Prometheus metrics.
 
-## Getting Started
+Detailed module documentation:
+- [Backends Inventory](docs/backends_inventory.md)
+- [Backends Processor](docs/backends_processor.md)
+- [Balancer](docs/balancer.md)
+- [Proxy](docs/proxy.md)
 
-### Installation
+## Quickstart
 
-To build MLB from source, you need Go 1.22+:
+1.  **Build** MLB: `go build -o mlb .`
+2.  **Configure**: Create a `config.hcl` (see `config.example.hcl` for a template).
+3.  **Run**: `./mlb -config config.hcl`
 
-```bash
-go build -o mlb .
-```
-
-Alternatively, you can use the provided Dockerfile:
-
-```bash
-docker build -t mlb .
-```
-
-### Quickstart
-
-1.  Create a configuration file `config.hcl`. You can start from the `config.example.hcl` provided in the repository.
-2.  Run MLB:
-
-```bash
-./mlb -config config.hcl
-```
-
-### Zero-Downtime Restart
-
-To enable zero-downtime restarts, run MLB in process-manager mode:
-
-```bash
-./mlb -config config.hcl -process-manager
-```
-
-When you want to reload the configuration:
-1.  Send a `SIGHUP` to the process manager.
-2.  The process manager will start a new worker with the new configuration.
-3.  Once the new worker is ready, the old one will be gracefully shut down.
-
-## Configuration
-
-MLB uses HCL for its configuration. A comprehensive example with all available options can be found in `config.example.hcl`.
-
-### Basic Example
-
-```hcl
-backends_inventory "static" "my_servers" {
-  hosts = ["127.0.0.1:3306", "127.0.0.1:3307"]
-}
-
-balancer "wrr" "my_balancer" {
-  source = backends_inventory.static.my_servers
-}
-
-proxy "tcp" "my_proxy" {
-  source = balancer.wrr.my_balancer
-  addresses = [":3300"]
-}
-```
-
-### Advanced Filtering and Sorting
-
-The `simple_filter` processor allows for complex logic to select the best backends:
-
-```hcl
-backends_processor "simple_filter" "healthy_slaves" {
-  source = backends_processor.mysql.my_db
-  condition = (
-    backend.meta.mysql.status == "ok"
-    && backend.meta.mysql.readonly == true
-  )
-  sort_by = backend.meta.mysql.replica_latency
-  sort_order = "asc"
-  limit = 5
-}
-```
-
-## Observability
-
-MLB exposes Prometheus metrics on the port configured in the `metrics` block.
-
-```hcl
-metrics {
-  address = ":2112"
-}
-```
+For production use with zero-downtime reloads, see the [Operations Guide](docs/operations.md).
 
 ## License
 
