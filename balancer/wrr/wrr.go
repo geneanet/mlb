@@ -208,7 +208,8 @@ func (b *WRRBalancer) refreshSequence(weights map[string]int) {
 
 // GetBackend returns a backend from the pre-calculated SWRR sequence.
 // Selection is lock-free using an atomic counter and pointer.
-func (b *WRRBalancer) GetBackend(wait bool) *backend.Backend {
+// It returns the selected backend and a no-op release function.
+func (b *WRRBalancer) GetBackend(wait bool) (*backend.Backend, func()) {
 	state := b.state.Load()
 
 	// Wait for the backend list to be populated or a timeout to occur
@@ -222,9 +223,9 @@ func (b *WRRBalancer) GetBackend(wait bool) *backend.Backend {
 	if state.length > 0 {
 		idx := b.counter.Add(1) - 1
 		address := state.sequence[idx%state.length]
-		return b.backends.Get(address)
+		return b.backends.Get(address), func() {}
 	} else {
-		return nil
+		return nil, func() {}
 	}
 }
 

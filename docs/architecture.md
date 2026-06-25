@@ -8,7 +8,7 @@ The load-balancing stack is composed of four main types of modules:
 
 1.  **Backends Inventory:** Sources of backend addresses. They are responsible for discovering where the service instances are located (e.g., querying Consul or reading a static list).
 2.  **Backends Processor:** Enhances or filters backends. Processors can perform health checks (MySQL, Redis), fetch additional metadata (Consul KV), or filter the list based on complex conditions.
-3.  **Balancer:** Selects a backend from a processed list using a specific algorithm. Currently, MLB supports Weighted Round-Robin (`wrr`) with dynamic weight resolution.
+3.  **Balancer:** Selects a backend from a processed list using a specific algorithm. MLB supports Smooth Weighted Round-Robin (`wrr`) and Weighted Least Connections (`wlc`).
 4.  **Proxy:** Accepts incoming connections from clients and forwards traffic to the backend selected by the balancer. MLB provides specialized proxies for `tcp`, `redis`, and `memcache`.
 
 ## Metadata Flow

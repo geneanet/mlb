@@ -261,7 +261,7 @@ type BackendUpdateSubscriber interface {
 
 // BackendProvider is the interface for components that can provide a single backend.
 type BackendProvider interface {
-	GetBackend(wait bool) *Backend
+	GetBackend(wait bool) (*Backend, func())
 }
 
 // BackendListProvider is the interface for components that can provide a list of backends.

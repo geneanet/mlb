@@ -101,7 +101,9 @@ func TestWRRBalancer_WaitBackend(t *testing.T) {
 
 	backendChan := make(chan *backend.Backend)
 	go func() {
-		backendChan <- balancer.GetBackend(true)
+		be, rel := balancer.GetBackend(true)
+		defer rel()
+		backendChan <- be
 	}()
 
 	// Delay briefly so GetBackend(true) enters block state.
@@ -160,7 +162,8 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 
 	// Test timeout when no reg are available
 	start := time.Now()
-	timeoutBackend := balancer.GetBackend(true)
+	timeoutBackend, rel := balancer.GetBackend(true)
+	defer rel()
 	if timeoutBackend != nil {
 		t.Errorf("Expected nil backend on timeout")
 	}
@@ -176,7 +179,8 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 		return balancer.state.Load().length == 2
 	}, 1*time.Second, 10*time.Millisecond)
 
-	retrievedBackend := balancer.GetBackend(true) // Should return immediately now
+	retrievedBackend, rel := balancer.GetBackend(true) // Should return immediately now
+	defer rel()
 	if retrievedBackend == nil || retrievedBackend.Address != "127.0.0.1:8080" {
 		t.Errorf("Expected 127.0.0.1:8080, got %v", retrievedBackend)
 	}
@@ -342,7 +346,11 @@ func TestWRRBalancer_ContextCancellation(t *testing.T) {
 
 	var retrievedBackend *backend.Backend
 	testutil.Eventually(t, func() bool {
-		retrievedBackend = balancer.GetBackend(false)
+		var rel func()
+		retrievedBackend, rel = balancer.GetBackend(false)
+		if rel != nil {
+			defer rel()
+		}
 		return retrievedBackend != nil
 	}, 1*time.Second, 10*time.Millisecond)
 
@@ -413,11 +421,12 @@ func TestWRRBalancer_SmoothDistribution(t *testing.T) {
 	// Key is that "A" is not appearing 5 times in a row.
 	sequence := make([]string, 7)
 	for i := 0; i < 7; i++ {
-		be := balancer.GetBackend(false)
+		be, rel := balancer.GetBackend(false)
 		if be == nil {
 			t.Fatalf("GetBackend returned nil at index %d", i)
 		}
 		sequence[i] = be.Address
+		rel()
 	}
 
 	// Verify total counts

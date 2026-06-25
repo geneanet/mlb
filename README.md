@@ -9,7 +9,7 @@ It is designed to be easily extensible through its modular architecture and prov
 - **Dynamic Backend Discovery:** Support for Consul and static host lists.
 - **Advanced Health Checking:** Native health checks for MySQL and Redis.
 - **Flexible Filtering:** Filter and sort backends based on rich metadata using HCL expressions.
-- **Load Balancing:** Weighted Round-Robin (WRR) with dynamic weight resolution.
+- **Load Balancing:** Smooth Weighted Round-Robin (SWRR) and Weighted Least Connections (WLC) with dynamic weight resolution.
 - **Observability:** Prometheus metrics and a built-in topology dashboard.
 - **Performance:** Designed for high throughput with connection pooling and efficient protocol handling.
 

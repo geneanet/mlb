@@ -344,15 +344,16 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	}()
 
 	// Try to get a primary backend
-	backend := p.backendProvider.GetBackend(false)
+	backend, release := p.backendProvider.GetBackend(false)
 	// If no backend try to get a backup backend
 	if backend == nil && p.backupBackendProvider != nil {
-		backend = p.backupBackendProvider.GetBackend(false)
+		backend, release = p.backupBackendProvider.GetBackend(false)
 	}
 	// If still no backend try waiting for a primary backend
 	if backend == nil {
-		backend = p.backendProvider.GetBackend(true)
+		backend, release = p.backendProvider.GetBackend(true)
 	}
+	defer release()
 
 	var backendAddress string
 	if backend != nil {

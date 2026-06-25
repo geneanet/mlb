@@ -28,15 +28,15 @@ type mockBackendProvider struct {
 	mu             sync.RWMutex
 }
 
-func (m *mockBackendProvider) GetBackend(wait bool) *backend.Backend {
+func (m *mockBackendProvider) GetBackend(wait bool) (*backend.Backend, func()) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if m.returnNil {
-		return nil
+		return nil, func() {}
 	}
 	return &backend.Backend{
 		Address: m.backendAddress,
-	}
+	}, func() {}
 }
 
 func (m *mockBackendProvider) setReturnNil(v bool) {
@@ -767,8 +767,8 @@ type customBackendProvider struct {
 	be *backend.Backend
 }
 
-func (c *customBackendProvider) GetBackend(wait bool) *backend.Backend {
-	return c.be
+func (c *customBackendProvider) GetBackend(wait bool) (*backend.Backend, func()) {
+	return c.be, func() {}
 }
 
 
