@@ -32,8 +32,8 @@ Detailed module documentation:
 ## Quickstart
 
 1.  **Build** MLB: `go build -o mlb .`
-2.  **Configure**: Create a `config.hcl` (see `config.example.hcl` for a template).
-3.  **Run**: `./mlb -config config.hcl`
+2.  **Validate**: `./mlb -config config.example.hcl -configtest`
+3.  **Run**: `./mlb -config config.example.hcl`
 
 For production use with zero-downtime reloads, see the [Operations Guide](docs/operations.md).
 

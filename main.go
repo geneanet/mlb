@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	_ "mlb/backends_inventory/consul"
 	_ "mlb/backends_inventory/static"
 	_ "mlb/backends_processor/consul_kv"
@@ -11,6 +12,7 @@ import (
 	_ "mlb/backends_processor/redis"
 	_ "mlb/backends_processor/simple_filter"
 	_ "mlb/balancer/wrr"
+	_ "mlb/balancer/wlc"
 	"mlb/config"
 	"mlb/dashboard"
 	"mlb/metrics"
@@ -37,10 +39,21 @@ import (
 func main() {
 	// Parse CLI args
 	argConfig := flag.String("config", "config.hcl", "config file")
+	argConfigTest := flag.Bool("configtest", false, "validate configuration and exit")
 	argDebug := flag.Bool("debug", false, "sets log level to debug")
 	argProcessManager := flag.Bool("process-manager", false, "enable process manager mode")
 	argNotifyParent := flag.Bool("notify-parent", false, "send SIGUSR1 to parent once everything is running")
 	flag.Parse()
+
+	// Handle config test
+	if *argConfigTest {
+		_, diags := config.LoadConfig(*argConfig)
+		if diags.HasErrors() {
+			os.Exit(1)
+		}
+		fmt.Printf("Configuration %s is valid\n", *argConfig)
+		os.Exit(0)
+	}
 
 	// Setup logger
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Int("pid", os.Getpid()).Caller().Logger()

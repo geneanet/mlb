@@ -23,6 +23,7 @@ docker build -t mlb .
 ## CLI Arguments
 
 - `-config <path>`: Path to the HCL configuration file. Default: `config.hcl`.
+- `-configtest`: Checks the configuration syntax and schema for errors without starting the load balancer. Returns exit code 0 if valid, 1 otherwise. Uses the path from `-config`.
 - `-debug`: Enables debug logging level.
 - `-process-manager`: Enables the process manager mode for zero-downtime restarts.
 - `-notify-parent`: Internal flag used by worker processes to signal the process manager they are ready.
