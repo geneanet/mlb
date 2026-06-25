@@ -125,21 +125,35 @@ func (ml ModulesRegistry) AddModule(id string, m any) {
 
 // TODO: Rewrite Get and Filter as methods of ModulesRegistry when Go 1.27 (supporting generic methods) is released.
 
-// Get retrieves a module from the registry by ID and casts it to the desired type T.
-// It panics if the module does not exist or if the type assertion fails.
-func Get[T any](ml ModulesRegistry, id string) T {
+// TryGet retrieves a module from the registry by ID and attempts to cast it to type T.
+// It returns the zero value of T and false if the module does not exist or has a different type.
+func TryGet[T any](ml ModulesRegistry, id string) (T, bool) {
 	m, ok := ml[id]
 	if !ok {
-		log.Panic().Str("module", id).Msg("Module does not exist")
+		var zero T
+		return zero, false
 	}
 
 	target, ok := m.(T)
 	if !ok {
-		log.Panic().
-			Str("module", id).
-			Str("expected", fmt.Sprintf("%T", *new(T))).
-			Str("actual", fmt.Sprintf("%T", m)).
-			Msg("Module is not of the expected type")
+		var zero T
+		return zero, false
+	}
+
+	return target, true
+}
+
+// Get retrieves a module from the registry by ID and casts it to the desired type T.
+// It panics if the module does not exist or if the type assertion fails.
+func Get[T any](ml ModulesRegistry, id string) T {
+	target, ok := TryGet[T](ml, id)
+	if !ok {
+		m, exists := ml[id]
+		ev := log.Panic().Str("module", id).Str("expected", fmt.Sprintf("%T", *new(T)))
+		if exists {
+			ev = ev.Str("actual", fmt.Sprintf("%T", m))
+		}
+		ev.Msg("Module does not exist or is not of the expected type")
 	}
 
 	return target
