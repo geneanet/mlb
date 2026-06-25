@@ -919,6 +919,15 @@ func TestRedisConfigParsing(t *testing.T) {
 	if p.backendInputQueueSize != 2000 {
 		t.Errorf("Expected input queue size 2000, got %d", p.backendInputQueueSize)
 	}
+	if p.backendConnectionPool == nil {
+		t.Fatalf("Expected backend connection pool to be initialized")
+	}
+	if p.backendConnectionPool.pool == nil {
+		t.Fatalf("Expected backend connection pool storage to be initialized")
+	}
+	if cap(p.backendConnectionPool.pool) != p.backendMaxConnections {
+		t.Errorf("Expected backend pool capacity %d, got %d", p.backendMaxConnections, cap(p.backendConnectionPool.pool))
+	}
 }
 
 func dummyMetrics() *Metrics {
