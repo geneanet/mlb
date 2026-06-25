@@ -38,13 +38,19 @@ type factory struct {
 	validate ValidateFunc
 }
 
-var factories = make(map[string]map[string]factory)
+var (
+	factories   = make(map[string]map[string]factory)
+	factoriesMu sync.RWMutex
+)
 
 // RegisterFactory registers a new module type within a specific category.
 // It takes two function pointers: newFn for instantiation and validateFn for
 // configuration validation. This functional approach avoids the need for
 // intermediate factory structures in module implementations.
 func RegisterFactory(category, typeName string, newFn NewFunc, validateFn ValidateFunc) {
+	factoriesMu.Lock()
+	defer factoriesMu.Unlock()
+
 	if _, ok := factories[category]; !ok {
 		factories[category] = make(map[string]factory)
 	}
@@ -56,6 +62,9 @@ func RegisterFactory(category, typeName string, newFn NewFunc, validateFn Valida
 
 // getFactory returns a module factory from the central registry.
 func getFactory(category string, typeName string) *factory {
+	factoriesMu.RLock()
+	defer factoriesMu.RUnlock()
+
 	if reg, ok := factories[category]; ok {
 		if f, ok := reg[typeName]; ok {
 			return &f
