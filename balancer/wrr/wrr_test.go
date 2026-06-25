@@ -173,9 +173,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend1.Address, Backend: backend1})
 
 	testutil.Eventually(t, func() bool {
-		balancer.mu.RLock()
-		defer balancer.mu.RUnlock()
-		return len(balancer.weightedList) == 2
+		return balancer.state.Load().length == 2
 	}, 1*time.Second, 10*time.Millisecond)
 
 	retrievedBackend := balancer.GetBackend(true) // Should return immediately now
@@ -189,18 +187,14 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: backend1Mod.Address, Backend: backend1Mod})
 
 	testutil.Eventually(t, func() bool {
-		balancer.mu.RLock()
-		defer balancer.mu.RUnlock()
-		return len(balancer.weightedList) == 3
+		return balancer.state.Load().length == 3
 	}, 1*time.Second, 10*time.Millisecond)
 
 	// Modify backend1 - keeping the same weight (3) to test idempotency
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: backend1Mod.Address, Backend: backend1Mod})
 
 	testutil.Eventually(t, func() bool {
-		balancer.mu.RLock()
-		defer balancer.mu.RUnlock()
-		return len(balancer.weightedList) == 3
+		return balancer.state.Load().length == 3
 	}, 1*time.Second, 10*time.Millisecond)
 
 	// Modify backend1 - introduce error in evaluating weight expression
@@ -208,9 +202,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: backend1Mod.Address, Backend: backend1Mod})
 
 	testutil.Eventually(t, func() bool {
-		balancer.mu.RLock()
-		defer balancer.mu.RUnlock()
-		return len(balancer.weightedList) == 0
+		return balancer.state.Load().length == 0
 	}, 1*time.Second, 10*time.Millisecond)
 
 	// Add backend2 - despite active evaluation error, it should still be tracked
@@ -218,8 +210,6 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend2.Address, Backend: backend2})
 
 	testutil.Eventually(t, func() bool {
-		balancer.mu.RLock()
-		defer balancer.mu.RUnlock()
 		return balancer.backends.Has(backend2.Address)
 	}, 1*time.Second, 10*time.Millisecond)
 
@@ -227,8 +217,6 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: backend1.Address})
 
 	testutil.Eventually(t, func() bool {
-		balancer.mu.RLock()
-		defer balancer.mu.RUnlock()
 		return !balancer.backends.Has(backend1.Address)
 	}, 1*time.Second, 10*time.Millisecond)
 
@@ -238,16 +226,12 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend3.Address, Backend: backend3})
 
 	testutil.Eventually(t, func() bool {
-		balancer.mu.RLock()
-		defer balancer.mu.RUnlock()
 		return balancer.backends.Has(backend3.Address)
 	}, 1*time.Second, 10*time.Millisecond)
 
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: backend3.Address})
 
 	testutil.Eventually(t, func() bool {
-		balancer.mu.RLock()
-		defer balancer.mu.RUnlock()
 		return !balancer.backends.Has(backend3.Address)
 	}, 1*time.Second, 10*time.Millisecond)
 
@@ -374,5 +358,96 @@ func TestWRRBalancer_ContextCancellation(t *testing.T) {
 		// Success
 	case <-time.After(1 * time.Second):
 		t.Errorf("Backend context was not cancelled after removal")
+	}
+}
+
+// TestWRRBalancer_SmoothDistribution verifies that the SWRR algorithm produces
+// a smooth distribution of backends.
+func TestWRRBalancer_SmoothDistribution(t *testing.T) {
+	body := &hclsyntax.Body{
+		Attributes: map[string]*hclsyntax.Attribute{
+			"source": {Name: "source", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("src1")}},
+			"weight": {Name: "weight", Expr: &hclsyntax.ScopeTraversalExpr{
+				Traversal: hcl.Traversal{
+					hcl.TraverseRoot{Name: "backend"},
+					hcl.TraverseAttr{Name: "meta"},
+					hcl.TraverseAttr{Name: "wrr"},
+					hcl.TraverseAttr{Name: "weight"},
+				},
+			}},
+		},
+	}
+	cfg := &module.Config{Category: "balancer", Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mod, err := newWRRBalancer(cfg, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+	balancer := mod.(*WRRBalancer)
+
+	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry()}
+	provider.ProvideUpdates(balancer)
+
+	// Add 3 backends with weights: A=5, B=1, C=1
+	// Total weight = 7
+	beA := &backend.Backend{Address: "A", Meta: backend.NewEmptyMetaMap(0)}
+	beA.Meta.Set("wrr", "weight", cty.NumberIntVal(5))
+	beB := &backend.Backend{Address: "B", Meta: backend.NewEmptyMetaMap(0)}
+	beB.Meta.Set("wrr", "weight", cty.NumberIntVal(1))
+	beC := &backend.Backend{Address: "C", Meta: backend.NewEmptyMetaMap(0)}
+	beC.Meta.Set("wrr", "weight", cty.NumberIntVal(1))
+
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "A", Backend: beA})
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "B", Backend: beB})
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "C", Backend: beC})
+
+	testutil.Eventually(t, func() bool {
+		return balancer.state.Load().length == 7
+	}, 1*time.Second, 10*time.Millisecond)
+
+	// The expected "smooth" sequence for weights {A:5, B:1, C:1} is:
+	// A, A, B, A, C, A, A (or similar, depending on initial tie-breaks)
+	// Key is that "A" is not appearing 5 times in a row.
+	sequence := make([]string, 7)
+	for i := 0; i < 7; i++ {
+		be := balancer.GetBackend(false)
+		if be == nil {
+			t.Fatalf("GetBackend returned nil at index %d", i)
+		}
+		sequence[i] = be.Address
+	}
+
+	// Verify total counts
+	counts := make(map[string]int)
+	for _, addr := range sequence {
+		counts[addr]++
+	}
+
+	if counts["A"] != 5 || counts["B"] != 1 || counts["C"] != 1 {
+		t.Errorf("Unexpected distribution counts: %v", counts)
+	}
+
+	// Verify smoothness: A should not appear 5 times in a row
+	maxConsecutiveA := 0
+	currentConsecutiveA := 0
+	for _, addr := range sequence {
+		if addr == "A" {
+			currentConsecutiveA++
+		} else {
+			if currentConsecutiveA > maxConsecutiveA {
+				maxConsecutiveA = currentConsecutiveA
+			}
+			currentConsecutiveA = 0
+		}
+	}
+	if currentConsecutiveA > maxConsecutiveA {
+		maxConsecutiveA = currentConsecutiveA
+	}
+
+	if maxConsecutiveA >= 5 {
+		t.Errorf("Distribution is not smooth, found %d consecutive A: %v", maxConsecutiveA, sequence)
 	}
 }
