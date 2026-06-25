@@ -95,7 +95,11 @@ backends_processor "redis" "test" {
 	bgCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	redisChecker := module.New(config, wg, bgCtx, "backends_processor").(*RedisChecker)
+	mod, err := module.New(config, wg, bgCtx, "backends_processor")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+	redisChecker := mod.(*RedisChecker)
 
 	// Add backend
 	b := &backend.Backend{

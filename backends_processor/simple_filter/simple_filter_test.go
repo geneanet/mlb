@@ -35,7 +35,10 @@ backends_processor "simple_filter" "test" {
 	ctxBG, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := module.New(cfg, wg, ctxBG, "backends_processor")
+	mod, err := module.New(cfg, wg, ctxBG, "backends_processor")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	filterMod, ok := mod.(*SimpleFilter)
 	if !ok {
 		t.Fatalf("Expected *SimpleFilter")
@@ -125,7 +128,10 @@ backends_processor "simple_filter" "test" {
 	ctxBG, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := module.New(cfg, wg, ctxBG, "backends_processor")
+	mod, err := module.New(cfg, wg, ctxBG, "backends_processor")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	filterMod := mod.(*SimpleFilter)
 
 	// Add an item directly to bypass wait issues, or via provider
@@ -170,7 +176,10 @@ backends_processor "simple_filter" "test_meta" {
 	ctxBG, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := module.New(cfg, wg, ctxBG, "backends_processor")
+	mod, err := module.New(cfg, wg, ctxBG, "backends_processor")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	filterMod := mod.(*SimpleFilter)
 
 	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry()}
@@ -265,7 +274,10 @@ func TestSimpleFilter_ReceiveUpdateClosed(t *testing.T) {
 
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
-	mod := module.New(config, wg, ctx, "backends_processor")
+	mod, err := module.New(config, wg, ctx, "backends_processor")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 
 	cancel()
 	wg.Wait() // Wait for the component to gracefully shut down
@@ -324,7 +336,10 @@ backends_processor "simple_filter" "test" {
 	ctxBG, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := module.New(cfg, wg, ctxBG, "backends_processor")
+	mod, err := module.New(cfg, wg, ctxBG, "backends_processor")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	filterMod := mod.(*SimpleFilter)
 
 	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry()}
@@ -441,7 +456,10 @@ backends_processor "simple_filter" "test3" {
 		wg := &sync.WaitGroup{}
 		ctxBG, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		mod := module.New(cfg, wg, ctxBG, "backends_processor")
+		mod, err := module.New(cfg, wg, ctxBG, "backends_processor")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 		filterMod := mod.(*SimpleFilter)
 		dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry()}
 		

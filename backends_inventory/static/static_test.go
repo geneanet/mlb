@@ -30,7 +30,10 @@ backends_inventory "static" "test" {
 
 	wg := &sync.WaitGroup{}
 	ctxBG := context.Background()
-	mod := module.New(cfg, wg, ctxBG, "backends_inventory")
+	mod, err := module.New(cfg, wg, ctxBG, "backends_inventory")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 
 	staticMod, ok := mod.(*BackendsInventoryStatic)
 	if !ok {
@@ -86,7 +89,10 @@ backends_inventory "static" "test" {
 
 	// Test sendUpdate (even if it's currently unused in normal operation)
 	// We use a fresh inventory to avoid interference with previous tests and subscribers
-	mod2 := module.New(cfg, wg, ctxBG, "backends_inventory")
+	mod2, err := module.New(cfg, wg, ctxBG, "backends_inventory")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	staticMod2 := mod2.(*BackendsInventoryStatic)
 
 	sub2 := &testutil.DummySubscriber{

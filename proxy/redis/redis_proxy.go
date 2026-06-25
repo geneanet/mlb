@@ -156,7 +156,7 @@ func parseRedisProxyConfig(tc *module.Config) *RedisProxyConfig {
 	return config
 }
 
-func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
+func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (any, error) {
 	config := parseRedisProxyConfig(tc)
 
 	p := &RedisProxy{
@@ -181,23 +181,23 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) a
 
 	p.connectTimeout, err = time.ParseDuration(config.ConnectTimeout)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	p.closeTimeout, err = time.ParseDuration(config.CloseTimeout)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	p.backendWaitTimeout, err = time.ParseDuration(config.BackendWaitTimeout)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	p.retryPeriod, err = time.ParseDuration(config.RetryPeriod)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	p.retryMaxPeriod, err = time.ParseDuration(config.RetryMaxPeriod)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	p.ctx, p.cancel = context.WithCancel(ctx)
@@ -233,10 +233,10 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) a
 		}
 	}()
 
-	return p
+	return p, nil
 }
 
-func (p *RedisProxy) listen(address string, wg *sync.WaitGroup) {
+func (p *RedisProxy) listen(address string, wg *sync.WaitGroup) error {
 	p.log.Info().Str("address", address).Msg("Opening Frontend")
 
 	feMetrics := &Metrics{
@@ -264,14 +264,11 @@ func (p *RedisProxy) listen(address string, wg *sync.WaitGroup) {
 	// Bind
 	listener, err := lc.Listen(context.Background(), "tcp", address)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	context.AfterFunc(p.ctx, func() {
-		err := listener.Close()
-		if err != nil {
-			panic(err)
-		}
+		_ = listener.Close()
 	})
 
 	wg.Add(1)
@@ -296,6 +293,8 @@ func (p *RedisProxy) listen(address string, wg *sync.WaitGroup) {
 
 		p.connectionsWG.Wait()
 	}()
+
+	return nil
 }
 
 func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
@@ -441,11 +440,18 @@ func (p *RedisProxy) ReceiveUpdate(upd backend.BackendUpdate) {
 	}
 }
 
-func (p *RedisProxy) Bind(modules module.ModulesRegistry) {
-	module.Get[backend.BackendUpdateProvider](modules, p.source).ProvideUpdates(p)
+func (p *RedisProxy) Bind(modules module.ModulesRegistry) error {
+	m, err := module.Get[backend.BackendUpdateProvider](modules, p.source)
+	if err != nil {
+		return err
+	}
+	m.ProvideUpdates(p)
 
 	// Listening to incoming connections only makes sense after backend providers are available
 	for _, v := range p.addresses {
-		p.listen(v, p.wg)
+		if err := p.listen(v, p.wg); err != nil {
+			return err
+		}
 	}
+	return nil
 }

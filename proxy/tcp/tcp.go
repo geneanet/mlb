@@ -117,7 +117,7 @@ func parseTCPProxyConfig(tc *module.Config) *TCPProxyConfig {
 	return config
 }
 
-func newTCPProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
+func newTCPProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (any, error) {
 	config := parseTCPProxyConfig(tc)
 
 	p := &ProxyTCP{
@@ -136,23 +136,23 @@ func newTCPProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any
 
 	p.connectTimeout, err = time.ParseDuration(config.ConnectTimeout)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	p.clientTimeout, err = time.ParseDuration(config.ClientTimeout)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	p.serverTimeout, err = time.ParseDuration(config.ServerTimeout)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	p.closeTimeout, err = time.ParseDuration(config.CloseTimeout)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	p.timeoutMargin, err = time.ParseDuration(config.TimeoutMargin)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	p.ctx, p.cancel = context.WithCancel(ctx)
@@ -163,10 +163,10 @@ func newTCPProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any
 		},
 	}
 
-	return p
+	return p, nil
 }
 
-func (p *ProxyTCP) listen(address string, wg *sync.WaitGroup) {
+func (p *ProxyTCP) listen(address string, wg *sync.WaitGroup) error {
 	p.log.Info().Str("address", address).Msg("Opening Frontend")
 
 	feMetrics := &Metrics{
@@ -193,14 +193,11 @@ func (p *ProxyTCP) listen(address string, wg *sync.WaitGroup) {
 	// Bind
 	listener, err := lc.Listen(context.Background(), "tcp", address)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	context.AfterFunc(p.ctx, func() {
-		err := listener.Close()
-		if err != nil {
-			panic(err)
-		}
+		_ = listener.Close()
 	})
 
 	wg.Add(1)
@@ -225,6 +222,8 @@ func (p *ProxyTCP) listen(address string, wg *sync.WaitGroup) {
 
 		p.connectionsWG.Wait()
 	}()
+
+	return nil
 }
 
 type bufferWrapper struct {
@@ -406,15 +405,25 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 }
 
 
-func (p *ProxyTCP) Bind(modules module.ModulesRegistry) {
-	p.backendProvider = module.Get[backend.BackendProvider](modules, p.source)
+func (p *ProxyTCP) Bind(modules module.ModulesRegistry) error {
+	var err error
+	p.backendProvider, err = module.Get[backend.BackendProvider](modules, p.source)
+	if err != nil {
+		return err
+	}
 
 	if p.backupSource != "" {
-		p.backupBackendProvider = module.Get[backend.BackendProvider](modules, p.backupSource)
+		p.backupBackendProvider, err = module.Get[backend.BackendProvider](modules, p.backupSource)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Listening to incoming connections only makes sense after backend providers are available
 	for _, v := range p.addresses {
-		p.listen(v, p.wg)
+		if err := p.listen(v, p.wg); err != nil {
+			return err
+		}
 	}
+	return nil
 }

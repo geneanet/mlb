@@ -37,7 +37,12 @@ func RegisterHandlers(mux *http.ServeMux, ml module.ModulesRegistry, conf *confi
 		backendListProviders := module.Filter[backend.BackendListProvider](ml)
 		backendsByProvider := make(map[string]backend.BackendsList, len(backendListProviders))
 		for id := range backendListProviders {
-			backendsByProvider[id] = module.Get[backend.BackendListProvider](backendListProviders, id).GetBackendList()
+			provider, err := module.Get[backend.BackendListProvider](backendListProviders, id)
+			if err != nil {
+				log.Warn().Err(err).Msg("Failed to get backend provider")
+				continue
+			}
+			backendsByProvider[id] = provider.GetBackendList()
 		}
 		out, err := json.Marshal(backendsByProvider)
 		if err != nil {

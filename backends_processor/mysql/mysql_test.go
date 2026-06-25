@@ -182,7 +182,10 @@ func TestMySQL(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 
-	mod := newMySQLChecker(config, wg, ctx)
+	mod, err := newMySQLChecker(config, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	mysqlChecker := mod.(*MySQLChecker)
 
 	mysqlChecker.GetBackendList()
@@ -300,7 +303,10 @@ func TestMySQL_Coverage(t *testing.T) {
 	config := &module.Config{Category: "backends_processor", Name: "test_cov", Type: "mysql", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
-	mod := module.New(config, wg, ctx, "backends_processor")
+	mod, err := module.New(config, wg, ctx, "backends_processor")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	mysqlChecker := mod.(*MySQLChecker)
 
 

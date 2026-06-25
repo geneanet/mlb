@@ -91,7 +91,10 @@ func TestRedisProxy_RegistryIntegration(t *testing.T) {
 	bgCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := module.New(cfg, wg, bgCtx, "proxy")
+	mod, err := module.New(cfg, wg, bgCtx, "proxy")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	if mod == nil {
 		t.Fatal("module.New returned nil")
 	}
@@ -187,7 +190,10 @@ func TestRedisProxyFactory_New(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := newRedisProxy(tc, &wg, ctx)
+	mod, err := newRedisProxy(tc, &wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	p, ok := mod.(*RedisProxy)
 	if !ok {
 		t.Fatal("expected mod to be *RedisProxy")
@@ -286,7 +292,10 @@ func TestRedisProxy_ListenAndConnection(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := newRedisProxy(tc, &wg, ctx)
+	mod, err := newRedisProxy(tc, &wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	p := mod.(*RedisProxy)
 
 	// Set dynamic address so listen picks a random available port
@@ -909,7 +918,11 @@ func TestRedisConfigParsing(t *testing.T) {
 	f, _ := hclsyntax.ParseConfig([]byte(configStr), "test.hcl", hcl.Pos{Line: 1, Column: 1})
 	tc := &module.Config{Config: f.Body, Ctx: &hcl.EvalContext{}}
 
-	p := newRedisProxy(tc, wg, ctx).(*RedisProxy)
+	mod, err := newRedisProxy(tc, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+	p := mod.(*RedisProxy)
 	if p.backendMinConnections != 3 {
 		t.Errorf("Expected min 3, got %d", p.backendMinConnections)
 	}

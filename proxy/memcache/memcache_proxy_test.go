@@ -50,7 +50,11 @@ func TestMemcacheProxyConfigAndInit(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	p := newMemcacheProxy(tc, wg, ctx).(*MemcacheProxy)
+	mod, err := newMemcacheProxy(tc, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+	p := mod.(*MemcacheProxy)
 	if p.connectTimeout != 2*time.Second {
 		t.Errorf("Expected 2s connect timeout, got %v", p.connectTimeout)
 	}
@@ -64,7 +68,11 @@ func TestMemcacheProxyConfigAndInit(t *testing.T) {
 		t.Fatalf("Parse failed: %v", diags)
 	}
 	tc2 := &module.Config{Config: f2.Body, Ctx: &hcl.EvalContext{}}
-	p2 := newMemcacheProxy(tc2, wg, ctx).(*MemcacheProxy)
+	mod2, err := newMemcacheProxy(tc2, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+	p2 := mod2.(*MemcacheProxy)
 	if p2.connectTimeout != 0 {
 		t.Errorf("Expected default 0s connect timeout, got %v", p2.connectTimeout)
 	}
@@ -92,7 +100,11 @@ func TestMemcacheProxyConfigAndInit(t *testing.T) {
 		t.Fatalf("Parse failed: %v", diags)
 	}
 	tc3 := &module.Config{Config: f3.Body, Ctx: &hcl.EvalContext{}}
-	p3 := newMemcacheProxy(tc3, wg, ctx).(*MemcacheProxy)
+	mod3, err := newMemcacheProxy(tc3, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+	p3 := mod3.(*MemcacheProxy)
 	if p3.backendInputQueueSize != 2048 {
 		t.Errorf("Expected 2048 input queue size, got %d", p3.backendInputQueueSize)
 	}
@@ -166,7 +178,11 @@ func TestMemcacheConfigParsing(t *testing.T) {
 	f, _ := hclsyntax.ParseConfig([]byte(configStr), "test.hcl", hcl.Pos{Line: 1, Column: 1})
 	tc := &module.Config{Config: f.Body, Ctx: &hcl.EvalContext{}}
 
-	p := newMemcacheProxy(tc, wg, ctx).(*MemcacheProxy)
+	mod, err := newMemcacheProxy(tc, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+	p := mod.(*MemcacheProxy)
 	if p.backendMinConnections != 3 {
 		t.Errorf("Expected min 3, got %d", p.backendMinConnections)
 	}
@@ -210,7 +226,11 @@ func TestMemcacheProxyBindAndListen(t *testing.T) {
 		t.Fatalf("Parse failed: %v", diags)
 	}
 	tc := &module.Config{Config: f.Body, Ctx: &hcl.EvalContext{}}
-	p := newMemcacheProxy(tc, wg, ctx).(*MemcacheProxy)
+	mod, err := newMemcacheProxy(tc, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+	p := mod.(*MemcacheProxy)
 
 	mockProvider := &mockUpdateProvider{}
 	modules := module.ModulesRegistry{

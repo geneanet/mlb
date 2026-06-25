@@ -133,7 +133,10 @@ backends_inventory "consul" "test" {
 	ctxBG, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := module.New(cfg, wg, ctxBG, "backends_inventory")
+	mod, err := module.New(cfg, wg, ctxBG, "backends_inventory")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	consulMod, ok := mod.(*BackendsInventoryConsul)
 	if !ok {
 		t.Fatalf("Expected *BackendsInventoryConsul")
@@ -223,7 +226,10 @@ backends_inventory "consul" "test_err" {
 	wg := &sync.WaitGroup{}
 	ctxBG, cancel := context.WithCancel(context.Background())
 
-	mod := module.New(cfg, wg, ctxBG, "backends_inventory")
+	mod, err := module.New(cfg, wg, ctxBG, "backends_inventory")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 
 	// Wait for at least one fetch attempt
 	testutil.Eventually(t, func() bool {
@@ -268,7 +274,10 @@ backends_inventory "consul" "test_rec" {
 	wg := &sync.WaitGroup{}
 	ctxBG, cancel := context.WithCancel(context.Background())
 
-	module.New(cfg, wg, ctxBG, "backends_inventory")
+	_, err := module.New(cfg, wg, ctxBG, "backends_inventory")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 
 	// Let it fail and then succeed
 	testutil.Eventually(t, func() bool {
@@ -306,7 +315,10 @@ backends_inventory "consul" "test_cancel" {
 	wg := &sync.WaitGroup{}
 	ctxBG, cancel := context.WithCancel(context.Background())
 
-	module.New(cfg, wg, ctxBG, "backends_inventory")
+	_, err := module.New(cfg, wg, ctxBG, "backends_inventory")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 
 	// Wait for at least one attempt
 	testutil.Eventually(t, func() bool {
@@ -377,7 +389,10 @@ backends_inventory "consul" "test_pu" {
 	ctxBG, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := module.New(cfg, wg, ctxBG, "backends_inventory")
+	mod, err := module.New(cfg, wg, ctxBG, "backends_inventory")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	consulMod := mod.(*BackendsInventoryConsul)
 
 	// Wait for the first fetch so backend is populated

@@ -49,7 +49,7 @@ func parseStaticBackendsInventoryConfig(tc *module.Config) *StaticBackendsInvent
 }
 
 // newStaticBackendsInventory creates a new instance of a static backends inventory.
-func newStaticBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
+func newStaticBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (any, error) {
 	config := parseStaticBackendsInventoryConfig(tc)
 
 	c := &BackendsInventoryStatic{
@@ -67,7 +67,7 @@ func newStaticBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx conte
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
 
-	return c
+	return c, nil
 }
 
 // ProvideUpdates registers a subscriber for backend updates.

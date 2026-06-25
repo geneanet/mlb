@@ -13,8 +13,8 @@ import (
 func TestRegistry(t *testing.T) {
 	category := "test_category"
 	typeName := "mock"
-	newFn := func(config *Config, wg *sync.WaitGroup, ctx context.Context) any {
-		return &dummyModule{id: config.Name}
+	newFn := func(config *Config, wg *sync.WaitGroup, ctx context.Context) (any, error) {
+		return &dummyModule{id: config.Name}, nil
 	}
 	validateFn := func(config *Config) hcl.Diagnostics {
 		return nil
@@ -52,7 +52,10 @@ func TestRegistry(t *testing.T) {
 
 	// Test New
 	wg := &sync.WaitGroup{}
-	mod := New(cfg, wg, context.Background(), category)
+	mod, err := New(cfg, wg, context.Background(), category)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
 	if mod == nil {
 		t.Fatal("Expected module to be created")
 	}
@@ -62,25 +65,17 @@ func TestRegistry(t *testing.T) {
 		t.Error("Expected nil for unregistered category")
 	}
 
-	// Test New with unregistered type (should panic)
-	func() {
-		defer func() {
-			if r := recover(); r == nil {
-				t.Error("Expected panic for New with unregistered type")
-			}
-		}()
-		New(&Config{Type: "unknown"}, &sync.WaitGroup{}, context.Background(), category)
-	}()
+	// Test New with unregistered type (should return error)
+	_, err = New(&Config{Type: "unknown"}, &sync.WaitGroup{}, context.Background(), category)
+	if err == nil {
+		t.Error("Expected error for New with unregistered type")
+	}
 
-	// Test ValidateConfig with unregistered type (should panic)
-	func() {
-		defer func() {
-			if r := recover(); r == nil {
-				t.Error("Expected panic for ValidateConfig with unregistered type")
-			}
-		}()
-		ValidateConfig(&Config{Type: "unknown"}, category)
-	}()
+	// Test ValidateConfig with unregistered type (should return error)
+	diags = ValidateConfig(&Config{Type: "unknown"}, category)
+	if !diags.HasErrors() {
+		t.Error("Expected error for ValidateConfig with unregistered type")
+	}
 
 	// Test Unsupported type
 	blockUnsupported := &hcl.Block{
@@ -107,7 +102,9 @@ type dummyModule struct {
 	id string
 }
 
-func (d *dummyModule) Bind(modules ModulesRegistry) {}
+func (d *dummyModule) Bind(modules ModulesRegistry) error {
+	return nil
+}
 
 // dummyUpdateProvider implements backend.BackendUpdateProvider.
 type dummyUpdateProvider struct {
@@ -166,18 +163,27 @@ func TestModulesRegistryGet(t *testing.T) {
 	ml.AddModule("m1", m)
 
 	// Scenario 1: Correct retrieval
-	bup := Get[backend.BackendUpdateProvider](ml, "m1")
+	bup, err := Get[backend.BackendUpdateProvider](ml, "m1")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
 	if bup == nil {
 		t.Errorf("Expected to retrieve a valid BackendUpdateProvider for 'm1'")
 	}
 
-	// Scenario 2: Module ID not found (expects panic)
-	assertPanic(t, func() { Get[backend.BackendUpdateProvider](ml, "missing") }, "Expected panic for missing module ID")
+	// Scenario 2: Module ID not found (expects error)
+	_, err = Get[backend.BackendUpdateProvider](ml, "missing")
+	if err == nil {
+		t.Error("Expected error for missing module ID")
+	}
 
-	// Scenario 3: Module found but interface not implemented (expects panic)
+	// Scenario 3: Module found but interface not implemented (expects error)
 	mWrong := &dummyModule{id: "m2"}
 	ml.AddModule("m2", mWrong)
-	assertPanic(t, func() { Get[backend.BackendUpdateProvider](ml, "m2") }, "Expected panic for module not implementing BackendUpdateProvider")
+	_, err = Get[backend.BackendUpdateProvider](ml, "m2")
+	if err == nil {
+		t.Error("Expected error for module not implementing BackendUpdateProvider")
+	}
 }
 
 // TestModulesRegistryFilter verifies that Filter correctly filters
@@ -205,15 +211,4 @@ func TestModulesRegistryFilter(t *testing.T) {
 	if _, ok := providers["m3"]; !ok {
 		t.Errorf("Expected 'm3' to be in the filtered results")
 	}
-}
-
-// assertPanic is a test helper that fails the test if the provided function does not panic.
-func assertPanic(t *testing.T, f func(), message string) {
-	t.Helper()
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error(message)
-		}
-	}()
-	f()
 }

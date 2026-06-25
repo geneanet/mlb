@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/rs/zerolog/log"
 )
 
 // Config represents a module's HCL configuration.
@@ -27,7 +26,7 @@ func (c *Config) FullID() string {
 // NewFunc is a function type for creating a new module instance.
 // It takes the module's configuration, a WaitGroup for tracking goroutines,
 // and a context for lifecycle management.
-type NewFunc func(config *Config, wg *sync.WaitGroup, ctx context.Context) any
+type NewFunc func(config *Config, wg *sync.WaitGroup, ctx context.Context) (any, error)
 
 // ValidateFunc is a function type for validating a module's configuration.
 // It returns HCL diagnostics if any validation errors occur.
@@ -66,10 +65,10 @@ func getFactory(category string, typeName string) *factory {
 }
 
 // New creates a new module instance using the central registry.
-func New(config *Config, wg *sync.WaitGroup, ctx context.Context, category string) any {
+func New(config *Config, wg *sync.WaitGroup, ctx context.Context, category string) (any, error) {
 	f := getFactory(category, config.Type)
 	if f == nil {
-		panic(fmt.Sprintf("module type %q not found in category %q", config.Type, category))
+		return nil, fmt.Errorf("module type %q not found in category %q", config.Type, category)
 	}
 	return f.new(config, wg, ctx)
 }
@@ -78,7 +77,13 @@ func New(config *Config, wg *sync.WaitGroup, ctx context.Context, category strin
 func ValidateConfig(config *Config, category string) hcl.Diagnostics {
 	f := getFactory(category, config.Type)
 	if f == nil {
-		panic(fmt.Sprintf("module type %q not found in category %q", config.Type, category))
+		return hcl.Diagnostics{
+			{
+				Severity: hcl.DiagError,
+				Summary:  fmt.Sprintf("Reference to unsupported %s type", category),
+				Detail:   fmt.Sprintf("%s type %q is not supported.", category, config.Type),
+			},
+		}
 	}
 	return f.validate(config)
 }
@@ -110,7 +115,7 @@ func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext, category string) 
 // Binder is an optional interface for modules that need to be cross-linked
 // with other modules after they have all been instantiated.
 type Binder interface {
-	Bind(modules ModulesRegistry)
+	Bind(modules ModulesRegistry) error
 }
 
 // ModulesRegistry stores all active module instances indexed by their
@@ -126,23 +131,19 @@ func (ml ModulesRegistry) AddModule(id string, m any) {
 // TODO: Rewrite Get and Filter as methods of ModulesRegistry when Go 1.27 (supporting generic methods) is released.
 
 // Get retrieves a module from the registry by ID and casts it to the desired type T.
-// It panics if the module does not exist or if the type assertion fails.
-func Get[T any](ml ModulesRegistry, id string) T {
+// It returns an error if the module does not exist or if the type assertion fails.
+func Get[T any](ml ModulesRegistry, id string) (T, error) {
 	m, ok := ml[id]
 	if !ok {
-		log.Panic().Str("module", id).Msg("Module does not exist")
+		return *new(T), fmt.Errorf("module %q does not exist", id)
 	}
 
 	target, ok := m.(T)
 	if !ok {
-		log.Panic().
-			Str("module", id).
-			Str("expected", fmt.Sprintf("%T", *new(T))).
-			Str("actual", fmt.Sprintf("%T", m)).
-			Msg("Module is not of the expected type")
+		return *new(T), fmt.Errorf("module %q is not of the expected type %T (actual: %T)", id, *new(T), m)
 	}
 
-	return target
+	return target, nil
 }
 
 // Filter returns a subset of the registry containing only modules that implement type T.

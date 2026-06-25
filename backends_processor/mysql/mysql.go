@@ -127,7 +127,7 @@ func parseMySQLCheckerConfig(tc *module.Config) *MySQLCheckerConfig {
 	return config
 }
 
-func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
+func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (any, error) {
 	config := parseMySQLCheckerConfig(tc)
 
 	c := &MySQLChecker{
@@ -148,27 +148,27 @@ func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 
 	c.defaultPeriod, err = time.ParseDuration(config.Period)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	c.maxPeriod, err = time.ParseDuration(config.MaxPeriod)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	c.connectTimeout, err = time.ParseDuration(config.ConnectTimeout)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	c.readTimeout, err = time.ParseDuration(config.ReadTimeout)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	c.writeTimeout, err = time.ParseDuration(config.WriteTimeout)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	c.connMaxLifetime, err = time.ParseDuration(config.ConnMaxLifetime)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
@@ -262,7 +262,7 @@ func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 		}
 	}()
 
-	return c
+	return c, nil
 }
 
 // stopChecks stops all active MySQL health checks.
@@ -295,8 +295,13 @@ func (c *MySQLChecker) GetBackendList() []*backend.Backend {
 }
 
 // Bind cross-links the processor with its source backend provider.
-func (c *MySQLChecker) Bind(modules module.ModulesRegistry) {
-	module.Get[backend.BackendUpdateProvider](modules, c.source).ProvideUpdates(c)
+func (c *MySQLChecker) Bind(modules module.ModulesRegistry) error {
+	m, err := module.Get[backend.BackendUpdateProvider](modules, c.source)
+	if err != nil {
+		return err
+	}
+	m.ProvideUpdates(c)
+	return nil
 }
 
 // MySQLCheck manages the health check lifecycle for a single MySQL backend.

@@ -98,7 +98,7 @@ func parseConsulBackendsInventoryConfig(tc *module.Config) *ConsulBackendsInvent
 	return config
 }
 
-func newConsulBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
+func newConsulBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (any, error) {
 	config := parseConsulBackendsInventoryConfig(tc)
 
 	c := &BackendsInventoryConsul{
@@ -113,12 +113,12 @@ func newConsulBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx conte
 
 	defaultPeriod, err := time.ParseDuration(config.Period)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	maxPeriod, err := time.ParseDuration(config.MaxPeriod)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
@@ -205,7 +205,7 @@ func newConsulBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx conte
 		}
 	}()
 
-	return c
+	return c, nil
 }
 
 func (c *BackendsInventoryConsul) ProvideUpdates(s backend.BackendUpdateSubscriber) {

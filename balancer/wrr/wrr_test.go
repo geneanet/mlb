@@ -44,7 +44,10 @@ func TestWRRBalancer_DefaultTimeout(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := newWRRBalancer(cfg, wg, ctx)
+	mod, err := newWRRBalancer(cfg, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	balancer := mod.(*WRRBalancer)
 
 	if balancer.timeout != 0 {
@@ -52,14 +55,9 @@ func TestWRRBalancer_DefaultTimeout(t *testing.T) {
 	}
 }
 
-// TestWRRBalancer_InvalidTimeout verifies that the WRR balancer panics when
+// TestWRRBalancer_InvalidTimeout verifies that the WRR balancer returns an error when
 // initialized with an invalid timeout string.
 func TestWRRBalancer_InvalidTimeout(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("Expected panic due to invalid timeout")
-		}
-	}()
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
 			"source":  {Name: "source", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("src1")}},
@@ -71,7 +69,10 @@ func TestWRRBalancer_InvalidTimeout(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	newWRRBalancer(cfg, wg, ctx)
+	_, err := newWRRBalancer(cfg, wg, ctx)
+	if err == nil {
+		t.Errorf("Expected error due to invalid timeout")
+	}
 }
 
 // TestWRRBalancer_WaitBackend tests the blocking behavior of GetBackend(true)
@@ -89,7 +90,10 @@ func TestWRRBalancer_WaitBackend(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := newWRRBalancer(cfg, wg, ctx)
+	mod, err := newWRRBalancer(cfg, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	balancer := mod.(*WRRBalancer)
 
 	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry()}
@@ -139,7 +143,10 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 
-	mod := newWRRBalancer(cfg, wg, ctx)
+	mod, err := newWRRBalancer(cfg, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	balancer := mod.(*WRRBalancer)
 
 	if len(balancer.GetBackendList()) != 0 {
@@ -284,7 +291,10 @@ balancer "wrr" "test" {
 	bgCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := module.New(cfg, wg, bgCtx, "balancer")
+	mod, err := module.New(cfg, wg, bgCtx, "balancer")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	if mod == nil {
 		t.Fatal("module.New returned nil")
 	}
@@ -334,7 +344,10 @@ func TestWRRBalancer_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := newWRRBalancer(cfg, wg, ctx)
+	mod, err := newWRRBalancer(cfg, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	balancer := mod.(*WRRBalancer)
 
 	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry()}

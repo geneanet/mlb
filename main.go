@@ -84,22 +84,40 @@ func main() {
 		ml := make(module.ModulesRegistry)
 
 		for _, c := range conf.BackendsInventoryList {
-			ml.AddModule(c.FullID(), module.New(c, &wg, ctx, "backends_inventory"))
+			m, err := module.New(c, &wg, ctx, "backends_inventory")
+			if err != nil {
+				log.Fatal().Err(err).Msg("Failed to create backends_inventory module")
+			}
+			ml.AddModule(c.FullID(), m)
 		}
 		for _, c := range conf.BackendsProcessorList {
-			ml.AddModule(c.FullID(), module.New(c, &wg, ctx, "backends_processor"))
+			m, err := module.New(c, &wg, ctx, "backends_processor")
+			if err != nil {
+				log.Fatal().Err(err).Msg("Failed to create backends_processor module")
+			}
+			ml.AddModule(c.FullID(), m)
 		}
 		for _, c := range conf.BalancerList {
-			ml.AddModule(c.FullID(), module.New(c, &wg, ctx, "balancer"))
+			m, err := module.New(c, &wg, ctx, "balancer")
+			if err != nil {
+				log.Fatal().Err(err).Msg("Failed to create balancer module")
+			}
+			ml.AddModule(c.FullID(), m)
 		}
 		for _, c := range conf.ProxyList {
-			ml.AddModule(c.FullID(), module.New(c, &wg, ctx, "proxy"))
+			m, err := module.New(c, &wg, ctx, "proxy")
+			if err != nil {
+				log.Fatal().Err(err).Msg("Failed to create proxy module")
+			}
+			ml.AddModule(c.FullID(), m)
 		}
 
 		// Bind modules together
 		for _, m := range ml {
 			if b, ok := m.(module.Binder); ok {
-				b.Bind(ml)
+				if err := b.Bind(ml); err != nil {
+					log.Fatal().Err(err).Msg("Failed to bind module")
+				}
 			}
 		}
 

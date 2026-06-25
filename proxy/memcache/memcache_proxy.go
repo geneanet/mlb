@@ -147,7 +147,7 @@ func parseMemcacheProxyConfig(tc *module.Config) *MemcacheProxyConfig {
 	return config
 }
 
-func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
+func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (any, error) {
 	config := parseMemcacheProxyConfig(tc)
 
 	p := &MemcacheProxy{
@@ -179,11 +179,11 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 	var err error
 	p.connectTimeout, err = time.ParseDuration(config.ConnectTimeout)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	p.closeTimeout, err = time.ParseDuration(config.CloseTimeout)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	p.ctx, p.cancel = context.WithCancel(ctx)
@@ -224,21 +224,28 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 		}
 	}()
 
-	return p
+	return p, nil
 }
 
 // Bind initializes the backend update subscription and starts the listeners.
-func (p *MemcacheProxy) Bind(modules module.ModulesRegistry) {
-	module.Get[backend.BackendUpdateProvider](modules, p.source).ProvideUpdates(p)
+func (p *MemcacheProxy) Bind(modules module.ModulesRegistry) error {
+	m, err := module.Get[backend.BackendUpdateProvider](modules, p.source)
+	if err != nil {
+		return err
+	}
+	m.ProvideUpdates(p)
 
 	// Listening to incoming connections only makes sense after backend providers are available
 	for _, v := range p.addresses {
-		p.listen(v, p.wg)
+		if err := p.listen(v, p.wg); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // listen starts a TCP listener on the given address and accepts incoming connections.
-func (p *MemcacheProxy) listen(address string, wg *sync.WaitGroup) {
+func (p *MemcacheProxy) listen(address string, wg *sync.WaitGroup) error {
 	p.log.Info().Str("address", address).Msg("Opening Frontend")
 
 	feMetrics := &Metrics{
@@ -266,14 +273,11 @@ func (p *MemcacheProxy) listen(address string, wg *sync.WaitGroup) {
 	// Bind
 	listener, err := lc.Listen(context.Background(), "tcp", address)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	context.AfterFunc(p.ctx, func() {
-		err := listener.Close()
-		if err != nil {
-			panic(err)
-		}
+		_ = listener.Close()
 	})
 
 	wg.Add(1)
@@ -298,6 +302,8 @@ func (p *MemcacheProxy) listen(address string, wg *sync.WaitGroup) {
 
 		p.connectionsWG.Wait()
 	}()
+
+	return nil
 }
 
 // flushBackend sends a flush_all command to the backend upon connection.

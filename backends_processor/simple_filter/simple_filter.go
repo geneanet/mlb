@@ -62,7 +62,7 @@ func parseSimpleFilterConfig(tc *module.Config) *SimpleFilterConfig {
 	return config
 }
 
-func newSimpleFilter(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
+func newSimpleFilter(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (any, error) {
 	config := parseSimpleFilterConfig(tc)
 
 	sortOrder := "asc"
@@ -133,7 +133,7 @@ func newSimpleFilter(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 		}
 	}()
 
-	return f
+	return f, nil
 }
 
 // ProvideUpdates registers a subscriber and sends initial updates for all currently matched backends.
@@ -320,6 +320,11 @@ func (f *SimpleFilter) GetBackendList() []*backend.Backend {
 }
 
 // Bind cross-links the filter with its source backend provider.
-func (f *SimpleFilter) Bind(modules module.ModulesRegistry) {
-	module.Get[backend.BackendUpdateProvider](modules, f.source).ProvideUpdates(f)
+func (f *SimpleFilter) Bind(modules module.ModulesRegistry) error {
+	m, err := module.Get[backend.BackendUpdateProvider](modules, f.source)
+	if err != nil {
+		return err
+	}
+	m.ProvideUpdates(f)
+	return nil
 }

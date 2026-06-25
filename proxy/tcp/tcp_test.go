@@ -125,7 +125,10 @@ func TestTCPProxyFactory(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	ctx := context.Background()
 
-	mod := newTCPProxy(tc, wg, ctx)
+	mod, err := newTCPProxy(tc, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	if mod == nil {
 		t.Fatal("expected mod not to be nil")
 	}
@@ -170,7 +173,10 @@ func TestTCPProxyFactory_Defaults(t *testing.T) {
 		Ctx:    &hcl.EvalContext{},
 	}
 
-	mod := newTCPProxy(tc, &sync.WaitGroup{}, context.Background())
+	mod, err := newTCPProxy(tc, &sync.WaitGroup{}, context.Background())
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	p := mod.(*ProxyTCP)
 
 	// Validate correct default configuration values

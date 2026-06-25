@@ -92,7 +92,7 @@ func parseConsulKVConfig(tc *module.Config) *ConsulKVConfig {
 	return config
 }
 
-func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
+func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (any, error) {
 	config := parseConsulKVConfig(tc)
 
 	c := &ConsulKV{
@@ -113,11 +113,11 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any
 
 	c.defaultPeriod, err = time.ParseDuration(config.Period)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	c.maxPeriod, err = time.ParseDuration(config.MaxPeriod)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	// Default values
@@ -222,7 +222,7 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any
 		}
 	}()
 
-	return c
+	return c, nil
 }
 
 // ProvideUpdates registers a subscriber and sends initial updates for all currently matched backends.
@@ -244,8 +244,13 @@ func (c *ConsulKV) GetBackendList() []*backend.Backend {
 }
 
 // Bind cross-links the processor with its source backend provider.
-func (c *ConsulKV) Bind(modules module.ModulesRegistry) {
-	module.Get[backend.BackendUpdateProvider](modules, c.source).ProvideUpdates(c)
+func (c *ConsulKV) Bind(modules module.ModulesRegistry) error {
+	m, err := module.Get[backend.BackendUpdateProvider](modules, c.source)
+	if err != nil {
+		return err
+	}
+	m.ProvideUpdates(c)
+	return nil
 }
 
 // Watcher

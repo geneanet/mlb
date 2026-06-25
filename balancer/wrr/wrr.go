@@ -70,7 +70,7 @@ func parseWRRBalancerConfig(tc *module.Config) *WRRBalancerConfig {
 }
 
 // newWRRBalancer creates a new instance of a WRR balancer.
-func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) any {
+func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (any, error) {
 	config := parseWRRBalancerConfig(tc)
 
 	b := &WRRBalancer{
@@ -88,7 +88,7 @@ func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 
 	b.timeout, err = time.ParseDuration(config.Timeout)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	b.ctx, b.ctxCancel = context.WithCancel(ctx)
@@ -166,7 +166,7 @@ func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 		}
 	}()
 
-	return b
+	return b, nil
 }
 
 // GetBackend returns a random backend from the weighted list.
@@ -206,6 +206,11 @@ func (b *WRRBalancer) GetBackendList() []*backend.Backend {
 }
 
 // Bind cross-links the balancer with its source backend provider.
-func (b *WRRBalancer) Bind(modules module.ModulesRegistry) {
-	module.Get[backend.BackendUpdateProvider](modules, b.source).ProvideUpdates(b)
+func (b *WRRBalancer) Bind(modules module.ModulesRegistry) error {
+	m, err := module.Get[backend.BackendUpdateProvider](modules, b.source)
+	if err != nil {
+		return err
+	}
+	m.ProvideUpdates(b)
+	return nil
 }

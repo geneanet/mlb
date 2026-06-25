@@ -108,7 +108,10 @@ backends_processor "consul_kv" "test" {
 	ctxBG, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := module.New(cfg, wg, ctxBG, "backends_processor")
+	mod, err := module.New(cfg, wg, ctxBG, "backends_processor")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	consulMod := mod.(*ConsulKV)
 
 	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry()}
@@ -242,7 +245,10 @@ backends_processor "consul_kv" "test" {
 	ctxBG, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := module.New(cfg, wg, ctxBG, "backends_processor")
+	mod, err := module.New(cfg, wg, ctxBG, "backends_processor")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	consulMod := mod.(*ConsulKV)
 
 	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry()}
@@ -280,7 +286,10 @@ backends_processor "consul_kv" "test_defaults" {
 	ctxBG, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := module.New(cfg, wg, ctxBG, "backends_processor")
+	mod, err := module.New(cfg, wg, ctxBG, "backends_processor")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	consulMod := mod.(*ConsulKV)
 
 	if consulMod.defaultPeriod != 500*time.Millisecond {
@@ -294,13 +303,8 @@ backends_processor "consul_kv" "test_defaults" {
 	}
 }
 
-// TestConsulKV_InvalidPeriod verifies that an invalid period configuration causes a panic.
+// TestConsulKV_InvalidPeriod verifies that an invalid period configuration returns an error.
 func TestConsulKV_InvalidPeriod(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("Expected panic due to invalid period")
-		}
-	}()
 	src := `
 backends_processor "consul_kv" "test" {
 	source = "foo"
@@ -312,16 +316,14 @@ backends_processor "consul_kv" "test" {
 	ctx := &hcl.EvalContext{}
 	cfg, _ := module.DecodeConfigBlock(block, ctx, "backends_processor")
 	wg := &sync.WaitGroup{}
-	module.New(cfg, wg, context.Background(), "backends_processor")
+	_, err := module.New(cfg, wg, context.Background(), "backends_processor")
+	if err == nil {
+		t.Errorf("Expected error due to invalid period")
+	}
 }
 
-// TestConsulKV_InvalidMaxPeriod verifies that an invalid max_period configuration causes a panic.
+// TestConsulKV_InvalidMaxPeriod verifies that an invalid max_period configuration returns an error.
 func TestConsulKV_InvalidMaxPeriod(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("Expected panic due to invalid max_period")
-		}
-	}()
 	src := `
 backends_processor "consul_kv" "test" {
 	source = "foo"
@@ -334,7 +336,10 @@ backends_processor "consul_kv" "test" {
 	ctx := &hcl.EvalContext{}
 	cfg, _ := module.DecodeConfigBlock(block, ctx, "backends_processor")
 	wg := &sync.WaitGroup{}
-	module.New(cfg, wg, context.Background(), "backends_processor")
+	_, err := module.New(cfg, wg, context.Background(), "backends_processor")
+	if err == nil {
+		t.Errorf("Expected error due to invalid max_period")
+	}
 }
 
 // TestConsulKV_ReceiveUpdateClosed verifies that the processor handles updates
@@ -353,7 +358,10 @@ backends_processor "consul_kv" "test" {
 	wg := &sync.WaitGroup{}
 	ctxBG, cancel := context.WithCancel(context.Background())
 
-	mod := module.New(cfg, wg, ctxBG, "backends_processor")
+	mod, err := module.New(cfg, wg, ctxBG, "backends_processor")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
 	consulMod := mod.(*ConsulKV)
 
 	cancel()
