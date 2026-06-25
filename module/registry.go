@@ -78,7 +78,13 @@ func New(config *Config, wg *sync.WaitGroup, ctx context.Context, category strin
 func ValidateConfig(config *Config, category string) hcl.Diagnostics {
 	f := getFactory(category, config.Type)
 	if f == nil {
-		panic(fmt.Sprintf("module type %q not found in category %q", config.Type, category))
+		return hcl.Diagnostics{
+			{
+				Severity: hcl.DiagError,
+				Summary:  fmt.Sprintf("Reference to unsupported %s type", category),
+				Detail:   fmt.Sprintf("%s type %q is not supported.", category, config.Type),
+			},
+		}
 	}
 	return f.validate(config)
 }
