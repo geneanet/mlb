@@ -14,6 +14,7 @@ MLB exports a variety of metrics in Prometheus format. If configured via the [`m
 - `mlb_frontend_bytes_in` / `mlb_frontend_bytes_out`: Network throughput at the frontend.
 - `mlb_backend_connections_processed`: Total number of connections made to backends.
 - `mlb_backend_active_connections`: Current active connections to backends.
+- `mlb_backend_bytes_in` / `mlb_backend_bytes_out`: Network throughput at the backend.
 - `mlb_connection_errors`: Counter for various connection and proxy errors.
 
 All metrics are labeled with `proxy` (the ID of the proxy module) and `address` (frontend or backend address).

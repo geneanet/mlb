@@ -16,7 +16,7 @@ proxy "tcp" "my_tcp_proxy" {
 }
 ```
 
-- `source` (string, required): The primary balancer or backend provider.
+- `source` (string, required): The ID of the primary balancer.
 - `backup_source` (string, optional): A secondary balancer used if the primary has no backends.
 - `addresses` (list of strings, required): Listening addresses.
 - `connect_timeout` (duration string, optional): Timeout for connecting to the backend. Default: `0s`.
@@ -42,7 +42,7 @@ proxy "redis" "my_redis_proxy" {
 }
 ```
 
-- `source` (string, required): The balancer or backend provider to route traffic to.
+- `source` (string, required): The ID of the backend provider (inventory or processor).
 - `addresses` (list of strings, required): List of TCP addresses to listen on (e.g., `[":6379"]`).
 - `connect_timeout` (duration string, optional): Timeout for establishing a new connection to a backend. Default: `0s` (OS default).
 - `close_timeout` (duration string, optional): Grace period for existing connections to finish after a shutdown signal. Default: `0s`.
@@ -73,7 +73,7 @@ proxy "memcache" "my_memcache_proxy" {
 }
 ```
 
-- `source` (string, required): The backend provider or inventory.
+- `source` (string, required): The ID of the backend provider (inventory or processor).
 - `addresses` (list of strings, required): List of TCP addresses to listen on (e.g., `[":11211"]`).
 - `connect_timeout` (duration string, optional): Timeout for establishing a new connection to a backend. Default: `0s`.
 - `close_timeout` (duration string, optional): Grace period for closing connections during shutdown. Default: `0s`.
