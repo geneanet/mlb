@@ -53,7 +53,6 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 
 	// Prometheus
 	rbc.metrics.processed.Inc()
-	rbc.metrics.active.Inc()
 
 	// Open backend connection
 	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Opening Backend connection")
@@ -63,6 +62,9 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 	}
 
 	rbc.conn = connBack
+
+	// Prometheus
+	rbc.metrics.active.Inc()
 
 	// Cleanup routine: If the connection context is closed, ensure the connection is closed, abort all in flight request and notify the pool
 	context.AfterFunc(rbc.ctx, func() {

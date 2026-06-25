@@ -43,13 +43,15 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 
 	// Prometheus
 	mbc.metrics.processed.Inc()
-	mbc.metrics.active.Inc()
 
 	mbc.pool.proxy.log.Debug().Str("peer", mbc.backend.Address).Msg("Opening Backend connection")
 	connBack, err := net.DialTimeout("tcp", mbc.backend.Address, mbc.pool.proxy.connectTimeout)
 	if err != nil {
 		return nil, err
 	}
+
+	// Prometheus
+	mbc.metrics.active.Inc()
 
 	mbc.conn = connBack
 

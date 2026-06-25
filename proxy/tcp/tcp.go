@@ -373,8 +373,6 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 
 	// Prometheus
 	beMetrics.processed.Inc()
-	beMetrics.active.Inc()
-	defer beMetrics.active.Dec()
 
 	// Open backend connection
 	p.log.Debug().Str("peer", backendAddress).Msg("Opening Backend connection")
@@ -382,6 +380,11 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	if err != nil {
 		panic(err)
 	}
+
+	// Prometheus
+	beMetrics.active.Inc()
+	defer beMetrics.active.Dec()
+
 	defer connBack.Close()
 	defer p.log.Debug().Str("peer", backendAddress).Msg("Closing Backend connection")
 
