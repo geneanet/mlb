@@ -74,6 +74,7 @@ func startProcess(chanProcess chan *Process) (*Process, error) {
 
 // processManager enters the process manager mode.
 func processManager() {
+	log.Info().Str("version", GetVersion()).Msg("Starting MLB Process Manager")
 	chanSignals := make(chan os.Signal, 1)
 	signal.Notify(chanSignals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR1)
 

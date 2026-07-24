@@ -9,7 +9,11 @@ This document covers running MLB in production, including installation, CLI argu
 To build MLB from source, you need Go 1.26+:
 
 ```bash
+# Basic build (version will be "dev")
 go build -o mlb .
+
+# Build with version information
+go build -ldflags "-X main.Version=$(git describe --tags --always --dirty)" -o mlb .
 ```
 
 ### Docker
@@ -24,6 +28,7 @@ docker build -t mlb .
 
 - `-config <path>`: Path to the HCL configuration file. Default: `config.hcl`.
 - `-configtest`: Checks the configuration syntax and schema for errors without starting the load balancer. Returns exit code 0 if valid, 1 otherwise. Uses the path from `-config`.
+- `-version`: Displays the application version and exit.
 - `-debug`: Enables debug logging level.
 - `-process-manager`: Enables the process manager mode for zero-downtime restarts.
 - `-notify-parent`: Internal flag used by worker processes to signal the process manager they are ready.

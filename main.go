@@ -40,10 +40,17 @@ func main() {
 	// Parse CLI args
 	argConfig := flag.String("config", "config.hcl", "config file")
 	argConfigTest := flag.Bool("configtest", false, "validate configuration and exit")
+	argVersion := flag.Bool("version", false, "display version and exit")
 	argDebug := flag.Bool("debug", false, "sets log level to debug")
 	argProcessManager := flag.Bool("process-manager", false, "enable process manager mode")
 	argNotifyParent := flag.Bool("notify-parent", false, "send SIGUSR1 to parent once everything is running")
 	flag.Parse()
+
+	// Handle version
+	if *argVersion {
+		fmt.Println(GetVersion())
+		os.Exit(0)
+	}
 
 	// Handle config test
 	if *argConfigTest {
@@ -73,6 +80,8 @@ func main() {
 	} else { // Normal mode
 		var wg sync.WaitGroup
 		ctx, cancel := context.WithCancel(context.Background())
+
+		log.Info().Str("version", GetVersion()).Msg("Starting MLB")
 
 		// Parse conf
 		conf, diags := config.LoadConfig(*argConfig)
