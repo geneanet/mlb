@@ -2,7 +2,8 @@ bench
 .dockerignore
 .vscode
 config.hcl
-mlb
+# mlb binary is needed for Dockerfile.release
+!mlb
 coverage.out
 coverage.html
 *coverage.out

@@ -1,0 +1,3 @@
+FROM docker.io/alpine:3.23
+COPY mlb /mlb
+ENTRYPOINT [ "/mlb" ]
