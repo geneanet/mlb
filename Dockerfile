@@ -1,4 +1,4 @@
-FROM docker.io/golang:1.26.0-alpine3.23 AS build
+FROM docker.io/golang:1.26-alpine3.23 AS build
 WORKDIR /usr/local/src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
