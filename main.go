@@ -48,7 +48,8 @@ func main() {
 
 	// Handle version
 	if *argVersion {
-		fmt.Println(GetVersion())
+		revision, buildDate := GetBuildInfo()
+		fmt.Printf("MLB %s\nBuildDate %s\nRevision %s\n", GetVersion(), buildDate, revision)
 		os.Exit(0)
 	}
 
