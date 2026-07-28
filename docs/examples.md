@@ -17,8 +17,45 @@ balancer "wrr" "my_balancer" {
 }
 
 proxy "tcp" "my_proxy" {
-  source = balancer.wrr.my_balancer
+  sources = [balancer.wrr.my_balancer]
   addresses = [":3300"]
+}
+```
+
+## TCP Failover with Multiple Sources
+
+This example shows how to configure a TCP proxy with multiple prioritized sources. Traffic will be routed to the first source that has available backends.
+
+```hcl
+backends_inventory "static" "primary_nodes" {
+  hosts = ["10.0.1.1:80", "10.0.1.2:80"]
+}
+
+backends_inventory "static" "backup_nodes" {
+  hosts = ["10.0.2.1:80"]
+}
+
+backends_inventory "static" "maintenance_page" {
+  hosts = ["127.0.0.1:8080"]
+}
+
+balancer "wrr" "primary_lb" {
+  source = backends_inventory.static.primary_nodes
+  weight = 1
+}
+
+balancer "wrr" "backup_lb" {
+  source = backends_inventory.static.backup_nodes
+  weight = 1
+}
+
+proxy "tcp" "web_proxy" {
+  sources = [
+    balancer.wrr.primary_lb,
+    balancer.wrr.backup_lb,
+    backends_inventory.static.maintenance_page
+  ]
+  addresses = [":80"]
 }
 ```
 
@@ -56,7 +93,7 @@ balancer "wrr" "slave_balancer" {
 }
 
 proxy "tcp" "mysql_read_proxy" {
-  source = balancer.wrr.slave_balancer
+  sources = [balancer.wrr.slave_balancer]
   addresses = [":3307"]
 }
 ```

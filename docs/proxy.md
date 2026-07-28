@@ -4,20 +4,24 @@ Proxies are the frontend of MLB. They listen on network addresses, speak specifi
 
 ## TCP Proxy
 
-A low-level TCP proxy that forwards raw bytes.
+A low-level TCP proxy that forwards raw bytes. It supports multiple prioritized sources (balancers or backend providers).
 
 ```hcl
 proxy "tcp" "my_tcp_proxy" {
-  source = balancer.wrr.my_balancer
-  backup_source = balancer.wrr.backup_balancer
+  sources = [
+    balancer.wrr.primary_balancer,
+    balancer.wrr.backup_balancer,
+    backends_inventory.static.maintenance_page
+  ]
   addresses = [":3306"]
   connect_timeout = "2s"
   close_on_backend_removal = true
 }
 ```
 
-- `source` (string, required): The ID of the primary balancer.
-- `backup_source` (string, optional): A secondary balancer used if the primary has no backends.
+- `sources` (list of strings, optional): A prioritized list of backend providers. The proxy will try to get a backend from each source in the order defined.
+- `source` (string, optional, **deprecated**): The ID of the primary balancer. Used for backward compatibility; if defined, it is added as the first element of the `sources` list. Use `sources` instead.
+- `backup_source` (string, optional, **deprecated**): A secondary balancer used if the primary has no backends. Used for backward compatibility; if defined, it is added to the `sources` list after `source`. Use `sources` instead.
 - `addresses` (list of strings, required): Listening addresses.
 - `connect_timeout` (duration string, optional): Timeout for connecting to the backend. Default: `0s`.
 - `client_timeout` (duration string, optional): Idle timeout for the client connection. Default: `0s`.

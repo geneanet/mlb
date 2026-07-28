@@ -134,11 +134,11 @@ func TestTCPProxyFactory(t *testing.T) {
 	}
 
 	p := mod.(*ProxyTCP)
-	if p.source != "primary_src" {
-		t.Errorf("expected source primary_src, got %s", p.source)
+	if len(p.sources) == 0 || p.sources[0] != "primary_src" {
+		t.Errorf("expected primary source primary_src, got %v", p.sources)
 	}
-	if p.backupSource != "backup_src" {
-		t.Errorf("expected backupSource backup_src, got %s", p.backupSource)
+	if len(p.sources) < 2 || p.sources[1] != "backup_src" {
+		t.Errorf("expected backup source backup_src, got %v", p.sources)
 	}
 	if p.bufferSize != 1024 {
 		t.Errorf("expected bufferSize 1024, got %d", p.bufferSize)
@@ -149,6 +149,41 @@ func TestTCPProxyFactory(t *testing.T) {
 	b := wrapper.buf
 	if len(b) != 1024 {
 		t.Errorf("expected buffer length 1024, got %d", len(b))
+	}
+}
+
+// TestTCPProxyFactory_Sources verifies the parsing of the new 'sources' list parameter.
+func TestTCPProxyFactory_Sources(t *testing.T) {
+	hclText := `
+		sources = ["s1", "s2", "s3"]
+		addresses = ["127.0.0.1:0"]
+	`
+	file, diags := hclsyntax.ParseConfig([]byte(hclText), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+
+	tc := &module.Config{
+		Category: "proxy",
+		Type:     "tcp",
+		Name:     "test_proxy_sources",
+		Config:   file.Body,
+		Ctx:      &hcl.EvalContext{},
+	}
+
+	mod, err := newTCPProxy(tc, &sync.WaitGroup{}, context.Background())
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+	p := mod.(*ProxyTCP)
+	expected := []string{"s1", "s2", "s3"}
+	if len(p.sources) != len(expected) {
+		t.Fatalf("expected %d sources, got %d", len(expected), len(p.sources))
+	}
+	for i, v := range expected {
+		if p.sources[i] != v {
+			t.Errorf("expected source %d to be %s, got %s", i, v, p.sources[i])
+		}
 	}
 }
 
@@ -232,8 +267,7 @@ func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 		addresses:      []string{proxyAddr},
 		log:            zerolog.Nop(),
 		bufferSize:     32768,
-		source:         "primary_backend",
-		backupSource:   "backup_backend",
+		sources:        []string{"primary_backend", "backup_backend"},
 		wg:             wg,
 		ctx:            ctx,
 		cancel:         cancel,
@@ -334,7 +368,7 @@ func TestTCPProxy_NoBackendPanic(t *testing.T) {
 		addresses:      []string{proxyAddr},
 		log:            zerolog.Nop(),
 		bufferSize:     32768,
-		source:         "missing_backend",
+		sources:        []string{"missing_backend"},
 		wg:             wg,
 		ctx:            ctx,
 		cancel:         cancel,
@@ -402,7 +436,7 @@ func TestTCPProxy_TimeoutAndContextCancel(t *testing.T) {
 		addresses:      []string{proxyAddr},
 		log:            zerolog.Nop(),
 		bufferSize:     32768,
-		source:         "test_backend",
+		sources:        []string{"test_backend"},
 		wg:             wg,
 		ctx:            ctx,
 		cancel:         cancel,
@@ -495,7 +529,7 @@ func TestTCPProxy_PipeErrors(t *testing.T) {
 		addresses:      []string{proxyAddr},
 		log:            zerolog.Nop(),
 		bufferSize:     32768,
-		source:         "test_backend",
+		sources:        []string{"test_backend"},
 		wg:             wg,
 		ctx:            ctx,
 		cancel:         cancel,
@@ -557,7 +591,7 @@ func TestTCPProxy_PipeClosedErr(t *testing.T) {
 		addresses:  []string{proxyAddr},
 		log:        zerolog.Nop(),
 		bufferSize: 32768,
-		source:     "test_backend",
+		sources:    []string{"test_backend"},
 		wg:         wg,
 		ctx:        ctx,
 		cancel:     cancel,
@@ -719,7 +753,7 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 		addresses:      []string{proxyAddr},
 		log:            zerolog.Nop(),
 		bufferSize:     32768,
-		source:         "test_backend",
+		sources:        []string{"test_backend"},
 		wg:             wg,
 		ctx:            ctx,
 		cancel:         cancel,
@@ -794,7 +828,7 @@ func TestTCPProxy_CloseOnBackendRemoval(t *testing.T) {
 		addresses:             []string{proxyAddr},
 		log:                   zerolog.Nop(),
 		bufferSize:            32768,
-		source:                "test_backend",
+		sources:               []string{"test_backend"},
 		wg:                    wg,
 		ctx:                   ctx,
 		cancel:                cancel,

@@ -104,8 +104,10 @@ balancer "wrr" "redis_master" {
 }
 
 proxy "tcp" "mysql_main_ro" {
-  source = balancer.wrr.mysql_main_ro
-  // backup_source = balancer.wrr.other_balancer
+  sources = [
+    balancer.wrr.mysql_main_ro
+    // balancer.wrr.other_balancer
+    ]
   addresses = [":3306"]
   // close_timeout = "0s"
   // connect_timeout = "0s"

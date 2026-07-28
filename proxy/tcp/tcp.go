@@ -30,10 +30,8 @@ func init() {
 type ProxyTCP struct {
 	id                    string
 	addresses             []string
-	source                string
-	backupSource          string
-	backendProvider       backend.BackendProvider
-	backupBackendProvider backend.BackendProvider
+	sources               []string
+	backendProviders      []backend.BackendProvider
 	closeTimeout          time.Duration
 	connectTimeout        time.Duration
 	clientTimeout         time.Duration
@@ -63,7 +61,8 @@ type Metrics struct {
 // TCPProxyConfig defines the HCL configuration for the TCP proxy.
 type TCPProxyConfig struct {
 	ID                    string   `hcl:"id,label"`
-	Source                string   `hcl:"source"`
+	Sources               []string `hcl:"sources,optional"`
+	Source                string   `hcl:"source,optional"`
 	BackupSource          string   `hcl:"backup_source,optional"`
 	Addresses             []string `hcl:"addresses,optional"`
 	ConnectTimeout        string   `hcl:"connect_timeout,optional"`
@@ -79,6 +78,14 @@ type TCPProxyConfig struct {
 func validateTCPProxyConfig(tc *module.Config) hcl.Diagnostics {
 	configBody := &TCPProxyConfig{}
 	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
+
+	if len(configBody.Sources) == 0 && configBody.Source == "" {
+		diags = append(diags, &hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "Missing source configuration",
+			Detail:   "Either 'sources' or 'source' must be defined.",
+		})
+	}
 
 	config.CheckDuration(&diags, configBody.ConnectTimeout, "connect_timeout")
 	config.CheckDuration(&diags, configBody.ClientTimeout, "client_timeout")
@@ -96,6 +103,15 @@ func parseTCPProxyConfig(tc *module.Config) *TCPProxyConfig {
 		log.Error().Err(diags).Msg("failed to decode TCP proxy config")
 	}
 	config.ID = tc.FullID()
+
+	// Handle backward compatibility for source and backup_source
+	if len(config.Sources) == 0 && config.Source != "" {
+		config.Sources = []string{config.Source}
+		if config.BackupSource != "" {
+			config.Sources = append(config.Sources, config.BackupSource)
+		}
+	}
+
 	if config.ConnectTimeout == "" {
 		config.ConnectTimeout = "0s"
 	}
@@ -125,8 +141,7 @@ func newTCPProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 		addresses:             config.Addresses,
 		log:                   log.With().Str("id", config.ID).Logger(),
 		bufferSize:            config.BufferSize,
-		source:                config.Source,
-		backupSource:          config.BackupSource,
+		sources:               config.Sources,
 		wg:                    wg,
 		beMetricsCache:        make(map[string]*Metrics),
 		closeOnBackendRemoval: config.CloseOnBackendRemoval,
@@ -343,15 +358,25 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 		}
 	}()
 
-	// Try to get a primary backend
-	backend, release := p.backendProvider.GetBackend(false)
-	// If no backend try to get a backup backend
-	if backend == nil && p.backupBackendProvider != nil {
-		backend, release = p.backupBackendProvider.GetBackend(false)
+	// Try to get a backend from any provider without waiting
+	var backend *backend.Backend
+	var release func()
+	for _, provider := range p.backendProviders {
+		backend, release = provider.GetBackend(false)
+		if backend != nil {
+			break
+		}
 	}
-	// If still no backend try waiting for a primary backend
+
+	// If still no backend try waiting for the first provider
 	if backend == nil {
-		backend, release = p.backendProvider.GetBackend(true)
+		if len(p.backendProviders) > 0 {
+			// We only wait on the first provider for simplicity.
+			// Upgrade path: wait on multiple providers or implement a more complex fallback strategy.
+			backend, release = p.backendProviders[0].GetBackend(true)
+		} else {
+			panic(errors.New("no backend provider configured"))
+		}
 	}
 	defer release()
 
@@ -408,19 +433,13 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	connBack.Close()
 }
 
-
 func (p *ProxyTCP) Bind(modules module.ModulesRegistry) error {
-	var err error
-	p.backendProvider, err = module.Get[backend.BackendProvider](modules, p.source)
-	if err != nil {
-		return err
-	}
-
-	if p.backupSource != "" {
-		p.backupBackendProvider, err = module.Get[backend.BackendProvider](modules, p.backupSource)
+	for _, source := range p.sources {
+		provider, err := module.Get[backend.BackendProvider](modules, source)
 		if err != nil {
 			return err
 		}
+		p.backendProviders = append(p.backendProviders, provider)
 	}
 
 	// Listening to incoming connections only makes sense after backend providers are available
