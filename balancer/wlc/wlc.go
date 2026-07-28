@@ -121,8 +121,8 @@ func newWLCBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 					if diags.HasErrors() {
 						b.log.Error().Msg(diags.Error())
 					}
-					if weight <= 0 {
-						weight = 1 // Avoid division by zero
+					if weight < 0 {
+						weight = 0
 					}
 
 					if upd.Kind == backend.UpdBackendAdded {
@@ -181,6 +181,10 @@ func (b *WLCBalancer) GetBackend(wait bool) (*backend.Backend, func()) {
 	var bestStats *backendStats
 
 	for _, s := range b.stats {
+		if s.weight <= 0 {
+			continue
+		}
+
 		if bestStats == nil {
 			bestStats = s
 			continue

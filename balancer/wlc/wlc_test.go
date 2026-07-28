@@ -141,6 +141,73 @@ func TestWLCBalancer_WeightedLeastConnections(t *testing.T) {
 	rel3()
 }
 
+func TestWLCBalancer_ZeroWeightExclusion(t *testing.T) {
+	body := &hclsyntax.Body{
+		Attributes: map[string]*hclsyntax.Attribute{
+			"source": {Name: "source", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("src1")}},
+			"weight": {Name: "weight", Expr: &hclsyntax.ScopeTraversalExpr{
+				Traversal: hcl.Traversal{
+					hcl.TraverseRoot{Name: "backend"},
+					hcl.TraverseAttr{Name: "meta"},
+					hcl.TraverseAttr{Name: "wlc"},
+					hcl.TraverseAttr{Name: "weight"},
+				},
+			}},
+		},
+	}
+	cfg := &module.Config{Category: "balancer", Name: "test", Type: "wlc", Config: body, Ctx: &hcl.EvalContext{}}
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mod, err := newWLCBalancer(cfg, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+	balancer := mod.(*WLCBalancer)
+
+	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry()}
+	provider.ProvideUpdates(balancer)
+
+	// A: weight 1, B: weight 0, C: weight -1
+	beA := &backend.Backend{Address: "A", Meta: backend.NewEmptyMetaMap(0)}
+	beA.Meta.Set("wlc", "weight", cty.NumberIntVal(1))
+	beB := &backend.Backend{Address: "B", Meta: backend.NewEmptyMetaMap(0)}
+	beB.Meta.Set("wlc", "weight", cty.NumberIntVal(0))
+	beC := &backend.Backend{Address: "C", Meta: backend.NewEmptyMetaMap(0)}
+	beC.Meta.Set("wlc", "weight", cty.NumberIntVal(-1))
+
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "A", Backend: beA})
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "B", Backend: beB})
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "C", Backend: beC})
+
+	testutil.Eventually(t, func() bool {
+		return len(balancer.GetBackendList()) == 3
+	}, 1*time.Second, 10*time.Millisecond)
+
+	// Should always pick A
+	for i := 0; i < 10; i++ {
+		res, rel := balancer.GetBackend(false)
+		if res == nil {
+			t.Fatal("Expected a backend")
+		}
+		if res.Address != "A" {
+			t.Errorf("Expected A, got %s (iteration %d)", res.Address, i)
+		}
+		rel()
+	}
+
+	// Update A to 0 weight
+	beA.Meta.Set("wlc", "weight", cty.NumberIntVal(0))
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: "A", Backend: beA})
+
+	// Now all have weight <= 0, GetBackend should return nil
+	testutil.Eventually(t, func() bool {
+		res, _ := balancer.GetBackend(false)
+		return res == nil
+	}, 1*time.Second, 10*time.Millisecond)
+}
+
 func TestWLCBalancer_ValidateConfig(t *testing.T) {
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
