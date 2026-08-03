@@ -140,6 +140,9 @@ func TestRedisProxyFactory_parseConfig(t *testing.T) {
 	if config.BackendWaitTimeout != "0s" {
 		t.Errorf("expected BackendWaitTimeout 0s, got %s", config.BackendWaitTimeout)
 	}
+	if config.BackendTCPKeepAlive != "15s" {
+		t.Errorf("expected BackendTCPKeepAlive 15s, got %s", config.BackendTCPKeepAlive)
+	}
 	if config.BufferSize != 16384 {
 		t.Errorf("expected BufferSize 16384, got %d", config.BufferSize)
 	}
@@ -444,8 +447,8 @@ func TestRedisProxy_HandleConnection_NoBackendPanic(t *testing.T) {
 }
 
 // TestRedisProxy_HandleConnection_FailedResponse verifies that an aborted response
-// from the backend (represented by a nil item in the response) causes the proxy
-// to correctly terminate the client session by cancelling the client context.
+// from the backend (represented by an Abort call) causes the proxy
+// to return a Redis protocol error to the client instead of dropping the connection.
 func TestRedisProxy_HandleConnection_FailedResponse(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -465,14 +468,18 @@ func TestRedisProxy_HandleConnection_FailedResponse(t *testing.T) {
 	}
 	defer l.Close()
 
+	respReceived := make(chan string, 1)
+
 	// Mock client connection
 	go func() {
 		conn, err := net.Dial("tcp", l.Addr().String())
 		if err == nil {
 			conn.Write([]byte("PING\r\n"))
-			// Wait for the proxy to close the connection
-			buf := make([]byte, 10)
-			conn.Read(buf)
+			buf := make([]byte, 1024)
+			n, err := conn.Read(buf)
+			if err == nil {
+				respReceived <- string(buf[:n])
+			}
 			conn.Close()
 		}
 	}()
@@ -484,8 +491,10 @@ func TestRedisProxy_HandleConnection_FailedResponse(t *testing.T) {
 
 	p.backendConnectionPool = NewRedisBackendConnectionPool(p)
 	rbc := &RedisBackendConnection{
-		pool:      p.backendConnectionPool,
-		inputChan: make(chan RedisQuery, 1),
+		pool:          p.backendConnectionPool,
+		inputChan:     make(chan RedisQuery, 1),
+		inputChanStop: make(chan struct{}),
+		ctx:           context.Background(),
 	}
 	p.backendConnectionPool.mutex.Lock()
 	p.backendConnectionPool.pool[rbc] = struct{}{}
@@ -506,10 +515,20 @@ func TestRedisProxy_HandleConnection_FailedResponse(t *testing.T) {
 	}()
 
 	select {
+	case resp := <-respReceived:
+		expectedError := "-ERR Backend connection failed\r\n"
+		if resp != expectedError {
+			t.Errorf("expected %q, got %q", expectedError, resp)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("no response received from proxy")
+	}
+
+	select {
 	case <-done:
 		// Success
 	case <-time.After(1 * time.Second):
-		t.Fatal("handleConnection did not exit on aborted response")
+		t.Fatal("handleConnection did not exit after client closed")
 	}
 }
 
@@ -633,8 +652,10 @@ func TestRedisProxy_HandleConnection_GracefulShutdownTimeout(t *testing.T) {
 
 	p.backendConnectionPool = NewRedisBackendConnectionPool(p)
 	rbc := &RedisBackendConnection{
-		pool:      p.backendConnectionPool,
-		inputChan: make(chan RedisQuery, 1),
+		pool:          p.backendConnectionPool,
+		inputChan:     make(chan RedisQuery, 1),
+		inputChanStop: make(chan struct{}),
+		ctx:           context.Background(),
 	}
 	p.backendConnectionPool.mutex.Lock()
 	p.backendConnectionPool.pool[rbc] = struct{}{}
@@ -697,8 +718,10 @@ func TestRedisProxy_HandleConnection_ClientWriteError(t *testing.T) {
 
 	p.backendConnectionPool = NewRedisBackendConnectionPool(p)
 	rbc := &RedisBackendConnection{
-		pool:      p.backendConnectionPool,
-		inputChan: make(chan RedisQuery, 1),
+		pool:          p.backendConnectionPool,
+		inputChan:     make(chan RedisQuery, 1),
+		inputChanStop: make(chan struct{}),
+		ctx:           context.Background(),
 	}
 	p.backendConnectionPool.mutex.Lock()
 	p.backendConnectionPool.pool[rbc] = struct{}{}
@@ -749,8 +772,10 @@ func TestRedisProxy_HandleConnection_ClientReadError(t *testing.T) {
 
 	p.backendConnectionPool = NewRedisBackendConnectionPool(p)
 	rbc := &RedisBackendConnection{
-		pool:      p.backendConnectionPool,
-		inputChan: make(chan RedisQuery, 1),
+		pool:          p.backendConnectionPool,
+		inputChan:     make(chan RedisQuery, 1),
+		inputChanStop: make(chan struct{}),
+		ctx:           context.Background(),
 	}
 	p.backendConnectionPool.mutex.Lock()
 	p.backendConnectionPool.pool[rbc] = struct{}{}
@@ -914,6 +939,7 @@ func TestRedisConfigParsing(t *testing.T) {
 		source = "s1"
 		backend_min_connections = 3
 		backend_input_queue_size = 2000
+		backend_tcp_keepalive = "30s"
 	`
 	f, _ := hclsyntax.ParseConfig([]byte(configStr), "test.hcl", hcl.Pos{Line: 1, Column: 1})
 	tc := &module.Config{Config: f.Body, Ctx: &hcl.EvalContext{}}
@@ -931,6 +957,9 @@ func TestRedisConfigParsing(t *testing.T) {
 	}
 	if p.backendInputQueueSize != 2000 {
 		t.Errorf("Expected input queue size 2000, got %d", p.backendInputQueueSize)
+	}
+	if p.backendTCPKeepAlive != 30*time.Second {
+		t.Errorf("Expected backendTCPKeepAlive 30s, got %s", p.backendTCPKeepAlive)
 	}
 }
 

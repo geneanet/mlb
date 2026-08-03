@@ -2,11 +2,18 @@ package redis
 
 import (
 	"context"
+	"io"
 	"mlb/backend"
 	"mlb/misc"
 	"sync"
 	"time"
 )
+
+type RedisBackendConnectionFailure struct {
+	rbc         *RedisBackendConnection
+	err         error
+	hadInFlight bool
+}
 
 // RedisBackendConnectionPool manages a pool of connections to Redis backends.
 type RedisBackendConnectionPool struct {
@@ -15,7 +22,7 @@ type RedisBackendConnectionPool struct {
 	updateMutex         sync.Mutex
 	ctx                 context.Context
 	cancel              context.CancelFunc
-	chanFailure         chan *RedisBackendConnection
+	chanFailure         chan RedisBackendConnectionFailure
 	proxy               *RedisProxy
 	waitBackendsTimeout time.Duration
 	waitBackends        chan struct{}
@@ -26,7 +33,7 @@ func NewRedisBackendConnectionPool(proxy *RedisProxy) *RedisBackendConnectionPoo
 	rbcp := &RedisBackendConnectionPool{
 		pool:                make(map[*RedisBackendConnection]struct{}),
 		proxy:               proxy,
-		chanFailure:         make(chan *RedisBackendConnection),
+		chanFailure:         make(chan RedisBackendConnectionFailure),
 		waitBackendsTimeout: proxy.backendWaitTimeout,
 		waitBackends:        make(chan struct{}),
 	}
@@ -38,9 +45,13 @@ func NewRedisBackendConnectionPool(proxy *RedisProxy) *RedisBackendConnectionPoo
 	go func() {
 		for {
 			select {
-			case rbc := <-rbcp.chanFailure:
-				proxy.log.Error().Str("peer", rbc.backend.Address).Msg("Backend connection failed")
-				proxy.backendConnectionPool.Del(rbc)
+			case failure := <-rbcp.chanFailure:
+				if failure.err == io.EOF && !failure.hadInFlight {
+					proxy.log.Debug().Str("peer", failure.rbc.backend.Address).Msg("Backend connection closed (idle)")
+				} else {
+					proxy.log.Error().Str("peer", failure.rbc.backend.Address).Err(failure.err).Msg("Backend connection failed")
+				}
+				proxy.backendConnectionPool.Del(failure.rbc)
 				proxy.backendConnectionPool.Update()
 			case <-rbcp.ctx.Done():
 				return
@@ -88,8 +99,15 @@ func (rbcp *RedisBackendConnectionPool) Wait(ctx context.Context) error {
 func (rbcp *RedisBackendConnectionPool) GetRandom(wait bool) *RedisBackendConnection {
 	rbcp.mutex.RLock()
 
+	healthyCount := 0
+	for rbc := range rbcp.pool {
+		if rbc.ctx.Err() == nil {
+			healthyCount++
+		}
+	}
+
 	// Wait for a connection to be added to the pool or a timeout to occur
-	if len(rbcp.pool) == 0 && rbcp.waitBackendsTimeout > 0 && wait {
+	if healthyCount == 0 && rbcp.waitBackendsTimeout > 0 && wait {
 		rbcp.mutex.RUnlock()
 		ctx, ctxCancel := context.WithDeadline(rbcp.ctx, time.Now().Add(rbcp.waitBackendsTimeout))
 		defer ctxCancel()
@@ -97,20 +115,15 @@ func (rbcp *RedisBackendConnectionPool) GetRandom(wait bool) *RedisBackendConnec
 		rbcp.mutex.RLock()
 	}
 
-	if len(rbcp.pool) == 0 {
-		rbcp.mutex.RUnlock()
-		return nil
-	}
-
-	// 1. Try to find a non-full connection
+	// 1. Try to find a healthy, non-full connection
 	for rbc := range rbcp.pool {
-		if !rbc.IsFull() {
+		if rbc.ctx.Err() == nil && !rbc.IsFull() {
 			rbcp.mutex.RUnlock()
 			return rbc
 		}
 	}
 
-	// 2. All connections are full. Try to grow if below max.
+	// 2. All connections are full or unhealthy. Try to grow if below max.
 	if len(rbcp.pool) < rbcp.proxy.backendMaxConnections {
 		// Pick a backend from the pool's existing connections to stay on the same service
 		// Or pick the first from the sorted list if we want to be more consistent
@@ -137,8 +150,10 @@ func (rbcp *RedisBackendConnectionPool) GetRandom(wait bool) *RedisBackendConnec
 	}
 
 	for rbc := range rbcp.pool {
-		rbcp.mutex.RUnlock()
-		return rbc
+		if rbc.ctx.Err() == nil {
+			rbcp.mutex.RUnlock()
+			return rbc
+		}
 	}
 	rbcp.mutex.RUnlock()
 	return nil
@@ -151,8 +166,8 @@ func (rbcp *RedisBackendConnectionPool) Del(rbc *RedisBackendConnection) {
 	rbcp.updateWaitState()
 }
 
-func (rbcp *RedisBackendConnectionPool) NotifyFailure(rbc *RedisBackendConnection) {
-	rbcp.chanFailure <- rbc
+func (rbcp *RedisBackendConnectionPool) NotifyFailure(rbc *RedisBackendConnection, err error, hadInFlight bool) {
+	rbcp.chanFailure <- RedisBackendConnectionFailure{rbc: rbc, err: err, hadInFlight: hadInFlight}
 }
 
 func (rbcp *RedisBackendConnectionPool) Update() {

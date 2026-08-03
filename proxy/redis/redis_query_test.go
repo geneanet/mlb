@@ -81,7 +81,7 @@ func TestRedisQuery_Reply(t *testing.T) {
 	})
 }
 
-// TestRedisQuery_Abort verifies that Abort sends a nil reply to signal that the query execution
+// TestRedisQuery_Abort verifies that Abort sends an error reply to signal that the query execution
 // has been cancelled or the backend connection aborted.
 func TestRedisQuery_Abort(t *testing.T) {
 	responseChan := make(chan RedisReponse, 1)
@@ -95,8 +95,9 @@ func TestRedisQuery_Abort(t *testing.T) {
 	}
 	select {
 	case resp := <-responseChan:
-		if resp.item != nil {
-			t.Errorf("Aborted query response item should be nil, got %v", resp.item)
+		expectedError := "-ERR Backend connection failed\r\n"
+		if string(resp.item) != expectedError {
+			t.Errorf("Aborted query response item should be %q, got %q", expectedError, string(resp.item))
 		}
 	default:
 		t.Fatal("Expected response to be on responseChan")

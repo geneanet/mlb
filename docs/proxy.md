@@ -57,6 +57,7 @@ proxy "redis" "my_redis_proxy" {
 - `backend_inflight_queue_size` (number, optional): Size of the internal buffer for tracking requests that are currently being processed by a backend. Default: `512`.
 - `backend_min_connections` (number, optional): The minimum number of persistent connections to maintain for each discovered backend. Default: `1`.
 - `backend_max_connections` (number, optional): The maximum number of persistent connections allowed per backend. Default: `backend_min_connections`.
+- `backend_tcp_keepalive` (duration string, optional): Timeout for sending TCP keepalive probes to backend connections. Set to `0s` to disable. Default: `15s`.
 - `retry_period` (duration string, optional): Initial wait time before retrying a failed backend connection. Default: `100ms`.
 - `retry_max_period` (duration string, optional): Maximum wait time between connection retries. Default: `1s`.
 - `retry_backoff_factor` (number, optional): The factor by which the retry wait time increases after each failure. Default: `1.5`.

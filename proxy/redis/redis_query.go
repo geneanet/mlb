@@ -51,9 +51,9 @@ func (q RedisQuery) Reply(item []byte) (e error) {
 	}
 }
 
-// Abort sends a nil response to the client, effectively aborting the query.
+// Abort sends an error response to the client, effectively aborting the query.
 func (q RedisQuery) Abort() (e error) {
-	return q.Reply(nil)
+	return q.Reply([]byte("-ERR Backend connection failed\r\n"))
 }
 
 // IsRestricted checks if the command is in the restricted commands list.

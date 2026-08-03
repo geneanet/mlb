@@ -78,7 +78,9 @@ func TestRedisBackendConnectionPool_GetRandom(t *testing.T) {
 	}
 
 	// Add a dummy connection to the pool and signal availability
-	dummyConn := &RedisBackendConnection{}
+	dummyConn := &RedisBackendConnection{
+		ctx: context.Background(),
+	}
 	pool.mutex.Lock()
 	pool.pool[dummyConn] = struct{}{}
 	pool.updateWaitState() // Replaces manual close
@@ -87,6 +89,58 @@ func TestRedisBackendConnectionPool_GetRandom(t *testing.T) {
 	rbc = pool.GetRandom(false)
 	if rbc != dummyConn {
 		t.Errorf("expected rbc %v, got %v", dummyConn, rbc)
+	}
+}
+
+// TestRedisBackendConnectionPool_GetRandom_SkipUnhealthy verifies that GetRandom skips connections
+// that have had their context cancelled (marked as unhealthy).
+func TestRedisBackendConnectionPool_GetRandom_SkipUnhealthy(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p := &RedisProxy{
+		id:                 "test-proxy",
+		log:                zerolog.Nop(),
+		ctx:                ctx,
+		backendWaitTimeout: 10 * time.Millisecond,
+		beMetricsCache:     make(map[string]*Metrics),
+	}
+
+	pool := NewRedisBackendConnectionPool(p)
+	p.backendConnectionPool = pool
+
+	// Add an unhealthy connection
+	unhealthyCtx, unhealthyCancel := context.WithCancel(context.Background())
+	unhealthyCancel() // Mark it as unhealthy immediately
+	unhealthyConn := &RedisBackendConnection{
+		ctx: unhealthyCtx,
+	}
+
+	// Add a healthy connection
+	healthyConn := &RedisBackendConnection{
+		ctx: context.Background(),
+	}
+
+	pool.mutex.Lock()
+	pool.pool[unhealthyConn] = struct{}{}
+	pool.pool[healthyConn] = struct{}{}
+	pool.updateWaitState()
+	pool.mutex.Unlock()
+
+	// GetRandom should skip unhealthyConn and return healthyConn
+	rbc := pool.GetRandom(false)
+	if rbc != healthyConn {
+		t.Errorf("expected healthy connection, got %v", rbc)
+	}
+
+	// If only unhealthy connections are left, it should return nil (after waiting)
+	pool.mutex.Lock()
+	delete(pool.pool, healthyConn)
+	pool.mutex.Unlock()
+
+	rbc = pool.GetRandom(true)
+	if rbc != nil {
+		t.Errorf("expected nil when no healthy connections are available, got %v", rbc)
 	}
 }
 
@@ -180,7 +234,9 @@ func TestRedisBackendConnectionPool_GetRandom_SuccessWait(t *testing.T) {
 	pool := NewRedisBackendConnectionPool(p)
 	p.backendConnectionPool = pool
 
-	dummyConn := &RedisBackendConnection{}
+	dummyConn := &RedisBackendConnection{
+		ctx: context.Background(),
+	}
 
 	// Add a connection after a short delay to trigger the successful wait path
 	go func() {
@@ -222,7 +278,9 @@ func TestRedisBackendConnectionPool_Del(t *testing.T) {
 	pool := NewRedisBackendConnectionPool(p)
 	p.backendConnectionPool = pool
 
-	dummyConn := &RedisBackendConnection{}
+	dummyConn := &RedisBackendConnection{
+		ctx: context.Background(),
+	}
 	pool.mutex.Lock()
 	pool.pool[dummyConn] = struct{}{}
 	// Use updateWaitState instead of manual close
@@ -349,7 +407,7 @@ func TestRedisBackendConnectionPool_NotifyFailure(t *testing.T) {
 	}
 
 	// Notify failure - this sends to pool.chanFailure which is processed by a background goroutine
-	pool.NotifyFailure(dummyConn)
+	pool.NotifyFailure(dummyConn, context.Canceled, false)
 
 	// Wait for the background goroutine to process the failure and remove the connection
 	testutil.Eventually(t, func() bool {
@@ -409,10 +467,15 @@ func TestRedisMinMaxPoolGrowth(t *testing.T) {
 
 	// 2. Saturate conn1
 	go func() {
-		conn, _ := l.Accept()
-		if conn != nil {
-			time.Sleep(2 * time.Second)
-			conn.Close()
+		for {
+			conn, _ := l.Accept()
+			if conn == nil {
+				return
+			}
+			go func(c net.Conn) {
+				time.Sleep(2 * time.Second)
+				c.Close()
+			}(conn)
 		}
 	}()
 

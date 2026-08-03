@@ -34,6 +34,7 @@ type RedisProxy struct {
 	closeTimeout              time.Duration
 	connectTimeout            time.Duration
 	backendWaitTimeout        time.Duration
+	backendTCPKeepAlive       time.Duration
 	connectionsWG             sync.WaitGroup
 	ctx                       context.Context
 	cancel                    context.CancelFunc
@@ -74,6 +75,7 @@ type RedisProxyConfig struct {
 	ConnectTimeout            string   `hcl:"connect_timeout,optional"`
 	CloseTimeout              string   `hcl:"close_timeout,optional"`
 	BackendWaitTimeout        string   `hcl:"backend_wait_timeout,optional"`
+	BackendTCPKeepAlive       string   `hcl:"backend_tcp_keepalive,optional"`
 	BufferSize                int      `hcl:"buffer_size,optional"`
 	ClientQueueSize           int      `hcl:"client_queue_size,optional"`
 	BackendInputQueueSize     int      `hcl:"backend_input_queue_size,optional"`
@@ -93,6 +95,7 @@ func validateRedisProxyConfig(tc *module.Config) hcl.Diagnostics {
 	config.CheckDuration(&diags, configBody.ConnectTimeout, "connect_timeout")
 	config.CheckDuration(&diags, configBody.CloseTimeout, "close_timeout")
 	config.CheckDuration(&diags, configBody.BackendWaitTimeout, "backend_wait_timeout")
+	config.CheckDuration(&diags, configBody.BackendTCPKeepAlive, "backend_tcp_keepalive")
 	config.CheckDuration(&diags, configBody.RetryPeriod, "retry_period")
 	config.CheckDuration(&diags, configBody.RetryMaxPeriod, "retry_max_period")
 
@@ -122,6 +125,9 @@ func parseRedisProxyConfig(tc *module.Config) *RedisProxyConfig {
 	}
 	if config.BackendWaitTimeout == "" {
 		config.BackendWaitTimeout = "0s"
+	}
+	if config.BackendTCPKeepAlive == "" {
+		config.BackendTCPKeepAlive = "15s"
 	}
 	if config.BufferSize == 0 {
 		config.BufferSize = 16384
@@ -188,6 +194,10 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (
 		return nil, err
 	}
 	p.backendWaitTimeout, err = time.ParseDuration(config.BackendWaitTimeout)
+	if err != nil {
+		return nil, err
+	}
+	p.backendTCPKeepAlive, err = time.ParseDuration(config.BackendTCPKeepAlive)
 	if err != nil {
 		return nil, err
 	}
@@ -356,18 +366,13 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 		for {
 			select {
 			case response := <-responseChan:
-				if response.item != nil {
-					p.log.Debug().Uint64("queryId", response.query.id).Msg("Received valid response")
-					n, err := connFront.Write(response.item)
-					if err != nil {
-						p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
-						cancel()
-					}
-					feMetrics.bytesOut.Add(float64(n))
-				} else {
-					p.log.Debug().Uint64("queryId", response.query.id).Msg("Received failed response")
+				p.log.Debug().Uint64("queryId", response.query.id).Msg("Received response")
+				n, err := connFront.Write(response.item)
+				if err != nil {
+					p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
 					cancel()
 				}
+				feMetrics.bytesOut.Add(float64(n))
 			case <-ctx.Done():
 				return
 			}

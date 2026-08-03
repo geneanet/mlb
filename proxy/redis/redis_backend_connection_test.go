@@ -26,7 +26,7 @@ func TestNewRedisBackendConnection_DialFailure(t *testing.T) {
 	}
 	pool := &RedisBackendConnectionPool{
 		proxy:       p,
-		chanFailure: make(chan *RedisBackendConnection, 1),
+		chanFailure: make(chan RedisBackendConnectionFailure, 1),
 	}
 
 	// Choose a non-listening address to force dial failure
@@ -65,7 +65,7 @@ func TestNewRedisBackendConnection_Success(t *testing.T) {
 	}
 	pool := &RedisBackendConnectionPool{
 		proxy:       p,
-		chanFailure: make(chan *RedisBackendConnection, 1),
+		chanFailure: make(chan RedisBackendConnectionFailure, 1),
 	}
 
 	// Accept connection in server goroutine
@@ -125,9 +125,9 @@ func TestNewRedisBackendConnection_Success(t *testing.T) {
 
 	// Ensure the pool is notified of failure/shutdown
 	select {
-	case notifiedConn := <-pool.chanFailure:
-		if notifiedConn != rbc {
-			t.Errorf("expected rbc %v, got %v", rbc, notifiedConn)
+	case failure := <-pool.chanFailure:
+		if failure.rbc != rbc {
+			t.Errorf("expected rbc %v, got %v", rbc, failure.rbc)
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatal("Timeout waiting for pool failure notification")
@@ -159,7 +159,7 @@ func TestRedisBackendConnection_UnexpectedWriteError(t *testing.T) {
 	}
 	pool := &RedisBackendConnectionPool{
 		proxy:       p,
-		chanFailure: make(chan *RedisBackendConnection, 1),
+		chanFailure: make(chan RedisBackendConnectionFailure, 1),
 	}
 
 	// Accept and then close
@@ -195,8 +195,8 @@ func TestRedisBackendConnection_UnexpectedWriteError(t *testing.T) {
 	// Verify the query was aborted (returns nil reply)
 	select {
 	case resp := <-responseChan:
-		if resp.item != nil {
-			t.Errorf("expected nil item, got %v", resp.item)
+		if string(resp.item) != "-ERR Backend connection failed\r\n" {
+			t.Errorf("expected aborted error string, got %q", string(resp.item))
 		}
 	case <-time.After(1 * time.Second):
 		// If Query failed early, this might not happen as expected
@@ -230,7 +230,7 @@ func TestRedisBackendConnection_ResetError(t *testing.T) {
 	}
 	pool := &RedisBackendConnectionPool{
 		proxy:       p,
-		chanFailure: make(chan *RedisBackendConnection, 1),
+		chanFailure: make(chan RedisBackendConnectionFailure, 1),
 	}
 
 	// Accept and force a RESET
@@ -282,7 +282,7 @@ func TestRedisBackendConnection_UnexpectedReadError(t *testing.T) {
 	}
 	pool := &RedisBackendConnectionPool{
 		proxy:       p,
-		chanFailure: make(chan *RedisBackendConnection, 1),
+		chanFailure: make(chan RedisBackendConnectionFailure, 1),
 	}
 
 	// Accept, read query, and close without replying
@@ -317,8 +317,8 @@ func TestRedisBackendConnection_UnexpectedReadError(t *testing.T) {
 	// Since connection is closed without response, query should be aborted
 	select {
 	case resp := <-responseChan:
-		if resp.item != nil {
-			t.Errorf("expected nil item, got %v", resp.item)
+		if string(resp.item) != "-ERR Backend connection failed\r\n" {
+			t.Errorf("expected aborted error string, got %q", string(resp.item))
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatal("Timeout waiting for aborted query response")
@@ -367,8 +367,8 @@ func TestRedisBackendConnection_AbortInflightQueries(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		select {
 		case resp := <-responseChan:
-			if resp.item != nil {
-				t.Errorf("expected nil item for aborted query, got %v", resp.item)
+			if string(resp.item) != "-ERR Backend connection failed\r\n" {
+				t.Errorf("expected aborted error string for query %d, got %q", i, string(resp.item))
 			}
 		default:
 			t.Errorf("expected aborted response for query %d", i)

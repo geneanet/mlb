@@ -7,6 +7,7 @@ import (
 	"io"
 	"mlb/backend"
 	"net"
+	"sync"
 )
 
 //--------------------------
@@ -24,6 +25,15 @@ type RedisBackendConnection struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	metrics       *Metrics
+	failureErr    error
+	failureOnce   sync.Once
+}
+
+func (rbc *RedisBackendConnection) fail(err error) {
+	rbc.failureOnce.Do(func() {
+		rbc.failureErr = err
+		rbc.cancel()
+	})
 }
 
 // NewRedisBackendConnection creates a new RedisBackendConnection and starts its lifecycle.
@@ -56,7 +66,11 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 
 	// Open backend connection
 	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Opening Backend connection")
-	connBack, err := net.DialTimeout("tcp", rbc.backend.Address, rbc.pool.proxy.connectTimeout)
+	dialer := &net.Dialer{
+		Timeout:   rbc.pool.proxy.connectTimeout,
+		KeepAlive: rbc.pool.proxy.backendTCPKeepAlive,
+	}
+	connBack, err := dialer.DialContext(rbc.ctx, "tcp", rbc.backend.Address)
 	if err != nil {
 		panic(err)
 	}
@@ -76,11 +90,15 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 		close(rbc.inputChanStop)
 
 		// Abort all in flight requests
-		rbc.AbortInflightQueries()
+		abortedCount := rbc.AbortInflightQueries()
 
 		// Notify the pool
 		rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Notifying pool")
-		rbc.pool.NotifyFailure(rbc)
+		err := rbc.failureErr
+		if err == nil {
+			err = rbc.ctx.Err()
+		}
+		rbc.pool.NotifyFailure(rbc, err, abortedCount > 0)
 
 		// Prometheus
 		rbc.metrics.active.Dec()
@@ -97,7 +115,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 					if err != io.EOF && !errors.Is(err, net.ErrClosed) {
 						rbc.pool.proxy.log.Error().Str("peer", rbc.backend.Address).Err(err).Msg("Unexpected error while sending query to the backend")
 					}
-					rbc.cancel()
+					rbc.fail(err)
 					rbc.AbortInflightQueries() // Extra call to AbortInflightQueries in case the query we were processing has not been aborted by the "cleanup" goroutine
 					return
 				}
@@ -120,7 +138,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 				if err != io.EOF && !errors.Is(err, net.ErrClosed) {
 					rbc.pool.proxy.log.Error().Str("peer", rbc.backend.Address).Err(err).Msg("Unexpected error while reading from the backend")
 				}
-				rbc.cancel()
+				rbc.fail(err)
 				return
 			}
 			rbc.metrics.bytesIn.Add(float64(len(item)))
@@ -157,14 +175,17 @@ func (rbc *RedisBackendConnection) IsFull() bool {
 }
 
 // AbortInflightQueries aborts all queries that are currently waiting for a response from the backend.
-func (rbc *RedisBackendConnection) AbortInflightQueries() {
+// It returns the number of queries that were aborted.
+func (rbc *RedisBackendConnection) AbortInflightQueries() int {
 	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Aborting in-flight requests")
+	count := 0
 	for {
 		select {
 		case query := <-rbc.inFlight:
 			query.Abort()
+			count++
 		default:
-			return
+			return count
 		}
 	}
 }
