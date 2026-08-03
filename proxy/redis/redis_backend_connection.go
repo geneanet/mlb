@@ -151,7 +151,11 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 
 			err = query.Reply(item)
 			if err != nil {
-				rbc.pool.proxy.log.Warn().Uint64("queryId", query.id).Err(err).Msg("Unable to reply to client")
+				if err.Error() == "response channel is closed" {
+					rbc.pool.proxy.log.Debug().Uint64("queryId", query.id).Msg("Unable to reply to client: response channel is closed")
+				} else {
+					rbc.pool.proxy.log.Warn().Uint64("queryId", query.id).Err(err).Msg("Unable to reply to client")
+				}
 			}
 		}
 	}()
