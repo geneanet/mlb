@@ -222,8 +222,9 @@ func TestRedisQuery_IsRestricted(t *testing.T) {
 	// Case 2: Restricted transactions/multi commands
 	restricted := []string{
 		"watch", "unwatch", "multi", "exec", "discard",
-		"brpoplpush", "blpop", "brpop", "bzpopmin", "bzpopmax", "xread", "xreadgroup", "wait", "waitaof",
+		"brpoplpush", "blpop", "brpop", "blmove", "blmpop", "bzpopmin", "bzpopmax", "bzmpop", "xread", "xreadgroup", "wait", "waitaof",
 		"subscribe", "unsubscribe", "psubscribe", "punsubscribe", "ssubscribe", "sunsubscribe", "publish", "spublish", "pubsub",
+		"auth", "select", "hello", "quit", "reset", "client", "asking", "readonly", "readwrite",
 		"monitor",
 	}
 	for _, cmdStr := range restricted {

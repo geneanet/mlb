@@ -15,8 +15,9 @@ var RedisQueryCounter atomic.Uint64
 
 var restrictedCommandsMap = map[string]struct{}{
 	"watch": {}, "unwatch": {}, "multi": {}, "exec": {}, "discard": {}, // MULTI
-	"brpoplpush": {}, "blpop": {}, "brpop": {}, "bzpopmin": {}, "bzpopmax": {}, "xread": {}, "xreadgroup": {}, "wait": {}, "waitaof": {}, // BLOCKING
+	"brpoplpush": {}, "blpop": {}, "brpop": {}, "blmove": {}, "blmpop": {}, "bzpopmin": {}, "bzpopmax": {}, "bzmpop": {}, "xread": {}, "xreadgroup": {}, "wait": {}, "waitaof": {}, // BLOCKING
 	"subscribe": {}, "unsubscribe": {}, "psubscribe": {}, "punsubscribe": {}, "ssubscribe": {}, "sunsubscribe": {}, "publish": {}, "spublish": {}, "pubsub": {}, // PUBSUB
+	"auth": {}, "select": {}, "hello": {}, "quit": {}, "reset": {}, "client": {}, "asking": {}, "readonly": {}, "readwrite": {}, // CONNECTION & STATE
 	"monitor": {}, // MISC
 }
 
