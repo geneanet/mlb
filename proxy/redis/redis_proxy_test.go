@@ -378,7 +378,7 @@ func TestRedisProxy_ListenAndConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedDenied := "-DENIED Command not supported by MLB Redis proxy\r\n"
+	expectedDenied := "-ERR Command 'MONITOR' not supported by MLB Redis proxy\r\n"
 	if string(buf[:n]) != expectedDenied {
 		t.Errorf("expected denied message, got %s", string(buf[:n]))
 	}

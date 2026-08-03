@@ -414,7 +414,8 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 			}
 		} else {
 			// Send an error
-			query.Reply([]byte("-DENIED Command not supported by MLB Redis proxy\r\n"))
+			cmd, _ := query.GetCommand()
+			query.Reply([]byte("-ERR Command '" + string(cmd) + "' not supported by MLB Redis proxy\r\n"))
 		}
 	}
 }
