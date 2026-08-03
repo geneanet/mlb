@@ -419,7 +419,11 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 					n, err := connFront.Write(response.item)
 					response.Release() // ponytail: return pooled buffer
 					if err != nil {
-						p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
+						if errors.Is(err, net.ErrClosed) || ctx.Err() != nil {
+							p.log.Debug().Err(err).Str("peer", peerAddress).Msg("Error while writing to client (connection closed)")
+						} else {
+							p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
+						}
 						cancel()
 					}
 					feMetrics.bytesOut.Add(float64(n))

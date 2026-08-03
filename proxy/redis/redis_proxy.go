@@ -369,7 +369,11 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 				p.log.Debug().Uint64("queryId", response.query.id).Msg("Received response")
 				n, err := connFront.Write(response.item)
 				if err != nil {
-					p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
+					if errors.Is(err, net.ErrClosed) || ctx.Err() != nil {
+						p.log.Debug().Err(err).Str("peer", peerAddress).Msg("Error while writing to client (connection closed)")
+					} else {
+						p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
+					}
 					cancel()
 				}
 				feMetrics.bytesOut.Add(float64(n))
