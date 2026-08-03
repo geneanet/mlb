@@ -178,11 +178,25 @@ func (rbc *RedisBackendConnection) IsFull() bool {
 	return len(rbc.inputChan) >= cap(rbc.inputChan)
 }
 
-// AbortInflightQueries aborts all queries that are currently waiting for a response from the backend.
+// AbortInflightQueries aborts all queries that are currently waiting for a response from the backend
+// or are still in the input queue.
 // It returns the number of queries that were aborted.
 func (rbc *RedisBackendConnection) AbortInflightQueries() int {
 	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Aborting in-flight requests")
 	count := 0
+	// 1. Abort queries in the input queue
+	for {
+		select {
+		case query := <-rbc.inputChan:
+			query.Abort()
+			count++
+		default:
+			goto inFlight
+		}
+	}
+
+inFlight:
+	// 2. Abort queries waiting for response
 	for {
 		select {
 		case query := <-rbc.inFlight:
