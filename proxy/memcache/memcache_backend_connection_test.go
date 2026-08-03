@@ -71,8 +71,9 @@ func TestMemcacheBackendConnection_QueryAndAbort(t *testing.T) {
 	conn.AbortInflightQueries()
 
 	resp := <-respChan
-	if resp.item != nil {
-		t.Fatalf("Expected nil response on abort, got: %s", string(resp.item))
+	expectedErr := "SERVER_ERROR backend failure\r\n"
+	if string(resp.item) != expectedErr {
+		t.Fatalf("Expected protocol error on abort %q, got: %q", expectedErr, string(resp.item))
 	}
 
 	// Test cancellation handling

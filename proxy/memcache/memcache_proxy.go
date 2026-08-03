@@ -42,6 +42,7 @@ type MemcacheProxyConfig struct {
 	BackendInflightQueueSize int      `hcl:"backend_inflight_queue_size,optional"`
 	BackendMinConnections    int      `hcl:"backend_min_connections,optional"`
 	BackendMaxConnections    int      `hcl:"backend_max_connections,optional"`
+	BackendTCPKeepAlive      string   `hcl:"backend_tcp_keepalive,optional"`
 	MaxFieldsPerCommand      int      `hcl:"max_fields_per_command,optional"`
 	FlushBackendWhenAdded    bool     `hcl:"flush_backend_when_added,optional"`
 }
@@ -75,6 +76,7 @@ type MemcacheProxy struct {
 	backendInflightQueueSize int
 	backendMinConnections    int
 	backendMaxConnections    int
+	backendTCPKeepAlive      time.Duration
 	flushBackendWhenAdded    bool
 	fieldsPool               *sync.Pool
 	beMetricsCache           map[string]*Metrics
@@ -97,6 +99,7 @@ func validateMemcacheProxyConfig(tc *module.Config) hcl.Diagnostics {
 	diags := gohcl.DecodeBody(tc.Config, tc.Ctx, configBody)
 	config.CheckDuration(&diags, configBody.ConnectTimeout, "connect_timeout")
 	config.CheckDuration(&diags, configBody.CloseTimeout, "close_timeout")
+	config.CheckDuration(&diags, configBody.BackendTCPKeepAlive, "backend_tcp_keepalive")
 	if configBody.BackendMinConnections > 0 && configBody.BackendMaxConnections > 0 && configBody.BackendMaxConnections < configBody.BackendMinConnections {
 		diags = append(diags, &hcl.Diagnostic{
 			Severity: hcl.DiagError,
@@ -119,6 +122,9 @@ func parseMemcacheProxyConfig(tc *module.Config) *MemcacheProxyConfig {
 	}
 	if config.CloseTimeout == "" {
 		config.CloseTimeout = "0s"
+	}
+	if config.BackendTCPKeepAlive == "" {
+		config.BackendTCPKeepAlive = "15s"
 	}
 	if config.BufferSize == 0 {
 		config.BufferSize = 16384
@@ -182,6 +188,10 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 		return nil, err
 	}
 	p.closeTimeout, err = time.ParseDuration(config.CloseTimeout)
+	if err != nil {
+		return nil, err
+	}
+	p.backendTCPKeepAlive, err = time.ParseDuration(config.BackendTCPKeepAlive)
 	if err != nil {
 		return nil, err
 	}
@@ -405,17 +415,15 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 			case respChan := <-futureChan:
 				select {
 				case response := <-respChan:
-					if response.item != nil {
-						n, err := connFront.Write(response.item)
-						response.Release() // ponytail: return pooled buffer
-						if err != nil {
-							p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
-							cancel()
-						}
-						feMetrics.bytesOut.Add(float64(n))
-					} else {
+					p.log.Debug().Uint64("queryId", response.query.id).Msg("Received response")
+					n, err := connFront.Write(response.item)
+					response.Release() // ponytail: return pooled buffer
+					if err != nil {
+						p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
 						cancel()
 					}
+					feMetrics.bytesOut.Add(float64(n))
+
 					// ponytail: return channel to pool
 					responseChanPool.Put(respChan)
 				case <-ctx.Done():

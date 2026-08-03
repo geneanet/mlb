@@ -39,7 +39,8 @@ func TestMemcacheQuery_Abort(t *testing.T) {
 	}
 
 	resp := <-respChan
-	if resp.item != nil {
-		t.Fatalf("Expected nil response item, got: %s", string(resp.item))
+	expectedErr := "SERVER_ERROR backend failure\r\n"
+	if string(resp.item) != expectedErr {
+		t.Fatalf("Expected protocol error item %q, got: %q", expectedErr, string(resp.item))
 	}
 }

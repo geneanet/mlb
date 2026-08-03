@@ -88,5 +88,6 @@ proxy "memcache" "my_memcache_proxy" {
 - `backend_inflight_queue_size` (number, optional): Size of the internal buffer for tracking requests that are currently being processed by a backend. Default: `512`.
 - `backend_min_connections` (number, optional): The minimum number of persistent connections to maintain for each discovered backend. Default: `1`.
 - `backend_max_connections` (number, optional): The maximum number of persistent connections allowed per backend. Default: `backend_min_connections`.
+- `backend_tcp_keepalive` (duration string, optional): Timeout for sending TCP keepalive probes to backend connections. Set to `0s` to disable. Default: `15s`.
 - `max_fields_per_command` (number, optional): The maximum number of space-separated fields allowed in a single Memcache command line. Default: `16`.
 - `flush_backend_when_added` (boolean, optional): If `true`, MLB will send a `flush_all` command to a backend immediately after it is discovered. Useful for ensuring a clean state when adding new cache nodes. Default: `false`.

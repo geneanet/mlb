@@ -273,3 +273,100 @@ func TestMemcacheBackendConnectionPool_UpdateParallel(t *testing.T) {
 	}
 }
 
+// TestMemcacheBackendConnectionPool_Get_SkipUnhealthy verifies that Get skips connections
+// that have had their context cancelled (marked as unhealthy).
+func TestMemcacheBackendConnectionPool_Get_SkipUnhealthy(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p := &MemcacheProxy{
+		id:             "test-proxy",
+		log:            zerolog.Nop(),
+		ctx:            ctx,
+		beMetricsCache: make(map[string]*Metrics),
+	}
+
+	pool := NewMemcacheBackendConnectionPool(p)
+
+	addr := "127.0.0.1:11211"
+	b1 := &backend.Backend{Address: addr}
+	pool.backends[addr] = b1
+
+	// Add an unhealthy connection
+	unhealthyCtx, unhealthyCancel := context.WithCancel(context.Background())
+	unhealthyCancel() // Mark it as unhealthy immediately
+	unhealthyConn := &MemcacheBackendConnection{
+		backend: b1,
+		ctx:     unhealthyCtx,
+	}
+
+	// Add a healthy connection
+	healthyConn := &MemcacheBackendConnection{
+		backend: b1,
+		ctx:     context.Background(),
+	}
+
+	pool.mutex.Lock()
+	pool.pools[addr] = []*MemcacheBackendConnection{unhealthyConn, healthyConn}
+	pool.mutex.Unlock()
+
+	// Get should skip unhealthyConn and return healthyConn
+	mbc := pool.Get(addr)
+	if mbc != healthyConn {
+		t.Errorf("expected healthy connection, got %v", mbc)
+	}
+
+	// If only unhealthy connections are left, it should still return one as fallback (matching Get behavior)
+	pool.mutex.Lock()
+	pool.pools[addr] = []*MemcacheBackendConnection{unhealthyConn}
+	pool.mutex.Unlock()
+
+	mbc = pool.Get(addr)
+	if mbc != unhealthyConn {
+		t.Errorf("expected unhealthy connection as fallback, got %v", mbc)
+	}
+}
+
+func TestMemcacheBackendConnectionPool_NotifyFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p := &MemcacheProxy{
+		id:             "test-proxy",
+		log:            zerolog.Nop(),
+		ctx:            ctx,
+		beMetricsCache: make(map[string]*Metrics),
+		backends:       backend.NewRegistry(),
+	}
+
+	pool := NewMemcacheBackendConnectionPool(p)
+
+	addr := "127.0.0.1:11211"
+	b1 := &backend.Backend{Address: addr}
+	p.backends.Add(b1)
+	pool.backends[addr] = b1
+
+	dummyConn := &MemcacheBackendConnection{
+		backend: b1,
+		ctx:     context.Background(),
+	}
+
+	pool.mutex.Lock()
+	pool.pools[addr] = []*MemcacheBackendConnection{dummyConn}
+	pool.mutex.Unlock()
+
+	// Notify failure
+	pool.NotifyFailure(dummyConn, context.Canceled, false)
+
+	// Wait for the background goroutine to process the failure and remove the connection
+	time.Sleep(100 * time.Millisecond)
+
+	pool.mutex.RLock()
+	defer pool.mutex.RUnlock()
+	for _, c := range pool.pools[addr] {
+		if c == dummyConn {
+			t.Errorf("dummyConn still in pool after NotifyFailure")
+		}
+	}
+}
+

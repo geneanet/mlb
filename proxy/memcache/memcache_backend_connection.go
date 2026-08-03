@@ -8,6 +8,7 @@ import (
 	"io"
 	"mlb/backend"
 	"net"
+	"sync"
 )
 
 // MemcacheBackendConnection represents a single persistent connection to a Memcache backend.
@@ -24,6 +25,15 @@ type MemcacheBackendConnection struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	metrics       *Metrics
+	failureErr    error
+	failureOnce   sync.Once
+}
+
+func (mbc *MemcacheBackendConnection) fail(err error) {
+	mbc.failureOnce.Do(func() {
+		mbc.failureErr = err
+		mbc.cancel()
+	})
 }
 
 // NewMemcacheBackendConnection creates a new MemcacheBackendConnection and starts its
@@ -45,7 +55,11 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 	mbc.metrics.processed.Inc()
 
 	mbc.pool.proxy.log.Debug().Str("peer", mbc.backend.Address).Msg("Opening Backend connection")
-	connBack, err := net.DialTimeout("tcp", mbc.backend.Address, mbc.pool.proxy.connectTimeout)
+	dialer := &net.Dialer{
+		Timeout:   mbc.pool.proxy.connectTimeout,
+		KeepAlive: mbc.pool.proxy.backendTCPKeepAlive,
+	}
+	connBack, err := dialer.DialContext(mbc.ctx, "tcp", mbc.backend.Address)
 	if err != nil {
 		return nil, err
 	}
@@ -59,9 +73,19 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 		mbc.pool.proxy.log.Debug().Str("peer", mbc.backend.Address).Msg("Closing Backend connection")
 		mbc.conn.Close()
 		close(mbc.inputChanStop)
-		mbc.AbortInflightQueries()
+
+		// Abort all in flight requests
+		abortedCount := mbc.AbortInflightQueries()
+
+		// Notify the pool
 		mbc.pool.proxy.log.Debug().Str("peer", mbc.backend.Address).Msg("Notifying pool")
-		mbc.pool.NotifyFailure(mbc)
+		err := mbc.failureErr
+		if err == nil {
+			err = mbc.ctx.Err()
+		}
+		mbc.pool.NotifyFailure(mbc, err, abortedCount > 0)
+
+		// Prometheus
 		mbc.metrics.active.Dec()
 	})
 
@@ -77,7 +101,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 					if err != io.EOF && !errors.Is(err, net.ErrClosed) {
 						mbc.pool.proxy.log.Error().Str("peer", mbc.backend.Address).Err(err).Msg("Unexpected error while sending query to the backend")
 					}
-					mbc.cancel()
+					mbc.fail(err)
 					mbc.AbortInflightQueries()
 					return
 				}
@@ -103,7 +127,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 				if err != io.EOF && !errors.Is(err, net.ErrClosed) {
 					mbc.pool.proxy.log.Error().Str("peer", mbc.backend.Address).Err(err).Msg("Unexpected error while reading from the backend")
 				}
-				mbc.cancel()
+				mbc.fail(err)
 				return
 			}
 			mbc.metrics.bytesIn.Add(float64(respBuffer.Len()))
@@ -119,7 +143,11 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 			// ponytail: pass buffer ownership to avoid bytes.Clone
 			err = query.ReplyWithBuffer(respBuffer.Bytes(), respBuffer)
 			if err != nil {
-				mbc.pool.proxy.log.Warn().Uint64("queryId", query.id).Err(err).Msg("Unable to reply to client")
+				if err.Error() == "response channel is closed" {
+					mbc.pool.proxy.log.Debug().Uint64("queryId", query.id).Msg("Unable to reply to client: response channel is closed")
+				} else {
+					mbc.pool.proxy.log.Warn().Uint64("queryId", query.id).Err(err).Msg("Unable to reply to client")
+				}
 			}
 		}
 	}()
@@ -143,14 +171,17 @@ func (mbc *MemcacheBackendConnection) IsFull() bool {
 }
 
 // AbortInflightQueries aborts all queries that are currently waiting for a response from the backend.
-func (mbc *MemcacheBackendConnection) AbortInflightQueries() {
+// It returns the number of queries that were aborted.
+func (mbc *MemcacheBackendConnection) AbortInflightQueries() int {
 	mbc.pool.proxy.log.Debug().Str("peer", mbc.backend.Address).Msg("Aborting in-flight requests")
+	count := 0
 	for {
 		select {
 		case query := <-mbc.inFlight:
 			query.Abort()
+			count++
 		default:
-			return
+			return count
 		}
 	}
 }

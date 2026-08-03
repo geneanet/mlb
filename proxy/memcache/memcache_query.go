@@ -62,10 +62,10 @@ func (q MemcacheQuery) ReplyWithBuffer(item []byte, buffer *bytes.Buffer) error 
 	}
 }
 
-// Abort sends a nil response to the client, effectively aborting the query.
+// Abort sends an error response to the client, effectively aborting the query.
 // This is typically called when a backend connection is lost.
 func (q MemcacheQuery) Abort() error {
-	return q.Reply(nil)
+	return q.Reply([]byte("SERVER_ERROR backend failure\r\n"))
 }
 
 // MemcacheResponse represents a response from a Memcache backend for a specific query.

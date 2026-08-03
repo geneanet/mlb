@@ -2,11 +2,18 @@ package memcache
 
 import (
 	"context"
+	"io"
 	"mlb/backend"
 	"mlb/misc"
 	"sync"
 	"time"
 )
+
+type MemcacheBackendConnectionFailure struct {
+	mbc         *MemcacheBackendConnection
+	err         error
+	hadInFlight bool
+}
 
 // MemcacheBackendConnectionPool manages a pool of multiplexed connections to Memcache backends.
 // It ensures that a minimum number of connections are maintained for each active backend.
@@ -19,17 +26,37 @@ type MemcacheBackendConnectionPool struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	proxy       *MemcacheProxy
+	chanFailure chan MemcacheBackendConnectionFailure
 }
 
 // NewMemcacheBackendConnectionPool creates a new MemcacheBackendConnectionPool.
 func NewMemcacheBackendConnectionPool(proxy *MemcacheProxy) *MemcacheBackendConnectionPool {
 	mbcp := &MemcacheBackendConnectionPool{
-		pools:    make(map[string][]*MemcacheBackendConnection),
-		backends: make(map[string]*backend.Backend),
-		indices:  make(map[string]uint64),
-		proxy:    proxy,
+		pools:       make(map[string][]*MemcacheBackendConnection),
+		backends:    make(map[string]*backend.Backend),
+		indices:     make(map[string]uint64),
+		proxy:       proxy,
+		chanFailure: make(chan MemcacheBackendConnectionFailure),
 	}
 	mbcp.ctx, mbcp.cancel = context.WithCancel(proxy.ctx)
+
+	go func() {
+		for {
+			select {
+			case failure := <-mbcp.chanFailure:
+				if failure.err == io.EOF && !failure.hadInFlight {
+					proxy.log.Debug().Str("peer", failure.mbc.backend.Address).Msg("Backend connection closed (idle)")
+				} else {
+					proxy.log.Error().Str("peer", failure.mbc.backend.Address).Err(failure.err).Msg("Backend connection failed")
+				}
+				mbcp.Del(failure.mbc)
+				go mbcp.Update()
+			case <-mbcp.ctx.Done():
+				return
+			}
+		}
+	}()
+
 	return mbcp
 }
 
@@ -43,19 +70,19 @@ func (mbcp *MemcacheBackendConnectionPool) Get(address string) *MemcacheBackendC
 		return nil
 	}
 
-	// 1. Try to find a non-full connection using round-robin
+	// 1. Try to find a healthy, non-full connection using round-robin
 	startIdx := mbcp.indices[address] % uint64(len(pool))
 	for i := 0; i < len(pool); i++ {
 		idx := (startIdx + uint64(i)) % uint64(len(pool))
 		mbc := pool[idx]
-		if !mbc.IsFull() {
+		if mbc.ctx.Err() == nil && !mbc.IsFull() {
 			mbcp.indices[address] = idx + 1
 			mbcp.mutex.Unlock()
 			return mbc
 		}
 	}
 
-	// 2. All connections are full. Try to grow if below max.
+	// 2. All connections are full or unhealthy. Try to grow if below max.
 	if len(pool) < mbcp.proxy.backendMaxConnections {
 		backend := mbcp.backends[address]
 		mbcp.mutex.Unlock()
@@ -63,7 +90,7 @@ func (mbcp *MemcacheBackendConnectionPool) Get(address string) *MemcacheBackendC
 		// ponytail: growth is synchronous to ensure the current request can benefit from the new connection.
 		mbc, err := NewMemcacheBackendConnection(mbcp, backend)
 		if err != nil {
-			// Failed to open a new one, fallback to round-robin on existing (even if full)
+			// Failed to open a new one, fallback to round-robin on existing (even if full or unhealthy)
 			mbcp.mutex.Lock()
 			pool = mbcp.pools[address]
 			if len(pool) == 0 {
@@ -84,7 +111,17 @@ func (mbcp *MemcacheBackendConnectionPool) Get(address string) *MemcacheBackendC
 		return mbc
 	}
 
-	// 3. Already at max connections and all are full. Fallback to round-robin.
+	// 3. Already at max connections and all are full or unhealthy. Fallback to round-robin on healthy ones if possible.
+	for i := 0; i < len(pool); i++ {
+		idx := (startIdx + uint64(i)) % uint64(len(pool))
+		mbc := pool[idx]
+		if mbc.ctx.Err() == nil {
+			mbcp.indices[address] = idx + 1
+			mbcp.mutex.Unlock()
+			return mbc
+		}
+	}
+
 	idx := mbcp.indices[address] % uint64(len(pool))
 	mbc := pool[idx]
 	mbcp.indices[address] = idx + 1
@@ -107,10 +144,8 @@ func (mbcp *MemcacheBackendConnectionPool) Del(mbc *MemcacheBackendConnection) {
 }
 
 // NotifyFailure is called by a connection when it encounters a fatal error.
-func (mbcp *MemcacheBackendConnectionPool) NotifyFailure(mbc *MemcacheBackendConnection) {
-	mbcp.proxy.log.Error().Str("peer", mbc.backend.Address).Msg("Backend connection failed")
-	mbcp.Del(mbc)
-	go mbcp.Update()
+func (mbcp *MemcacheBackendConnectionPool) NotifyFailure(mbc *MemcacheBackendConnection, err error, hadInFlight bool) {
+	mbcp.chanFailure <- MemcacheBackendConnectionFailure{mbc: mbc, err: err, hadInFlight: hadInFlight}
 }
 
 // Update reconciles the current connection pools with the latest backend list.
