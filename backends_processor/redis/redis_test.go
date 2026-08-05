@@ -227,7 +227,7 @@ func TestParseResponse(t *testing.T) {
 	t.Run("parseInfoResponse", func(t *testing.T) {
 		// Master with 1 slave
 		infoMaster := "# Replication\nrole:master\nconnected_slaves:1\nslave0:ip=127.0.0.1,port=6380,state=online,offset=123,lag=0\n"
-		role, readonly, slaves := parseInfoResponse(infoMaster)
+		role, readonly, slaves, mls, msip := parseInfoResponse(infoMaster)
 		if role.AsString() != "master" {
 			t.Errorf("expected master, got %s", role.AsString())
 		}
@@ -238,10 +238,13 @@ func TestParseResponse(t *testing.T) {
 		if s != 1 {
 			t.Errorf("expected 1 slave, got %d", s)
 		}
+		if mls.AsString() != "unknown" {
+			t.Errorf("expected unknown master_link_status for master, got %s", mls.AsString())
+		}
 
 		// Slave
-		infoSlave := "# Replication\nrole:slave\nmaster_host:127.0.0.1\nmaster_port:6379\nmaster_link_status:up\nconnected_slaves:0\n"
-		role, readonly, slaves = parseInfoResponse(infoSlave)
+		infoSlave := "# Replication\nrole:slave\nmaster_host:127.0.0.1\nmaster_port:6379\nmaster_link_status:up\nmaster_sync_in_progress:0\nconnected_slaves:0\n"
+		role, readonly, slaves, mls, msip = parseInfoResponse(infoSlave)
 		if role.AsString() != "slave" {
 			t.Errorf("expected slave, got %s", role.AsString())
 		}
@@ -251,6 +254,22 @@ func TestParseResponse(t *testing.T) {
 		s, _ = slaves.AsBigFloat().Int64()
 		if s != 0 {
 			t.Errorf("expected 0 slaves, got %d", s)
+		}
+		if mls.AsString() != "up" {
+			t.Errorf("expected up master_link_status, got %s", mls.AsString())
+		}
+		if msip.True() {
+			t.Error("expected master_sync_in_progress false")
+		}
+
+		// Syncing slave
+		infoSyncing := "# Replication\nrole:slave\nmaster_link_status:down\nmaster_sync_in_progress:1\n"
+		_, _, _, mls, msip = parseInfoResponse(infoSyncing)
+		if mls.AsString() != "down" {
+			t.Errorf("expected down master_link_status, got %s", mls.AsString())
+		}
+		if !msip.True() {
+			t.Error("expected master_sync_in_progress true")
 		}
 	})
 }
@@ -295,6 +314,11 @@ func TestRedisCheck_UpdateStatus(t *testing.T) {
 			cmd.SetVal([]interface{}{"master", int64(123), []interface{}{}})
 			return cmd
 		}
+		mock.infoFunc = func(ctx context.Context, section ...string) *redis.StringCmd {
+			cmd := redis.NewStringCmd(ctx)
+			cmd.SetVal("# Replication\nrole:master\nconnected_slaves:0\n")
+			return cmd
+		}
 
 		check.updateStatus()
 
@@ -315,6 +339,10 @@ func TestRedisCheck_UpdateStatus(t *testing.T) {
 		if role.AsString() != "master" {
 			t.Errorf("expected role master, got %s", role.AsString())
 		}
+		mls, _ := b.Meta.Get("redis", "master_link_status")
+		if mls.AsString() != "unknown" {
+			t.Errorf("expected master_link_status unknown, got %s", mls.AsString())
+		}
 	})
 
 	t.Run("slave role fallback info", func(t *testing.T) {
@@ -325,7 +353,7 @@ func TestRedisCheck_UpdateStatus(t *testing.T) {
 		}
 		mock.infoFunc = func(ctx context.Context, section ...string) *redis.StringCmd {
 			cmd := redis.NewStringCmd(ctx)
-			cmd.SetVal("# Replication\nrole:slave\nconnected_slaves:0\n")
+			cmd.SetVal("# Replication\nrole:slave\nconnected_slaves:0\nmaster_link_status:up\nmaster_sync_in_progress:0\n")
 			return cmd
 		}
 
@@ -344,6 +372,14 @@ func TestRedisCheck_UpdateStatus(t *testing.T) {
 		readonly, _ := b.Meta.Get("redis", "readonly")
 		if !readonly.True() {
 			t.Error("expected readonly true")
+		}
+		mls, _ := b.Meta.Get("redis", "master_link_status")
+		if mls.AsString() != "up" {
+			t.Errorf("expected master_link_status up, got %s", mls.AsString())
+		}
+		msip, _ := b.Meta.Get("redis", "master_sync_in_progress")
+		if msip.True() {
+			t.Error("expected master_sync_in_progress false")
 		}
 	})
 }
