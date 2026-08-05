@@ -204,7 +204,7 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 	p.log.Info().Msg("Memcache proxy starting")
 
 	// Background worker to handle backend updates and update the hash ring
-	go func() {
+	 go func() {
 		defer wg.Done()
 		defer p.log.Info().Msg("Memcache proxy stopped")
 		defer p.cancel()
@@ -373,7 +373,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 		p.log.Debug().Str("peer", peerAddress).Msg("Closing Frontend connection")
 		err := connFront.Close()
 		if err != nil && !errors.Is(err, net.ErrClosed) {
-			panic(err)
+			p.log.Error().Err(err).Str("peer", peerAddress).Msg("Error while closing frontend connection")
 		}
 	})
 
@@ -448,7 +448,8 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 		if err == io.EOF || errors.Is(err, net.ErrClosed) {
 			return
 		} else if err != nil {
-			panic("Unexpected error while reading from the client")
+			p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while reading from the client")
+			return
 		}
 
 		fieldsPtr := p.getFields(line)

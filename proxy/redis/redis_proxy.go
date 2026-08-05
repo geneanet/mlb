@@ -320,7 +320,7 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 		p.log.Debug().Str("peer", peerAddress).Msg("Closing Frontend connection")
 		err := connFront.Close()
 		if err != nil && !errors.Is(err, net.ErrClosed) {
-			panic(err)
+			p.log.Error().Err(err).Str("peer", peerAddress).Msg("Error while closing frontend connection")
 		}
 	})
 
@@ -355,7 +355,8 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	// Get Backend Connection
 	backendConnection := p.backendConnectionPool.GetRandom(true)
 	if backendConnection == nil {
-		panic("No backend found")
+		p.log.Error().Str("peer", peerAddress).Msg("No backend found")
+		return
 	}
 
 	// Read response queue and write responses
@@ -392,7 +393,8 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 		if err == io.EOF || errors.Is(err, net.ErrClosed) {
 			return
 		} else if err != nil {
-			panic("Unexpected error while reading from the client")
+			p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while reading from the client")
+			return
 		}
 
 		feMetrics.requests.Inc()
@@ -409,11 +411,15 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 				p.log.Warn().Uint64("queryId", query.id).Msg("Backend has failed, picking a new one")
 				backendConnection = p.backendConnectionPool.GetRandom(true)
 				if backendConnection == nil {
-					panic("No backend found")
+					p.log.Error().Uint64("queryId", query.id).Msg("No backend found while retrying")
+					query.Reply([]byte("-ERR No backend available\r\n"))
+					return
 				}
 				err = backendConnection.Query(query)
 				if err != nil {
-					panic("Unable to forward the query to the backend")
+					p.log.Error().Err(err).Uint64("queryId", query.id).Msg("Unable to forward the query to the backend")
+					query.Reply([]byte("-ERR Backend failure\r\n"))
+					return
 				}
 			}
 		} else {
