@@ -339,6 +339,10 @@ func TestRedisCheck_UpdateStatus(t *testing.T) {
 		if role.AsString() != "master" {
 			t.Errorf("expected role master, got %s", role.AsString())
 		}
+		slaves, _ := b.Meta.Get("redis", "connected_slaves")
+		if slaves.IsNull() {
+			t.Error("expected connected_slaves to be set")
+		}
 		mls, _ := b.Meta.Get("redis", "master_link_status")
 		if mls.AsString() != "unknown" {
 			t.Errorf("expected master_link_status unknown, got %s", mls.AsString())

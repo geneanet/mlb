@@ -63,6 +63,7 @@ backends_processor "redis" "my_redis" {
 - `backend.meta.redis.status`: `ok` or `err`.
 - `backend.meta.redis.role`: `master`, `slave`, or `unknown`.
 - `backend.meta.redis.readonly`: `true` if the node is a slave.
+- `backend.meta.redis.connected_slaves`: Number of connected slaves (only for masters).
 - `backend.meta.redis.master_link_status`: `up` or `down` (only for slaves).
 - `backend.meta.redis.master_sync_in_progress`: `true` if the slave is currently syncing with the master.
 
@@ -135,6 +136,7 @@ When using `simple_filter` or `wrr` weights, you can access the following metada
 | `redis` | `status` | `backends_processor "redis"` | `ok` or `err` |
 | `redis` | `role` | `backends_processor "redis"` | `master`, `slave`, or `unknown` |
 | `redis` | `readonly` | `backends_processor "redis"` | `true` if backend is a slave |
+| `redis` | `connected_slaves` | `backends_processor "redis"` | Number of connected slaves |
 | `redis` | `master_link_status` | `backends_processor "redis"` | `up` or `down` (for slaves) |
 | `redis` | `master_sync_in_progress` | `backends_processor "redis"` | `true` during replication sync |
 | `consul_kv`| `<id>` | `backends_processor "consul_kv"`| Value fetched from Consul KV |

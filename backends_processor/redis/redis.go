@@ -307,7 +307,7 @@ func NewRedisCheck(backend *backend.Backend, password string, defaultPeriod time
 	backend.Meta.Set("redis", "status", cty.UnknownVal(cty.String))
 	backend.Meta.Set("redis", "role", cty.UnknownVal(cty.String))
 	backend.Meta.Set("redis", "readonly", cty.UnknownVal(cty.Bool))
-	backend.Meta.Set("redis", "slaves", cty.UnknownVal(cty.Number))
+	backend.Meta.Set("redis", "connected_slaves", cty.UnknownVal(cty.Number))
 	backend.Meta.Set("redis", "master_link_status", cty.UnknownVal(cty.String))
 	backend.Meta.Set("redis", "master_sync_in_progress", cty.UnknownVal(cty.Bool))
 	return c
@@ -453,9 +453,9 @@ func (c *RedisCheck) updateStatus() {
 	updateMeta("status", newStatus, func(e *zerolog.Event) { e.Str("status", newStatus.AsString()) })
 	updateMeta("role", newRole, func(e *zerolog.Event) { e.Str("role", newRole.AsString()) })
 	updateMeta("readonly", newReadonly, func(e *zerolog.Event) { e.Bool("readonly", newReadonly.True()) })
-	updateMeta("slaves", newSlaves, func(e *zerolog.Event) {
+	updateMeta("connected_slaves", newSlaves, func(e *zerolog.Event) {
 		s, _ := newSlaves.AsBigFloat().Int64()
-		e.Int64("slaves", s)
+		e.Int64("connected_slaves", s)
 	})
 	updateMeta("master_link_status", newMasterLinkStatus, func(e *zerolog.Event) { e.Str("master_link_status", newMasterLinkStatus.AsString()) })
 	updateMeta("master_sync_in_progress", newMasterSyncInProgress, func(e *zerolog.Event) { e.Bool("master_sync_in_progress", newMasterSyncInProgress.True()) })
