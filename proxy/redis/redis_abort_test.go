@@ -64,6 +64,9 @@ func TestRedisBackendConnection_AbortInflightQueries_WithPending(t *testing.T) {
 	rbc.inputChan <- q3
 	rbc.inputChan <- q4
 
+	// ponytail: give background writer a chance to move them to inFlight
+	time.Sleep(10 * time.Millisecond)
+
 	// 3. Abort all
 	count := rbc.AbortInflightQueries()
 

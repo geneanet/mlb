@@ -64,6 +64,9 @@ func TestMemcacheBackendConnection_AbortInflightQueries_WithPending(t *testing.T
 	mbc.inputChan <- q3
 	mbc.inputChan <- q4
 
+	// ponytail: give background writer a chance to move them to inFlight
+	time.Sleep(10 * time.Millisecond)
+
 	// 3. Abort all
 	count := mbc.AbortInflightQueries()
 
