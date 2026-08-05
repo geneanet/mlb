@@ -17,6 +17,21 @@ import (
 // during high-concurrency Redis proxying.
 var readerPool sync.Pool
 
+// bufferPool allows reuse of byte slices to minimize allocations during ReadMessage.
+var bufferPool = sync.Pool{
+	New: func() any {
+		return make([]byte, 0, 4096)
+	},
+}
+
+// ReleaseBuffer returns a buffer to the pool.
+func ReleaseBuffer(b []byte) {
+	if b == nil || cap(b) == 0 {
+		return
+	}
+	bufferPool.Put(b)
+}
+
 // RedisProtocolReader provides a high-level reader for Redis RESP2 and RESP3 protocols.
 // It uses an internal bufio.Reader for efficiency and maintains an accumulation buffer
 // to return complete protocol messages.
@@ -257,8 +272,9 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 		return nil, io.EOF
 	}
 
-	// ponytail: return a copy to avoid aliasing when the caller stores the slice
-	res := slices.Clone(r.buffer)
+	// ponytail: return a pooled copy to avoid aliasing without constant allocations
+	res := bufferPool.Get().([]byte)
+	res = append(res[:0], r.buffer...)
 
 	var err error
 	if eof {

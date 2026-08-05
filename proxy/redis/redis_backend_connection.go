@@ -111,6 +111,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 			case query := <-rbc.inputChan:
 				rbc.inFlight <- query
 				n, err := rbc.conn.Write(query.item)
+				ReleaseBuffer(query.item)
 				if err != nil {
 					if err != io.EOF && !errors.Is(err, net.ErrClosed) {
 						rbc.pool.proxy.log.Error().Str("peer", rbc.backend.Address).Err(err).Msg("Unexpected error while sending query to the backend")

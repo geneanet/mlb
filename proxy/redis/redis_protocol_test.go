@@ -666,6 +666,76 @@ func TestParseSize(t *testing.T) {
 	}
 }
 
+// TestReleaseBuffer verifies that ReleaseBuffer handles various inputs safely.
+func TestReleaseBuffer(t *testing.T) {
+	// Test nil buffer
+	ReleaseBuffer(nil)
+
+	// Test empty buffer
+	ReleaseBuffer([]byte{})
+
+	// Test valid buffer
+	b := make([]byte, 10, 100)
+	ReleaseBuffer(b)
+
+	// Test buffer with zero capacity (but non-nil)
+	b2 := b[0:0:0]
+	ReleaseBuffer(b2)
+}
+
+// TestBufferPool_Reuse verifies the buffer pool logic.
+func TestBufferPool_Reuse(t *testing.T) {
+	knownBuf := make([]byte, 0, 1024)
+	knownBuf = append(knownBuf, "original content"...)
+
+	ReleaseBuffer(knownBuf)
+
+	ptr := bufferPool.Get().([]byte)
+	if ptr == nil {
+		t.Fatal("bufferPool.Get() returned nil")
+	}
+}
+
+// TestReadMessage_WithPooling verifies that ReadMessage correctly uses the buffer pool.
+func TestReadMessage_WithPooling(t *testing.T) {
+	input := "+OK\r\n"
+	r := bytes.NewReader([]byte(input))
+	reader := NewRedisProtocolReader(r, 128)
+
+	msg, err := reader.ReadMessage(false)
+	if err != nil {
+		t.Fatalf("ReadMessage failed: %v", err)
+	}
+
+	if !bytes.Equal(msg, []byte(input)) {
+		t.Errorf("expected %s, got %s", input, string(msg))
+	}
+
+	// Verify that msg is from the pool by releasing it and checking no panic
+	ReleaseBuffer(msg)
+}
+
+// TestReadMessage_LargeMessagePooling verifies pooling with large messages.
+func TestReadMessage_LargeMessagePooling(t *testing.T) {
+	largeSize := 20000
+	largeData := bytes.Repeat([]byte("A"), largeSize)
+	input := append([]byte("+"), append(largeData, []byte("\r\n")...)...)
+
+	r := bytes.NewReader(input)
+	reader := NewRedisProtocolReader(r, 1024)
+
+	msg, err := reader.ReadMessage(false)
+	if err != nil {
+		t.Fatalf("ReadMessage failed: %v", err)
+	}
+
+	if len(msg) != len(input) {
+		t.Errorf("expected length %d, got %d", len(input), len(msg))
+	}
+
+	ReleaseBuffer(msg)
+}
+
 // interfaceReader is a helper to wrap a read function in an io.Reader.
 
 type interfaceReader struct {

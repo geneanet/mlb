@@ -439,6 +439,7 @@ func TestRedisMinMaxPoolGrowth(t *testing.T) {
 		backendMinConnections:     1,
 		backendMaxConnections:     2,
 		clientQueueSize:           1, // Tiny queue to trigger saturation easily
+		backendInputQueueSize:     10,
 		backendInflightQueueSize:  10,
 		connectTimeout:            time.Second,
 		retryPeriod:               10 * time.Millisecond,

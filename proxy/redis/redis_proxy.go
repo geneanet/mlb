@@ -369,6 +369,7 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 			case response := <-responseChan:
 				p.log.Debug().Uint64("queryId", response.query.id).Msg("Received response")
 				n, err := connFront.Write(response.item)
+				ReleaseBuffer(response.item)
 				if err != nil {
 					if errors.Is(err, net.ErrClosed) || ctx.Err() != nil {
 						p.log.Debug().Err(err).Str("peer", peerAddress).Msg("Error while writing to client (connection closed)")
@@ -426,6 +427,7 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 			// Send an error
 			cmd, _ := query.GetCommand()
 			query.Reply([]byte("-ERR Command '" + string(cmd) + "' not supported by MLB Redis proxy\r\n"))
+			ReleaseBuffer(query.item)
 		}
 	}
 }
