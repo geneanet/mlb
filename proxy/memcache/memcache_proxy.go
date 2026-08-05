@@ -495,6 +495,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 		if bytes.Equal(cmd, []byte("set")) || bytes.Equal(cmd, []byte("add")) || bytes.Equal(cmd, []byte("replace")) || bytes.Equal(cmd, []byte("append")) || bytes.Equal(cmd, []byte("prepend")) || bytes.Equal(cmd, []byte("cas")) {
 			if len(fields) < 5 {
 				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
+				query.Release()
 				p.releaseFields(fieldsPtr)
 				continue
 			}
@@ -502,12 +503,14 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 			size, err := util.ParseSize(fields[4])
 			if err != nil {
 				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
+				query.Release()
 				p.releaseFields(fieldsPtr)
 				continue
 			}
 			// Read the data payload + trailing \r\n
 			payload, err := reader.ReadFull(size + 2)
 			if err != nil {
+				query.Release()
 				p.releaseFields(fieldsPtr)
 				return
 			}
@@ -531,6 +534,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 		if bytes.Equal(cmd, []byte("ms")) {
 			if len(fields) < 3 {
 				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
+				query.Release()
 				p.releaseFields(fieldsPtr)
 				continue
 			}
@@ -538,12 +542,14 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 			size, err := util.ParseSize(fields[2])
 			if err != nil {
 				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
+				query.Release()
 				p.releaseFields(fieldsPtr)
 				continue
 			}
 			// Read the data payload + trailing \r\n
 			payload, err := reader.ReadFull(size + 2)
 			if err != nil {
+				query.Release()
 				p.releaseFields(fieldsPtr)
 				return
 			}
@@ -613,18 +619,21 @@ func (p *MemcacheProxy) forwardSingle(q MemcacheQuery, key []byte) {
 
 	if b == nil {
 		q.Reply([]byte("SERVER_ERROR no backend available\r\n"))
+		q.Release()
 		return
 	}
 
 	conn := p.backendConnectionPool.Get(b.Address)
 	if conn == nil {
 		q.Reply([]byte("SERVER_ERROR backend failure\r\n"))
+		q.Release()
 		return
 	}
 
 	err := conn.Query(q)
 	if err != nil {
 		q.Reply([]byte("SERVER_ERROR backend failure\r\n"))
+		q.Release()
 		return
 	}
 }

@@ -181,6 +181,7 @@ func (mbc *MemcacheBackendConnection) AbortInflightQueries() int {
 		select {
 		case query := <-mbc.inputChan:
 			query.Abort()
+			query.Release()
 			count++
 		default:
 			goto inFlight
@@ -193,6 +194,7 @@ inFlight:
 		select {
 		case query := <-mbc.inFlight:
 			query.Abort()
+			query.Release()
 			count++
 		default:
 			return count
