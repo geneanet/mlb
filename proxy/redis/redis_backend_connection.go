@@ -106,12 +106,30 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 
 	// Read queries and send them to the backend
 	go func() {
+		batch := make([]RedisQuery, 0, 32)
 		for {
 			select {
 			case query := <-rbc.inputChan:
+				batch = append(batch[:0], query)
 				rbc.inFlight <- query
-				n, err := rbc.conn.Write(query.item)
-				ReleaseBuffer(query.item)
+
+				// Drain available queries
+				for len(rbc.inputChan) > 0 && len(batch) < cap(batch) && len(rbc.inFlight) < cap(rbc.inFlight) {
+					next := <-rbc.inputChan
+					batch = append(batch, next)
+					rbc.inFlight <- next
+				}
+
+				var buffers net.Buffers
+				for _, q := range batch {
+					buffers = append(buffers, q.item)
+				}
+
+				n, err := buffers.WriteTo(rbc.conn)
+				for _, q := range batch {
+					ReleaseBuffer(q.item)
+				}
+
 				if err != nil {
 					if err != io.EOF && !errors.Is(err, net.ErrClosed) {
 						rbc.pool.proxy.log.Error().Str("peer", rbc.backend.Address).Err(err).Msg("Unexpected error while sending query to the backend")
@@ -120,7 +138,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 					rbc.AbortInflightQueries() // Extra call to AbortInflightQueries in case the query we were processing has not been aborted by the "cleanup" goroutine
 					return
 				}
-				rbc.metrics.requests.Inc()
+				rbc.metrics.requests.Add(float64(len(batch)))
 				rbc.metrics.bytesOut.Add(float64(n))
 			case <-rbc.ctx.Done():
 				return

@@ -364,12 +364,27 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	responseChanStop := make(chan struct{})
 	defer close(responseChanStop) // Ensure no backend will block trying to send replies if the client connection is closed
 	go func() {
+		batch := make([]RedisReponse, 0, 32)
 		for {
 			select {
 			case response := <-responseChan:
-				p.log.Debug().Uint64("queryId", response.query.id).Msg("Received response")
-				n, err := connFront.Write(response.item)
-				ReleaseBuffer(response.item)
+				batch = append(batch[:0], response)
+				// Drain as much as possible from the channel without blocking
+				for len(responseChan) > 0 && len(batch) < cap(batch) {
+					batch = append(batch, <-responseChan)
+				}
+
+				var buffers net.Buffers
+				for _, resp := range batch {
+					p.log.Debug().Uint64("queryId", resp.query.id).Msg("Received response")
+					buffers = append(buffers, resp.item)
+				}
+
+				n, err := buffers.WriteTo(connFront)
+				for _, resp := range batch {
+					ReleaseBuffer(resp.item)
+				}
+
 				if err != nil {
 					if errors.Is(err, net.ErrClosed) || ctx.Err() != nil {
 						p.log.Debug().Err(err).Str("peer", peerAddress).Msg("Error while writing to client (connection closed)")

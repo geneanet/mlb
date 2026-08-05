@@ -41,7 +41,7 @@ type RedisProtocolReader struct {
 }
 
 // NewRedisProtocolReader creates a new reader, potentially reusing a bufio.Reader from the pool.
-// initialBufferSize specifies the starting capacity of the internal accumulation buffer.
+// initialBufferSize specifies the starting capacity of the internal bufio.Reader if one is created.
 func NewRedisProtocolReader(reader io.Reader, bufferSize int) *RedisProtocolReader {
 	var br *bufio.Reader
 	if v := readerPool.Get(); v != nil {
@@ -52,11 +52,11 @@ func NewRedisProtocolReader(reader io.Reader, bufferSize int) *RedisProtocolRead
 	}
 	return &RedisProtocolReader{
 		br:     br,
-		buffer: make([]byte, 0, bufferSize),
+		buffer: nil,
 	}
 }
 
-// Release returns the internal bufio.Reader to the pool.
+// Release returns the internal bufio.Reader and any remaining accumulation buffer to their respective pools.
 // It MUST be called once the reader is no longer needed to ensure memory efficiency.
 func (r *RedisProtocolReader) Release() {
 	if r.br != nil {
@@ -64,10 +64,19 @@ func (r *RedisProtocolReader) Release() {
 		readerPool.Put(r.br)
 		r.br = nil
 	}
+	if r.buffer != nil {
+		ReleaseBuffer(r.buffer)
+		r.buffer = nil
+	}
 }
 
 // readLine reads a single CRLF-terminated line from the source and appends it to the accumulation buffer.
 func (r *RedisProtocolReader) readLine() ([]byte, error) {
+	if r.buffer == nil {
+		r.buffer = bufferPool.Get().([]byte)
+		r.buffer = r.buffer[:0]
+	}
+
 	start := len(r.buffer)
 	var err error
 	for {
@@ -83,6 +92,11 @@ func (r *RedisProtocolReader) readLine() ([]byte, error) {
 
 // readRaw reads exactly n+2 bytes (payload + CRLF) from the source and appends them to the accumulation buffer.
 func (r *RedisProtocolReader) readRaw(n int) ([]byte, error) {
+	if r.buffer == nil {
+		r.buffer = bufferPool.Get().([]byte)
+		r.buffer = r.buffer[:0]
+	}
+
 	// Bulk types have a trailing CRLF (\r\n)
 	total := n + 2
 	start := len(r.buffer)
@@ -97,6 +111,9 @@ func (r *RedisProtocolReader) readRaw(n int) ([]byte, error) {
 // It handles simple types, bulk strings, and nested collections (Arrays, Maps, Sets, etc.).
 // If allowInline is true, it also supports simple space-separated inline commands.
 func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
+	if r.buffer == nil {
+		r.buffer = bufferPool.Get().([]byte)
+	}
 	r.buffer = r.buffer[:0]
 	eof := false
 
@@ -272,9 +289,8 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 		return nil, io.EOF
 	}
 
-	// ponytail: return a pooled copy to avoid aliasing without constant allocations
-	res := bufferPool.Get().([]byte)
-	res = append(res[:0], r.buffer...)
+	res := r.buffer
+	r.buffer = nil
 
 	var err error
 	if eof {
