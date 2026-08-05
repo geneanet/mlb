@@ -208,6 +208,7 @@ func (rbc *RedisBackendConnection) AbortInflightQueries() int {
 		select {
 		case query := <-rbc.inputChan:
 			query.Abort()
+			ReleaseBuffer(query.item)
 			count++
 		default:
 			goto inFlight
@@ -220,6 +221,7 @@ inFlight:
 		select {
 		case query := <-rbc.inFlight:
 			query.Abort()
+			ReleaseBuffer(query.item)
 			count++
 		default:
 			return count

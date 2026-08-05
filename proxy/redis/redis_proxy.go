@@ -382,7 +382,7 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 
 				n, err := buffers.WriteTo(connFront)
 				for _, resp := range batch {
-					ReleaseBuffer(resp.item)
+					resp.Release()
 				}
 
 				if err != nil {
@@ -406,11 +406,16 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 
 	for {
 		item, err := frontReader.ReadMessage(true)
-		if err == io.EOF || errors.Is(err, net.ErrClosed) {
-			return
-		} else if err != nil {
-			p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while reading from the client")
-			return
+		if err != nil {
+			if item != nil {
+				ReleaseBuffer(item)
+			}
+			if err == io.EOF || errors.Is(err, net.ErrClosed) {
+				return
+			} else {
+				p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while reading from the client")
+				return
+			}
 		}
 
 		feMetrics.requests.Inc()
@@ -429,12 +434,14 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 				if backendConnection == nil {
 					p.log.Error().Uint64("queryId", query.id).Msg("No backend found while retrying")
 					query.Reply([]byte("-ERR No backend available\r\n"))
+					ReleaseBuffer(item)
 					return
 				}
 				err = backendConnection.Query(query)
 				if err != nil {
 					p.log.Error().Err(err).Uint64("queryId", query.id).Msg("Unable to forward the query to the backend")
 					query.Reply([]byte("-ERR Backend failure\r\n"))
+					ReleaseBuffer(item)
 					return
 				}
 			}

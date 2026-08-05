@@ -48,6 +48,7 @@ func (q RedisQuery) Reply(item []byte) (e error) {
 	}:
 		return nil
 	case <-q.responseChanStop:
+		ReleaseBuffer(item)
 		return fmt.Errorf("response channel is closed")
 	}
 }
@@ -128,4 +129,12 @@ func (q RedisQuery) GetCommand() ([]byte, error) {
 type RedisReponse struct {
 	query RedisQuery
 	item  []byte
+}
+
+// Release returns the response buffer to the pool.
+func (r *RedisReponse) Release() {
+	if r.item != nil {
+		ReleaseBuffer(r.item)
+		r.item = nil
+	}
 }
