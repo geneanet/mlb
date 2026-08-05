@@ -7,6 +7,7 @@ import (
 	"mlb/config"
 	"mlb/misc"
 	"mlb/module"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -301,31 +302,49 @@ func NewRedisCheck(backend *backend.Backend, password string, defaultPeriod time
 	backend.Meta.Set("redis", "status", cty.UnknownVal(cty.String))
 	backend.Meta.Set("redis", "role", cty.UnknownVal(cty.String))
 	backend.Meta.Set("redis", "readonly", cty.UnknownVal(cty.Bool))
+	backend.Meta.Set("redis", "slaves", cty.UnknownVal(cty.Number))
 	return c
 }
 
-func parseRoleResponse(roleResult interface{}) (retRole cty.Value, retReadonly cty.Value, err error) {
+func parseRoleResponse(roleResult interface{}) (retRole cty.Value, retReadonly cty.Value, retSlaves cty.Value, err error) {
 	// ROLE returns an array: [role, ...]
 	if roles, ok := roleResult.([]interface{}); ok && len(roles) > 0 {
 		if role, ok := roles[0].(string); ok {
-			return cty.StringVal(role), cty.BoolVal(role != "master"), nil
+			slaves := int64(0)
+			if role == "master" && len(roles) > 2 {
+				if slaveList, ok := roles[2].([]interface{}); ok {
+					slaves = int64(len(slaveList))
+				}
+			}
+			return cty.StringVal(role), cty.BoolVal(role != "master"), cty.NumberIntVal(slaves), nil
 		}
 	}
-	return cty.NilVal, cty.NilVal, fmt.Errorf("unexpected ROLE result format")
+	return cty.NilVal, cty.NilVal, cty.NilVal, fmt.Errorf("unexpected ROLE result format")
 }
 
-func parseInfoResponse(infoResult string) (retRole cty.Value, retReadonly cty.Value) {
-	if strings.Contains(infoResult, "role:master") || strings.Contains(infoResult, "role:primary") {
-		return cty.StringVal("master"), cty.BoolVal(false)
-	} else if strings.Contains(infoResult, "role:slave") || strings.Contains(infoResult, "role:replica") {
-		return cty.StringVal("slave"), cty.BoolVal(true)
+func parseInfoResponse(infoResult string) (retRole cty.Value, retReadonly cty.Value, retSlaves cty.Value) {
+	role := "unknown"
+	slaves := int64(0)
+
+	lines := strings.Split(infoResult, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "role:") {
+			role = strings.TrimPrefix(line, "role:")
+		} else if strings.HasPrefix(line, "connected_slaves:") {
+			s := strings.TrimPrefix(line, "connected_slaves:")
+			if val, err := strconv.ParseInt(s, 10, 64); err == nil {
+				slaves = val
+			}
+		}
 	}
-	return cty.StringVal("unknown"), cty.BoolVal(false)
+
+	return cty.StringVal(role), cty.BoolVal(role != "master" && role != "primary"), cty.NumberIntVal(slaves)
 }
 
 // fetchStatus probes the Redis instance to determine its current status and role.
 // It prioritizes the ROLE command and falls back to INFO replication for older versions.
-func (c *RedisCheck) fetchStatus() (retStatus cty.Value, retRole cty.Value, retReadonly cty.Value, retErr error) {
+func (c *RedisCheck) fetchStatus() (retStatus cty.Value, retRole cty.Value, retReadonly cty.Value, retSlaves cty.Value, retErr error) {
 	defer func() {
 		// Recovery block to handle network errors or Redis restarts.
 		// If an error occurs, we attempt to recreate the client and apply an exponential backoff.
@@ -333,6 +352,7 @@ func (c *RedisCheck) fetchStatus() (retStatus cty.Value, retRole cty.Value, retR
 			retStatus = cty.StringVal("err")
 			retRole = cty.UnknownVal(cty.String)
 			retReadonly = cty.UnknownVal(cty.Bool)
+			retSlaves = cty.UnknownVal(cty.Number)
 			if e, ok := r.(error); ok {
 				retErr = e
 			} else {
@@ -373,9 +393,9 @@ func (c *RedisCheck) fetchStatus() (retStatus cty.Value, retRole cty.Value, retR
 		if err != nil {
 			panic(err)
 		}
-		retRole, retReadonly = parseInfoResponse(infoResult)
+		retRole, retReadonly, retSlaves = parseInfoResponse(infoResult)
 	} else {
-		retRole, retReadonly, err = parseRoleResponse(roleResult)
+		retRole, retReadonly, retSlaves, err = parseRoleResponse(roleResult)
 		if err != nil {
 			panic(err)
 		}
@@ -386,12 +406,12 @@ func (c *RedisCheck) fetchStatus() (retStatus cty.Value, retRole cty.Value, retR
 		log.Warn().Str("address", c.backend.Address).Dur("period", period).Msg("Updating fetch period")
 	}
 
-	return cty.StringVal("ok"), retRole, retReadonly, nil
+	return cty.StringVal("ok"), retRole, retReadonly, retSlaves, nil
 }
 
 // updateStatus executes a single health check and updates the backend's metadata.
 func (c *RedisCheck) updateStatus() {
-	newStatus, newRole, newReadonly, err := c.fetchStatus()
+	newStatus, newRole, newReadonly, newSlaves, err := c.fetchStatus()
 
 	if err != nil {
 		log.Error().Str("address", c.backend.Address).Err(err).Msg("Error while fetching status from Redis backend")
@@ -431,6 +451,19 @@ func (c *RedisCheck) updateStatus() {
 			log.Info().Str("address", c.backend.Address).Bool("readonly", newReadonly.True()).Msg("Backend readonly changed")
 		} else {
 			log.Info().Str("address", c.backend.Address).Str("readonly", "unknown").Msg("Backend readonly changed")
+		}
+		changed = true
+	}
+
+	// Update slaves metadata
+	oldSlaves, ok := c.backend.Meta.Get("redis", "slaves")
+	if !ok || !oldSlaves.IsKnown() || oldSlaves.Equals(newSlaves).False() {
+		c.backend.Meta.Set("redis", "slaves", newSlaves)
+		if newSlaves.IsKnown() {
+			s, _ := newSlaves.AsBigFloat().Int64()
+			log.Info().Str("address", c.backend.Address).Int64("slaves", s).Msg("Backend slaves count changed")
+		} else {
+			log.Info().Str("address", c.backend.Address).Str("slaves", "unknown").Msg("Backend slaves count changed")
 		}
 		changed = true
 	}

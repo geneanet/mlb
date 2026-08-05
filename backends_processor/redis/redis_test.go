@@ -170,3 +170,84 @@ func TestRedisChecker_ModuleMethods(t *testing.T) {
 	modules.AddModule("test-source", provider)
 	c.Bind(modules)
 }
+
+func TestParseResponse(t *testing.T) {
+	t.Run("parseRoleResponse", func(t *testing.T) {
+		// Master with 2 slaves
+		roleMaster := []interface{}{
+			"master",
+			int64(12345),
+			[]interface{}{
+				[]interface{}{"127.0.0.1", "6380", "12345"},
+				[]interface{}{"127.0.0.1", "6381", "12345"},
+			},
+		}
+		role, readonly, slaves, err := parseRoleResponse(roleMaster)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if role.AsString() != "master" {
+			t.Errorf("expected master, got %s", role.AsString())
+		}
+		if readonly.True() {
+			t.Error("expected readonly false")
+		}
+		s, _ := slaves.AsBigFloat().Int64()
+		if s != 2 {
+			t.Errorf("expected 2 slaves, got %d", s)
+		}
+
+		// Slave
+		roleSlave := []interface{}{
+			"slave",
+			"127.0.0.1",
+			int64(6379),
+			"connected",
+			int64(12345),
+		}
+		role, readonly, slaves, err = parseRoleResponse(roleSlave)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if role.AsString() != "slave" {
+			t.Errorf("expected slave, got %s", role.AsString())
+		}
+		if !readonly.True() {
+			t.Error("expected readonly true")
+		}
+		s, _ = slaves.AsBigFloat().Int64()
+		if s != 0 {
+			t.Errorf("expected 0 slaves, got %d", s)
+		}
+	})
+
+	t.Run("parseInfoResponse", func(t *testing.T) {
+		// Master with 1 slave
+		infoMaster := "# Replication\nrole:master\nconnected_slaves:1\nslave0:ip=127.0.0.1,port=6380,state=online,offset=123,lag=0\n"
+		role, readonly, slaves := parseInfoResponse(infoMaster)
+		if role.AsString() != "master" {
+			t.Errorf("expected master, got %s", role.AsString())
+		}
+		if readonly.True() {
+			t.Error("expected readonly false")
+		}
+		s, _ := slaves.AsBigFloat().Int64()
+		if s != 1 {
+			t.Errorf("expected 1 slave, got %d", s)
+		}
+
+		// Slave
+		infoSlave := "# Replication\nrole:slave\nmaster_host:127.0.0.1\nmaster_port:6379\nmaster_link_status:up\nconnected_slaves:0\n"
+		role, readonly, slaves = parseInfoResponse(infoSlave)
+		if role.AsString() != "slave" {
+			t.Errorf("expected slave, got %s", role.AsString())
+		}
+		if !readonly.True() {
+			t.Error("expected readonly true")
+		}
+		s, _ = slaves.AsBigFloat().Int64()
+		if s != 0 {
+			t.Errorf("expected 0 slaves, got %d", s)
+		}
+	})
+}
