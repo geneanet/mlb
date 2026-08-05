@@ -246,7 +246,6 @@ func (c *RedisChecker) ReceiveUpdate(upd backend.BackendUpdate) {
 	}
 }
 
-
 func (c *RedisChecker) GetBackendList() []*backend.Backend {
 	return c.backends.GetList()
 }
@@ -259,6 +258,12 @@ func (c *RedisChecker) Bind(modules module.ModulesRegistry) error {
 	}
 	m.ProvideUpdates(c)
 	return nil
+}
+
+type redisClient interface {
+	Do(ctx context.Context, args ...interface{}) *redis.Cmd
+	Info(ctx context.Context, section ...string) *redis.StringCmd
+	Close() error
 }
 
 // RedisCheck represents a background health checker for a single Redis instance.
@@ -276,7 +281,7 @@ type RedisCheck struct {
 	cancel         context.CancelFunc
 	running        bool
 	runningMu      sync.Mutex
-	client         *redis.Client
+	client         redisClient
 	connectTimeout time.Duration
 	readTimeout    time.Duration
 	writeTimeout   time.Duration
@@ -419,54 +424,28 @@ func (c *RedisCheck) updateStatus() {
 
 	changed := false
 
-	// Update status metadata
-	oldStatus, ok := c.backend.Meta.Get("redis", "status")
-	if !ok || !oldStatus.IsKnown() || oldStatus.Equals(newStatus).False() {
-		c.backend.Meta.Set("redis", "status", newStatus)
-		if newStatus.IsKnown() {
-			log.Info().Str("address", c.backend.Address).Str("status", newStatus.AsString()).Msg("Backend status changed")
-		} else {
-			log.Info().Str("address", c.backend.Address).Str("status", "unknown").Msg("Backend status changed")
+	updateMeta := func(key string, newValue cty.Value, logKnown func(e *zerolog.Event)) {
+		oldValue, ok := c.backend.Meta.Get("redis", key)
+		if !ok || !oldValue.IsKnown() || oldValue.Equals(newValue).False() {
+			c.backend.Meta.Set("redis", key, newValue)
+			evt := log.Info().Str("address", c.backend.Address)
+			if newValue.IsKnown() {
+				logKnown(evt)
+			} else {
+				evt.Str(key, "unknown")
+			}
+			evt.Msgf("Backend %s changed", key)
+			changed = true
 		}
-		changed = true
 	}
 
-	// Update role metadata
-	oldRole, ok := c.backend.Meta.Get("redis", "role")
-	if !ok || !oldRole.IsKnown() || oldRole.Equals(newRole).False() {
-		c.backend.Meta.Set("redis", "role", newRole)
-		if newRole.IsKnown() {
-			log.Info().Str("address", c.backend.Address).Str("role", newRole.AsString()).Msg("Backend role changed")
-		} else {
-			log.Info().Str("address", c.backend.Address).Str("role", "unknown").Msg("Backend role changed")
-		}
-		changed = true
-	}
-
-	// Update readonly metadata
-	oldReadonly, ok := c.backend.Meta.Get("redis", "readonly")
-	if !ok || !oldReadonly.IsKnown() || oldReadonly.Equals(newReadonly).False() {
-		c.backend.Meta.Set("redis", "readonly", newReadonly)
-		if newReadonly.IsKnown() {
-			log.Info().Str("address", c.backend.Address).Bool("readonly", newReadonly.True()).Msg("Backend readonly changed")
-		} else {
-			log.Info().Str("address", c.backend.Address).Str("readonly", "unknown").Msg("Backend readonly changed")
-		}
-		changed = true
-	}
-
-	// Update slaves metadata
-	oldSlaves, ok := c.backend.Meta.Get("redis", "slaves")
-	if !ok || !oldSlaves.IsKnown() || oldSlaves.Equals(newSlaves).False() {
-		c.backend.Meta.Set("redis", "slaves", newSlaves)
-		if newSlaves.IsKnown() {
-			s, _ := newSlaves.AsBigFloat().Int64()
-			log.Info().Str("address", c.backend.Address).Int64("slaves", s).Msg("Backend slaves count changed")
-		} else {
-			log.Info().Str("address", c.backend.Address).Str("slaves", "unknown").Msg("Backend slaves count changed")
-		}
-		changed = true
-	}
+	updateMeta("status", newStatus, func(e *zerolog.Event) { e.Str("status", newStatus.AsString()) })
+	updateMeta("role", newRole, func(e *zerolog.Event) { e.Str("role", newRole.AsString()) })
+	updateMeta("readonly", newReadonly, func(e *zerolog.Event) { e.Bool("readonly", newReadonly.True()) })
+	updateMeta("slaves", newSlaves, func(e *zerolog.Event) {
+		s, _ := newSlaves.AsBigFloat().Int64()
+		e.Int64("slaves", s)
+	})
 
 	// Notify parent checker if any metadata changed
 	if changed {

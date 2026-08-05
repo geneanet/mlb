@@ -2,7 +2,9 @@ package redis
 
 import (
 	"context"
+	"fmt"
 	"mlb/backend"
+	"mlb/misc"
 	"mlb/module"
 	"mlb/testutil"
 	"os"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/redis/go-redis/v9"
 )
 
 func TestRedisCheckerConfig(t *testing.T) {
@@ -248,6 +251,99 @@ func TestParseResponse(t *testing.T) {
 		s, _ = slaves.AsBigFloat().Int64()
 		if s != 0 {
 			t.Errorf("expected 0 slaves, got %d", s)
+		}
+	})
+}
+
+type mockRedisClient struct {
+	redis.Cmdable
+	roleFunc func(ctx context.Context) *redis.Cmd
+	infoFunc func(ctx context.Context, section ...string) *redis.StringCmd
+}
+
+func (m *mockRedisClient) Do(ctx context.Context, args ...interface{}) *redis.Cmd {
+	if len(args) > 0 && args[0] == "ROLE" {
+		return m.roleFunc(ctx)
+	}
+	return nil
+}
+
+func (m *mockRedisClient) Info(ctx context.Context, section ...string) *redis.StringCmd {
+	return m.infoFunc(ctx, section...)
+}
+
+func (m *mockRedisClient) Close() error {
+	return nil
+}
+
+func TestRedisCheck_UpdateStatus(t *testing.T) {
+	b := &backend.Backend{
+		Address: "127.0.0.1:6379",
+		Meta:    backend.NewEmptyMetaMap(0),
+	}
+	statusChan := make(chan *backend.Backend, 1)
+	check := NewRedisCheck(b, "", time.Second, 5*time.Second, 1.5, time.Second, time.Second, time.Second, statusChan)
+	check.ctx = context.Background()
+	check.ticker = misc.NewExponentialBackoffTicker(time.Second, 5*time.Second, 1.5)
+
+	mock := &mockRedisClient{}
+	check.client = mock
+
+	t.Run("master role", func(t *testing.T) {
+		mock.roleFunc = func(ctx context.Context) *redis.Cmd {
+			cmd := redis.NewCmd(ctx)
+			cmd.SetVal([]interface{}{"master", int64(123), []interface{}{}})
+			return cmd
+		}
+
+		check.updateStatus()
+
+		select {
+		case updated := <-statusChan:
+			if updated != b {
+				t.Fatal("expected backend on statusChan")
+			}
+		case <-time.After(100 * time.Millisecond):
+			t.Fatal("timeout waiting for status update")
+		}
+
+		status, _ := b.Meta.Get("redis", "status")
+		if status.AsString() != "ok" {
+			t.Errorf("expected status ok, got %s", status.AsString())
+		}
+		role, _ := b.Meta.Get("redis", "role")
+		if role.AsString() != "master" {
+			t.Errorf("expected role master, got %s", role.AsString())
+		}
+	})
+
+	t.Run("slave role fallback info", func(t *testing.T) {
+		mock.roleFunc = func(ctx context.Context) *redis.Cmd {
+			cmd := redis.NewCmd(ctx)
+			cmd.SetErr(fmt.Errorf("ROLE not supported"))
+			return cmd
+		}
+		mock.infoFunc = func(ctx context.Context, section ...string) *redis.StringCmd {
+			cmd := redis.NewStringCmd(ctx)
+			cmd.SetVal("# Replication\nrole:slave\nconnected_slaves:0\n")
+			return cmd
+		}
+
+		check.updateStatus()
+
+		select {
+		case <-statusChan:
+		case <-time.After(100 * time.Millisecond):
+			t.Fatal("timeout waiting for status update")
+		}
+
+		role, _ := b.Meta.Get("redis", "role")
+		if role.AsString() != "slave" {
+			t.Errorf("expected role slave, got %s", role.AsString())
+		}
+		readonly, _ := b.Meta.Get("redis", "readonly")
+		if !readonly.True() {
+			t.Error("expected readonly true")
 		}
 	})
 }
