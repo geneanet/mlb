@@ -257,9 +257,12 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 		return nil, io.EOF
 	}
 
+	// ponytail: return a copy to avoid aliasing when the caller stores the slice
+	res := slices.Clone(r.buffer)
+
 	var err error
 	if eof {
 		err = io.EOF
 	}
-	return r.buffer, err
+	return res, err
 }
