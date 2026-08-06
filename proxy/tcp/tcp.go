@@ -231,7 +231,7 @@ func (p *ProxyTCP) listen(address string, wg *sync.WaitGroup) error {
 				panic(err)
 			}
 			p.connectionsWG.Add(1)
-			p.log.Debug().Str("peer", conn.RemoteAddr().String()).Msg("Accepting Frontend connection")
+			p.log.Debug().Stringer("peer", conn.RemoteAddr()).Msg("Accepting Frontend connection")
 			go p.handleConnection(conn, feMetrics)
 		}
 
@@ -252,7 +252,7 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inp
 	// Recover from unexpected panics to prevent proxy crashes
 	defer func() {
 		if r := recover(); r != nil {
-			p.log.Error().Str("input", input.RemoteAddr().String()).Str("output", output.RemoteAddr().String()).Interface("error", r).Msg("Error while processing pipe")
+			p.log.Error().Stringer("input", input.RemoteAddr()).Stringer("output", output.RemoteAddr()).Interface("error", r).Msg("Error while processing pipe")
 		}
 	}()
 
@@ -272,7 +272,7 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inp
 		}
 		nbytes, readErr := input.Read(buffer)
 		if readErr != nil && !errors.Is(readErr, io.EOF) && !errors.Is(readErr, net.ErrClosed) {
-			p.log.Error().Str("input", input.RemoteAddr().String()).Str("output", output.RemoteAddr().String()).Err(readErr).Msg("Error reading from pipe")
+			p.log.Error().Stringer("input", input.RemoteAddr()).Stringer("output", output.RemoteAddr()).Err(readErr).Msg("Error reading from pipe")
 			return
 		}
 
@@ -291,7 +291,7 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inp
 			}
 			if writeErr != nil {
 				if !errors.Is(writeErr, net.ErrClosed) {
-					p.log.Error().Str("input", input.RemoteAddr().String()).Str("output", output.RemoteAddr().String()).Err(writeErr).Msg("Error writing to pipe")
+					p.log.Error().Stringer("input", input.RemoteAddr()).Stringer("output", output.RemoteAddr()).Err(writeErr).Msg("Error writing to pipe")
 				}
 				return
 			}
@@ -321,7 +321,7 @@ func (p *ProxyTCP) getBackendMetrics(backendAddress string) *Metrics {
 }
 
 func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
-	peerAddress := connFront.RemoteAddr().String()
+	peerAddress := connFront.RemoteAddr()
 
 	defer p.connectionsWG.Done()
 
@@ -330,11 +330,11 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 
 	closeConn := func() {
 		closeOnce.Do(func() {
-			p.log.Debug().Str("peer", peerAddress).Msg("Closing Frontend connection")
+			p.log.Debug().Stringer("peer", peerAddress).Msg("Closing Frontend connection")
 			close(done)
 			err := connFront.Close()
 			if err != nil && !errors.Is(err, net.ErrClosed) {
-				p.log.Error().Err(err).Str("peer", peerAddress).Msg("Error while closing frontend connection")
+				p.log.Error().Err(err).Stringer("peer", peerAddress).Msg("Error while closing frontend connection")
 			}
 		})
 	}
@@ -342,7 +342,7 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 
 	// If the proxy context is closed, close the connection after a grace period
 	stopGracefulClosing := context.AfterFunc(p.ctx, func() {
-		p.log.Debug().Str("peer", peerAddress).Msg("Frontend closed, waiting for connection to end.")
+		p.log.Debug().Stringer("peer", peerAddress).Msg("Frontend closed, waiting for connection to end.")
 		timer := time.NewTimer(p.closeTimeout)
 		defer timer.Stop()
 
@@ -351,7 +351,7 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 			// Connection closed normally
 			return
 		case <-timer.C:
-			p.log.Warn().Str("peer", peerAddress).Msg("Timeout reached, force closing connection.")
+			p.log.Warn().Stringer("peer", peerAddress).Msg("Timeout reached, force closing connection.")
 			closeConn()
 		}
 	})
@@ -365,7 +365,7 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
-			p.log.Error().Str("peer", peerAddress).Interface("error", r).Msg("Error while processing connection")
+			p.log.Error().Stringer("peer", peerAddress).Interface("error", r).Msg("Error while processing connection")
 			// Prometheus
 			feMetrics.cnxErrors.Inc()
 		}
@@ -406,7 +406,7 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 			case <-done:
 				// Connection already closed
 			default:
-				p.log.Debug().Str("peer", peerAddress).Msg("Backend removed from balancer, closing connection")
+				p.log.Debug().Stringer("peer", peerAddress).Msg("Backend removed from balancer, closing connection")
 				closeConn()
 			}
 		})

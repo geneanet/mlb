@@ -306,7 +306,7 @@ func (p *MemcacheProxy) listen(address string, wg *sync.WaitGroup) error {
 				panic(err)
 			}
 			p.connectionsWG.Add(1)
-			p.log.Debug().Str("peer", conn.RemoteAddr().String()).Msg("Accepting Frontend connection")
+			p.log.Debug().Stringer("peer", conn.RemoteAddr()).Msg("Accepting Frontend connection")
 			go p.handleConnection(conn, feMetrics)
 		}
 
@@ -361,7 +361,7 @@ func (p *MemcacheProxy) ReceiveUpdate(upd backend.BackendUpdate) {
 // Storage commands with payloads (set, ms, etc.) are handled by reading the specified
 // number of bytes before forwarding.
 func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
-	peerAddress := connFront.RemoteAddr().String()
+	peerAddress := connFront.RemoteAddr()
 
 	defer p.connectionsWG.Done()
 
@@ -370,11 +370,11 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 
 	closeConn := func() {
 		closeOnce.Do(func() {
-			p.log.Debug().Str("peer", peerAddress).Msg("Closing Frontend connection")
+			p.log.Debug().Stringer("peer", peerAddress).Msg("Closing Frontend connection")
 			close(done)
 			err := connFront.Close()
 			if err != nil && !errors.Is(err, net.ErrClosed) {
-				p.log.Error().Err(err).Str("peer", peerAddress).Msg("Error while closing frontend connection")
+				p.log.Error().Err(err).Stringer("peer", peerAddress).Msg("Error while closing frontend connection")
 			}
 		})
 	}
@@ -382,7 +382,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 
 	// If the proxy context is closed, close the connection context after a grace period
 	stopGracefulClosing := context.AfterFunc(p.ctx, func() {
-		p.log.Debug().Str("peer", peerAddress).Msg("Frontend closed, waiting for connection to end.")
+		p.log.Debug().Stringer("peer", peerAddress).Msg("Frontend closed, waiting for connection to end.")
 		timer := time.NewTimer(p.closeTimeout)
 		defer timer.Stop()
 
@@ -391,7 +391,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 			// Connection closed normally
 			return
 		case <-timer.C:
-			p.log.Debug().Str("peer", peerAddress).Msg("Frontend close timeout reached, closing connection")
+			p.log.Debug().Stringer("peer", peerAddress).Msg("Frontend close timeout reached, closing connection")
 			closeConn()
 		}
 	})
@@ -400,7 +400,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 	// Error handler
 	defer func() {
 		if r := recover(); r != nil {
-			p.log.Error().Str("peer", peerAddress).Interface("error", r).Msg("Error while processing connection")
+			p.log.Error().Stringer("peer", peerAddress).Interface("error", r).Msg("Error while processing connection")
 			// Prometheus
 			feMetrics.cnxErrors.Inc()
 		}
@@ -457,12 +457,12 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 				if err != nil {
 					select {
 					case <-done:
-						p.log.Debug().Err(err).Str("peer", peerAddress).Msg("Error while writing to client (connection closed)")
+						p.log.Debug().Err(err).Stringer("peer", peerAddress).Msg("Error while writing to client (connection closed)")
 					default:
 						if errors.Is(err, net.ErrClosed) {
-							p.log.Debug().Err(err).Str("peer", peerAddress).Msg("Error while writing to client (connection closed)")
+							p.log.Debug().Err(err).Stringer("peer", peerAddress).Msg("Error while writing to client (connection closed)")
 						} else {
-							p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
+							p.log.Error().Err(err).Stringer("peer", peerAddress).Msg("Unexpected error while writing to client")
 						}
 					}
 					closeConn()
@@ -493,7 +493,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 		if err == io.EOF || errors.Is(err, net.ErrClosed) {
 			return
 		} else if err != nil {
-			p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while reading from the client")
+			p.log.Error().Err(err).Stringer("peer", peerAddress).Msg("Unexpected error while reading from the client")
 			return
 		}
 
