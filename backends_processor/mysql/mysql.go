@@ -512,52 +512,59 @@ func (c *MySQLCheck) updateStatus() {
 	changed := false
 
 	oldStatus, ok := c.backend.Meta.Get("mysql", "status")
-	if !ok || !oldStatus.IsKnown() || oldStatus.Equals(newStatus).False() {
+	if !ok || !oldStatus.RawEquals(newStatus) {
 		c.backend.Meta.Set("mysql", "status", newStatus)
 
-		if !oldStatus.IsKnown() {
-			log.Info().Str("address", c.backend.Address).Str("newStatus", newStatus.AsString()).Msg("Backend status changed")
+		evt := log.Info().Str("address", c.backend.Address)
+		if oldStatus.IsKnown() && !oldStatus.IsNull() {
+			evt.Str("oldStatus", oldStatus.AsString())
 		} else {
-			log.Info().Str("address", c.backend.Address).Str("oldStatus", oldStatus.AsString()).Str("newStatus", newStatus.AsString()).Msg("Backend status changed")
+			evt.Str("oldStatus", "unknown")
 		}
+		if newStatus.IsKnown() && !newStatus.IsNull() {
+			evt.Str("newStatus", newStatus.AsString())
+		} else {
+			evt.Str("newStatus", "unknown")
+		}
+		evt.Msg("Backend status changed")
 		changed = true
 	}
 
 	oldReadonly, ok := c.backend.Meta.Get("mysql", "readonly")
-	if !ok || !oldReadonly.IsKnown() || oldReadonly.Equals(newReadonly).False() {
+	if !ok || !oldReadonly.RawEquals(newReadonly) {
 		c.backend.Meta.Set("mysql", "readonly", newReadonly)
 
 		if !oldReadonly.IsKnown() {
-			log.Info().Str("address", c.backend.Address).Bool("newReadonly", newReadonly.True()).Msg("Backend readonly changed")
+			log.Info().Str("address", c.backend.Address).Bool("newReadonly", newReadonly.IsKnown() && !newReadonly.IsNull() && newReadonly.True()).Msg("Backend readonly changed")
 		} else {
-			log.Info().Str("address", c.backend.Address).Bool("oldReadonly", oldReadonly.True()).Bool("newReadonly", newReadonly.True()).Msg("Backend readonly changed")
+			log.Info().Str("address", c.backend.Address).Bool("oldReadonly", oldReadonly.IsKnown() && !oldReadonly.IsNull() && oldReadonly.True()).Bool("newReadonly", newReadonly.IsKnown() && !newReadonly.IsNull() && newReadonly.True()).Msg("Backend readonly changed")
 		}
 		changed = true
 	}
 
 	if c.checkReplica {
 		oldReplicaLatency, ok := c.backend.Meta.Get("mysql", "replica_latency")
-		if !ok || !oldReplicaLatency.IsKnown() || oldReplicaLatency.Equals(newReplicaLatency).False() {
+		if !ok || !oldReplicaLatency.RawEquals(newReplicaLatency) {
 			c.backend.Meta.Set("mysql", "replica_latency", newReplicaLatency)
-			c.backend.Meta.Set("mysql", "replica_running", newReplicaLatency.GreaterThanOrEqualTo(cty.NumberUIntVal(0)))
+			c.backend.Meta.Set("mysql", "replica_running", cty.BoolVal(newReplicaLatency.IsKnown() && !newReplicaLatency.IsNull() && newReplicaLatency.GreaterThanOrEqualTo(cty.NumberUIntVal(0)).True()))
 
-			var newReplicaLatencyValue int64
-			err := gocty.FromCtyValue(newReplicaLatency, &newReplicaLatencyValue)
-			if err != nil {
-				panic(err)
-			}
+			evt := log.Debug().Str("address", c.backend.Address)
 
-			if !oldReplicaLatency.IsKnown() {
-				log.Debug().Str("address", c.backend.Address).Int64("newReplicaLatency", newReplicaLatencyValue).Msg("Backend replica_latency changed")
-			} else {
+			if oldReplicaLatency.IsKnown() && !oldReplicaLatency.IsNull() {
 				var oldReplicaLatencyValue int64
-				err := gocty.FromCtyValue(oldReplicaLatency, &oldReplicaLatencyValue)
-				if err != nil {
-					panic(err)
+				if err := gocty.FromCtyValue(oldReplicaLatency, &oldReplicaLatencyValue); err == nil {
+					evt.Int64("oldReplicaLatency", oldReplicaLatencyValue)
 				}
-
-				log.Debug().Str("address", c.backend.Address).Int64("oldReplicaLatency", oldReplicaLatencyValue).Int64("newReplicaLatency", newReplicaLatencyValue).Msg("Backend replica_latency changed")
 			}
+
+			if newReplicaLatency.IsKnown() && !newReplicaLatency.IsNull() {
+				var newReplicaLatencyValue int64
+				if err := gocty.FromCtyValue(newReplicaLatency, &newReplicaLatencyValue); err == nil {
+					evt.Int64("newReplicaLatency", newReplicaLatencyValue)
+				}
+			}
+
+			evt.Msg("Backend replica_latency changed")
 			changed = true
 		}
 	}

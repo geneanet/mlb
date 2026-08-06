@@ -322,7 +322,7 @@ func newConsulKVWatcher(backend *backend.Backend, id string, url string, key str
 				}
 
 				// Value has changed
-				if cty.UnknownAsNull(oldValue).Equals(cty.UnknownAsNull(value)).False() {
+				if !oldValue.RawEquals(value) {
 					var valStr string
 					if value.IsKnown() && !value.IsNull() {
 						valStr = value.AsString()

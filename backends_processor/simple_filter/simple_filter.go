@@ -257,7 +257,7 @@ func compareCtyValues(a, b cty.Value) int {
 	if a.RawEquals(b) {
 		return 0
 	}
-	if a.Type() != b.Type() {
+	if !a.IsKnown() || a.IsNull() || !b.IsKnown() || b.IsNull() || a.Type() != b.Type() {
 		return strings.Compare(valToString(a), valToString(b))
 	}
 

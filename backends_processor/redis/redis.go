@@ -437,10 +437,10 @@ func (c *RedisCheck) updateStatus() {
 
 	updateMeta := func(key string, newValue cty.Value, logKnown func(e *zerolog.Event)) {
 		oldValue, ok := c.backend.Meta.Get("redis", key)
-		if !ok || !oldValue.IsKnown() || oldValue.Equals(newValue).False() {
+		if !ok || !oldValue.RawEquals(newValue) {
 			c.backend.Meta.Set("redis", key, newValue)
 			evt := log.Info().Str("address", c.backend.Address)
-			if newValue.IsKnown() {
+			if newValue.IsKnown() && !newValue.IsNull() {
 				logKnown(evt)
 			} else {
 				evt.Str(key, "unknown")
@@ -452,13 +452,13 @@ func (c *RedisCheck) updateStatus() {
 
 	updateMeta("status", newStatus, func(e *zerolog.Event) { e.Str("status", newStatus.AsString()) })
 	updateMeta("role", newRole, func(e *zerolog.Event) { e.Str("role", newRole.AsString()) })
-	updateMeta("readonly", newReadonly, func(e *zerolog.Event) { e.Bool("readonly", newReadonly.True()) })
+	updateMeta("readonly", newReadonly, func(e *zerolog.Event) { e.Bool("readonly", newReadonly.Type() == cty.Bool && !newReadonly.IsNull() && newReadonly.True()) })
 	updateMeta("connected_slaves", newSlaves, func(e *zerolog.Event) {
 		s, _ := newSlaves.AsBigFloat().Int64()
 		e.Int64("connected_slaves", s)
 	})
 	updateMeta("master_link_status", newMasterLinkStatus, func(e *zerolog.Event) { e.Str("master_link_status", newMasterLinkStatus.AsString()) })
-	updateMeta("master_sync_in_progress", newMasterSyncInProgress, func(e *zerolog.Event) { e.Bool("master_sync_in_progress", newMasterSyncInProgress.True()) })
+	updateMeta("master_sync_in_progress", newMasterSyncInProgress, func(e *zerolog.Event) { e.Bool("master_sync_in_progress", newMasterSyncInProgress.Type() == cty.Bool && !newMasterSyncInProgress.IsNull() && newMasterSyncInProgress.True()) })
 
 	// Notify parent checker if any metadata changed
 	if changed {

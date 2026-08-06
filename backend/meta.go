@@ -143,7 +143,7 @@ func (m MetaBucket) Equal(other MetaBucket) bool {
 
 	for k, v := range m {
 		otherValue, ok := other[k]
-		if !ok || v.Equals(otherValue).False() {
+		if !ok || !v.RawEquals(otherValue) {
 			return false
 		}
 	}

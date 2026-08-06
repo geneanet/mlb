@@ -192,7 +192,7 @@ func TestParseResponse(t *testing.T) {
 		if role.AsString() != "master" {
 			t.Errorf("expected master, got %s", role.AsString())
 		}
-		if readonly.True() {
+		if !readonly.IsKnown() || readonly.IsNull() || readonly.True() {
 			t.Error("expected readonly false")
 		}
 		s, _ := slaves.AsBigFloat().Int64()
@@ -215,7 +215,7 @@ func TestParseResponse(t *testing.T) {
 		if role.AsString() != "slave" {
 			t.Errorf("expected slave, got %s", role.AsString())
 		}
-		if !readonly.True() {
+		if !readonly.IsKnown() || readonly.IsNull() || !readonly.True() {
 			t.Error("expected readonly true")
 		}
 		s, _ = slaves.AsBigFloat().Int64()
@@ -231,7 +231,7 @@ func TestParseResponse(t *testing.T) {
 		if role.AsString() != "master" {
 			t.Errorf("expected master, got %s", role.AsString())
 		}
-		if readonly.True() {
+		if !readonly.IsKnown() || readonly.IsNull() || readonly.True() {
 			t.Error("expected readonly false")
 		}
 		s, _ := slaves.AsBigFloat().Int64()
@@ -248,7 +248,7 @@ func TestParseResponse(t *testing.T) {
 		if role.AsString() != "slave" {
 			t.Errorf("expected slave, got %s", role.AsString())
 		}
-		if !readonly.True() {
+		if !readonly.IsKnown() || readonly.IsNull() || !readonly.True() {
 			t.Error("expected readonly true")
 		}
 		s, _ = slaves.AsBigFloat().Int64()
@@ -258,7 +258,7 @@ func TestParseResponse(t *testing.T) {
 		if mls.AsString() != "up" {
 			t.Errorf("expected up master_link_status, got %s", mls.AsString())
 		}
-		if msip.True() {
+		if !msip.IsKnown() || msip.IsNull() || msip.True() {
 			t.Error("expected master_sync_in_progress false")
 		}
 
@@ -268,7 +268,7 @@ func TestParseResponse(t *testing.T) {
 		if mls.AsString() != "down" {
 			t.Errorf("expected down master_link_status, got %s", mls.AsString())
 		}
-		if !msip.True() {
+		if !msip.IsKnown() || msip.IsNull() || !msip.True() {
 			t.Error("expected master_sync_in_progress true")
 		}
 	})
