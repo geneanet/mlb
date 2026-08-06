@@ -63,6 +63,10 @@ func (r *MemcacheProtocolReader) Release() {
 	if r.br != nil {
 		r.br.Reset(nil)
 	}
+	// ponytail: if the buffer grew too large, drop it to avoid leaking memory in the pool
+	if cap(r.buffer) > 64*1024 {
+		r.buffer = nil
+	}
 	protocolReaderPool.Put(r)
 }
 
@@ -121,8 +125,18 @@ func putResponseChan(ch chan MemcacheResponse) {
 
 var bufferPool = sync.Pool{
 	New: func() any {
-		return new(bytes.Buffer)
+		return bytes.NewBuffer(make([]byte, 0, 4096))
 	},
+}
+
+// ReleaseBuffer returns a buffer to the pool.
+func ReleaseBuffer(b *bytes.Buffer) {
+	// Do not put the buffer back in the pool if too small or too big
+	if b == nil || b.Cap() < 4096 || b.Cap() > 64*1024 {
+		return
+	}
+	b.Reset()
+	bufferPool.Put(b)
 }
 
 // getFields splits a line into fields by spaces, reusing a slice from a pool.

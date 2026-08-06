@@ -34,7 +34,7 @@ func NewMemcacheQuery(item []byte, responseChan chan MemcacheResponse, responseC
 // the pooled buffer if one was used.
 func (q *MemcacheQuery) Release() {
 	if q.buffer != nil {
-		bufferPool.Put(q.buffer)
+		ReleaseBuffer(q.buffer)
 		q.buffer = nil
 	}
 }
@@ -56,7 +56,7 @@ func (q MemcacheQuery) ReplyWithBuffer(item []byte, buffer *bytes.Buffer) error 
 		return nil
 	case <-q.responseChanStop:
 		if buffer != nil {
-			bufferPool.Put(buffer)
+			ReleaseBuffer(buffer)
 		}
 		return fmt.Errorf("response channel is closed")
 	}
@@ -78,7 +78,7 @@ type MemcacheResponse struct {
 // Release releases resources associated with the response.
 func (r *MemcacheResponse) Release() {
 	if r.buffer != nil {
-		bufferPool.Put(r.buffer)
+		ReleaseBuffer(r.buffer)
 		r.buffer = nil
 	}
 }

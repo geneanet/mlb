@@ -155,7 +155,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 			respBuffer.Reset()
 			err := mbc.pool.proxy.readMemcacheResponseFull(reader, respBuffer)
 			if err != nil {
-				bufferPool.Put(respBuffer)
+				ReleaseBuffer(respBuffer)
 				if err != io.EOF && !errors.Is(err, net.ErrClosed) {
 					mbc.pool.proxy.log.Error().Str("peer", mbc.backend.Address).Err(err).Msg("Unexpected error while reading from the backend")
 				}
@@ -168,7 +168,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 			select {
 			case query = <-mbc.inFlight:
 			case <-mbc.ctx.Done():
-				bufferPool.Put(respBuffer)
+				ReleaseBuffer(respBuffer)
 				return
 			}
 

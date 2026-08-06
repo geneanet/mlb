@@ -126,3 +126,41 @@ func TestReadMemcacheResponseFull(t *testing.T) {
 		})
 	}
 }
+
+func TestReleaseBuffer(t *testing.T) {
+	// 1. Test too small buffer
+	smallBuf := bytes.NewBuffer(make([]byte, 0, 1024))
+	ReleaseBuffer(smallBuf)
+	// We can't easily check if it was put in the pool, but we can check if it was reset
+	// actually Reset() is called AFTER the check.
+
+	// 2. Test right size buffer
+	okBuf := bytes.NewBuffer(make([]byte, 0, 4096))
+	okBuf.WriteString("hello")
+	ReleaseBuffer(okBuf)
+	if okBuf.Len() != 0 {
+		t.Errorf("Expected buffer to be reset, got len %d", okBuf.Len())
+	}
+
+	// 3. Test too big buffer
+	bigBuf := bytes.NewBuffer(make([]byte, 0, 128*1024))
+	bigBuf.WriteString("big")
+	ReleaseBuffer(bigBuf)
+	if bigBuf.Len() != 3 {
+		t.Errorf("Expected buffer NOT to be reset (not released), got len %d", bigBuf.Len())
+	}
+}
+
+func TestMemcacheProtocolReader_Release_LargeBuffer(t *testing.T) {
+	r := NewMemcacheProtocolReader(bytes.NewReader(nil), 1024)
+	// Grow buffer to be very large
+	r.ReadFull(128 * 1024) // This will read EOF but should grow the buffer
+	r.Release()
+
+	// Acquire a new reader, it shouldn't have the huge buffer if it came from the pool
+	r2 := NewMemcacheProtocolReader(bytes.NewReader(nil), 1024)
+	if cap(r2.buffer) > 64*1024 {
+		t.Errorf("Expected reader buffer to be dropped, got cap %d", cap(r2.buffer))
+	}
+	r2.Release()
+}

@@ -25,7 +25,8 @@ var bufferPool = sync.Pool{
 
 // ReleaseBuffer returns a buffer to the pool.
 func ReleaseBuffer(b []byte) {
-	if b == nil || cap(b) < 4096 {
+	// Do not put the buffer back in the pool if too small or too big
+	if b == nil || cap(b) < 4096 || cap(b) > 64*1024 {
 		return
 	}
 	bufferPool.Put(b)
