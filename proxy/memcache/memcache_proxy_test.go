@@ -1278,3 +1278,120 @@ func dummyMetrics() *Metrics {
 		requests:  metrics.FeRequests.WithLabelValues("test", "test"),
 	}
 }
+
+func TestMemcachePhantomResponse(t *testing.T) {
+	// Setup a controllable backend
+	lBack, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lBack.Close()
+	backendAddr := lBack.Addr().String()
+
+	phantomRespReady := make(chan struct{})
+	phantomRespSend := make(chan struct{})
+
+	go func() {
+		conn, err := lBack.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		reader := bufio.NewReader(conn)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return
+			}
+			if line == "get phantom\r\n" {
+				close(phantomRespReady)
+				<-phantomRespSend
+				conn.Write([]byte("VALUE phantom 0 7\r\nphantom\r\nEND\r\n"))
+			} else if line == "get real\r\n" {
+				conn.Write([]byte("VALUE real 0 4\r\nreal\r\nEND\r\n"))
+			}
+		}
+	}()
+
+	// Setup proxy
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p := &MemcacheProxy{
+		id:                        "phantom-test",
+		log:                       log.Logger,
+		connectTimeout:            time.Second,
+		closeTimeout:              time.Second,
+		ctx:                       ctx,
+		cancel:                    cancel,
+		backends:                  backend.NewRegistry(),
+		ring:                      newMemcacheHashRing(),
+		backendMinConnections:     1,
+		backendMaxConnections:     1,
+		backendInputQueueSize:    1024,
+		backendInflightQueueSize: 512,
+		bufferSize:                4096,
+		clientQueueSize:           128,
+		beMetricsCache:           make(map[string]*Metrics),
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
+	}
+	p.backends.Add(&backend.Backend{Address: backendAddr})
+	p.ring.update(p.backends.GetList())
+	p.backendConnectionPool = NewMemcacheBackendConnectionPool(p)
+	p.backendConnectionPool.Update()
+
+	// Frontend listener
+	lFront, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lFront.Close()
+
+	go func() {
+		for {
+			conn, err := lFront.Accept()
+			if err != nil {
+				return
+			}
+			p.connectionsWG.Add(1)
+			go p.handleConnection(conn, dummyMetrics())
+		}
+	}()
+
+	// 1. Manually get a channel, put a "phantom" response in it, and put it back in the pool.
+	ch := getResponseChan()
+	phantomQuery := NewMemcacheQuery([]byte("get phantom\r\n"), ch, make(chan struct{}))
+	ch <- MemcacheResponse{query: phantomQuery, item: []byte("VALUE phantom 0 7\r\nphantom\r\nEND\r\n")}
+	putResponseChan(ch)
+
+	// 2. Client 2 connects and sends "get real"
+	c2, err := net.Dial("tcp", lFront.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c2.Close()
+
+	c2.Write([]byte("get real\r\n"))
+	
+	// Release the real response from backend
+	close(phantomRespSend)
+
+	reader := bufio.NewReader(c2)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("Failed to read from c2: %v", err)
+	}
+	
+	if line == "VALUE phantom 0 7\r\n" {
+		t.Fatal("Client 2 received phantom response!")
+	}
+	
+	if line != "VALUE real 0 4\r\n" {
+		t.Fatalf("Expected VALUE real 0 4, got %q", line)
+	}
+}

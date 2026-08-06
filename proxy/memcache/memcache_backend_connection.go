@@ -94,7 +94,13 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 		for {
 			select {
 			case query := <-mbc.inputChan:
-				mbc.inFlight <- query
+				select {
+				case mbc.inFlight <- query:
+				case <-mbc.ctx.Done():
+					query.Abort()
+					query.Release()
+					return
+				}
 				n, err := mbc.conn.Write(query.item)
 				query.Release() // ponytail: release pooled query buffer if any
 				if err != nil {

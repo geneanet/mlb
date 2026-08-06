@@ -204,7 +204,7 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 	p.log.Info().Msg("Memcache proxy starting")
 
 	// Background worker to handle backend updates and update the hash ring
-	 go func() {
+	go func() {
 		defer wg.Done()
 		defer p.log.Info().Msg("Memcache proxy stopped")
 		defer p.cancel()
@@ -416,34 +416,58 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 	futureChanStop := make(chan struct{})
 	defer close(futureChanStop) // Ensure no backend will block trying to send replies if the client connection is closed
 	go func() {
+		defer func() {
+			// ponytail: drain futureChan on exit to return channels to pool
+			for {
+				select {
+				case respChan := <-futureChan:
+					putResponseChan(respChan)
+				default:
+					return
+				}
+			}
+		}()
 		for {
 			select {
 			case respChan := <-futureChan:
-				select {
-				case response := <-respChan:
-					p.log.Debug().Uint64("queryId", response.query.id).Msg("Received response")
-					n, err := connFront.Write(response.item)
-					response.Release() // ponytail: return pooled buffer
-					if err != nil {
-						select {
-						case <-done:
-							p.log.Debug().Err(err).Str("peer", peerAddress).Msg("Error while writing to client (connection closed)")
-						default:
-							if errors.Is(err, net.ErrClosed) {
-								p.log.Debug().Err(err).Str("peer", peerAddress).Msg("Error while writing to client (connection closed)")
-							} else {
-								p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
-							}
+				var response MemcacheResponse
+				// ponytail: drain phantom responses from previous connections using the same pooled channel.
+				// Each connection has a unique futureChanStop, so we can detect late replies from old connections.
+				for {
+					select {
+					case response = <-respChan:
+						if response.query.responseChanStop != futureChanStop {
+							p.log.Debug().Uint64("queryId", response.query.id).Msg("Received phantom response from a previous connection, ignoring")
+							response.Release()
+							continue
 						}
-						closeConn()
+					case <-done:
+						putResponseChan(respChan)
+						return
 					}
-					feMetrics.bytesOut.Add(float64(n))
-
-					// ponytail: return channel to pool
-					responseChanPool.Put(respChan)
-				case <-done:
-					return
+					break
 				}
+
+				p.log.Debug().Uint64("queryId", response.query.id).Msg("Received response")
+				n, err := connFront.Write(response.item)
+				response.Release() // ponytail: return pooled buffer
+				if err != nil {
+					select {
+					case <-done:
+						p.log.Debug().Err(err).Str("peer", peerAddress).Msg("Error while writing to client (connection closed)")
+					default:
+						if errors.Is(err, net.ErrClosed) {
+							p.log.Debug().Err(err).Str("peer", peerAddress).Msg("Error while writing to client (connection closed)")
+						} else {
+							p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
+						}
+					}
+					closeConn()
+				}
+				feMetrics.bytesOut.Add(float64(n))
+
+				// ponytail: return channel to pool
+				putResponseChan(respChan)
 			case <-done:
 				return
 			}
@@ -487,13 +511,13 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 		}
 
 		// Create a channel for this specific query's response (from pool)
-		reqRespChan := responseChanPool.Get().(chan MemcacheResponse)
+		reqRespChan := getResponseChan()
 
 		// Enqueue the future for the response writer
 		select {
 		case futureChan <- reqRespChan:
 		case <-done:
-			responseChanPool.Put(reqRespChan)
+			putResponseChan(reqRespChan)
 			p.releaseFields(fieldsPtr)
 			return
 		}
@@ -671,6 +695,14 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 	}
 
 	requests := make([]req, 0, len(groups))
+	defer func() {
+		// ponytail: ensure all backend queries are aborted if we exit early
+		for i := range requests {
+			if requests[i].stopChan != nil {
+				close(requests[i].stopChan)
+			}
+		}
+	}()
 
 	for b, bKeys := range groups {
 		conn := p.backendConnectionPool.Get(b.Address)
@@ -698,19 +730,24 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 	}
 
 	var combinedResponse bytes.Buffer
-	for _, req := range requests {
-		resp := <-req.respChan
-		close(req.stopChan)
-		if resp.item != nil {
-			// Strip the END\r\n from intermediate responses to combine them properly
-			idx := bytes.LastIndex(resp.item, []byte("END\r\n"))
-			if idx != -1 {
-				combinedResponse.Write(resp.item[:idx])
-			} else {
-				combinedResponse.Write(resp.item)
+	for i := 0; i < len(requests); i++ {
+		select {
+		case resp := <-requests[i].respChan:
+			close(requests[i].stopChan)
+			requests[i].stopChan = nil // Mark as closed
+			if resp.item != nil {
+				// Strip the END\r\n from intermediate responses to combine them properly
+				idx := bytes.LastIndex(resp.item, []byte("END\r\n"))
+				if idx != -1 {
+					combinedResponse.Write(resp.item[:idx])
+				} else {
+					combinedResponse.Write(resp.item)
+				}
 			}
+			resp.Release() // ponytail: return pooled buffer
+		case <-q.responseChanStop:
+			return
 		}
-		resp.Release() // ponytail: return pooled buffer
 	}
 
 	combinedResponse.Write([]byte("END\r\n"))
