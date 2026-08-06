@@ -38,6 +38,7 @@ func ReleaseBuffer(b []byte) {
 type RedisProtocolReader struct {
 	br     *bufio.Reader
 	buffer []byte // Accumulation buffer for the current message
+	stack  []int  // Reusable stack for parsing nested structures
 }
 
 // NewRedisProtocolReader creates a new reader, potentially reusing a bufio.Reader from the pool.
@@ -53,6 +54,7 @@ func NewRedisProtocolReader(reader io.Reader, bufferSize int) *RedisProtocolRead
 	return &RedisProtocolReader{
 		br:     br,
 		buffer: nil,
+		stack:  make([]int, 0, 8),
 	}
 }
 
@@ -117,14 +119,10 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 	r.buffer = r.buffer[:0]
 	eof := false
 
-	// stack tracks the nesting levels and expected items remaining at each level.
-	// Positive (n > 0): Number of items remaining in a fixed-size collection.
-	// -1: Currently parsing a streamed collection (waiting for '.' terminator).
-	// -2: Currently parsing a streamed bulk string (waiting for ';' terminator).
-	stack := make([]int, 0, 8)
-	stack = append(stack, 1) // Expect one top-level message
+	r.stack = r.stack[:0]
+	r.stack = append(r.stack, 1) // Expect one top-level message
 
-	for len(stack) > 0 {
+	for len(r.stack) > 0 {
 		line, err := r.readLine()
 		if err != nil {
 			if err == io.EOF {
@@ -137,12 +135,12 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 			}
 		}
 
-		topIdx := len(stack) - 1
-		inStreamedString := stack[topIdx] == -2
+		topIdx := len(r.stack) - 1
+		inStreamedString := r.stack[topIdx] == -2
 
 		// Decrement remaining items if we are in a fixed collection.
-		if stack[topIdx] > 0 {
-			stack[topIdx]--
+		if r.stack[topIdx] > 0 {
+			r.stack[topIdx]--
 		}
 
 		switch line[0] {
@@ -160,7 +158,7 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 
 			// Streamed bulk string start: $?\r\n
 			if len(line) == 4 && line[0] == '$' && line[1] == '?' {
-				stack = append(stack, -2)
+				r.stack = append(r.stack, -2)
 			} else {
 				// RESP Bulk headers are $[size]\r\n, so minimum is 4 bytes (e.g. $0\r\n)
 				// RESP2 Null Bulk String is $-1\r\n (5 bytes)
@@ -211,7 +209,7 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 				}
 			} else {
 				// Final chunk (;0\r\n), pop streamed string state
-				stack = stack[:len(stack)-1]
+				r.stack = r.stack[:len(r.stack)-1]
 			}
 
 		case '*', '~', '%', '|', '>':
@@ -223,9 +221,9 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 			// Streamed collection start (e.g., *?\r\n). Note: Push (>) cannot be streamed.
 			if len(line) == 4 && line[0] != '>' && line[1] == '?' {
 				if line[0] == '|' {
-					stack = append(stack, 1) // Attributes prefix: one more message after stream
+					r.stack = append(r.stack, 1) // Attributes prefix: one more message after stream
 				}
-				stack = append(stack, -1)
+				r.stack = append(r.stack, -1)
 			} else {
 				// Collection headers are *[size]\r\n, so minimum is 4 bytes (e.g. *0\r\n)
 				// RESP2 Null Array is *-1\r\n (5 bytes)
@@ -257,7 +255,7 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 
 				// Null collections (e.g. *-1\r\n) or empty ones (*0\r\n) have no items following
 				if count > 0 {
-					stack = append(stack, count)
+					r.stack = append(r.stack, count)
 				}
 			}
 
@@ -266,10 +264,10 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 			if inStreamedString {
 				return nil, fmt.Errorf("RESP3 protocol violation: unexpected item type \".\" during streamed string")
 			}
-			if stack[topIdx] != -1 {
+			if r.stack[topIdx] != -1 {
 				return nil, fmt.Errorf("RESP3 protocol violation: unexpected item . while not streaming")
 			}
-			stack = stack[:len(stack)-1]
+			r.stack = r.stack[:len(r.stack)-1]
 
 		default:
 			// Inline commands or unknown protocol markers
@@ -279,8 +277,8 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 		}
 
 		// Pop finished levels (remaining count == 0)
-		for len(stack) > 0 && stack[len(stack)-1] == 0 {
-			stack = stack[:len(stack)-1]
+		for len(r.stack) > 0 && r.stack[len(r.stack)-1] == 0 {
+			r.stack = r.stack[:len(r.stack)-1]
 		}
 		allowInline = false
 	}
