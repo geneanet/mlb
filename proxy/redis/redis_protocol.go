@@ -13,9 +13,8 @@ import (
 // Protocol parsing
 //-----------------
 
-// readerPool allows reuse of bufio.Reader instances to minimize memory allocations
-// during high-concurrency Redis proxying.
-var readerPool sync.Pool
+var protocolReaderPool sync.Pool
+var protocolWriterPool sync.Pool
 
 // bufferPool allows reuse of byte slices to minimize allocations during ReadMessage.
 var bufferPool = sync.Pool{
@@ -32,30 +31,54 @@ func ReleaseBuffer(b []byte) {
 	bufferPool.Put(b)
 }
 
+// RedisProtocolWriter provides a high-level writer for Redis RESP protocols.
+type RedisProtocolWriter struct {
+	*bufio.Writer
+}
+
+// NewRedisProtocolWriter creates a new writer, potentially reusing one from the pool.
+func NewRedisProtocolWriter(writer io.Writer, bufferSize int) *RedisProtocolWriter {
+	if v := protocolWriterPool.Get(); v != nil {
+		pw := v.(*RedisProtocolWriter)
+		pw.Reset(writer)
+		return pw
+	}
+	return &RedisProtocolWriter{
+		Writer: bufio.NewWriterSize(writer, bufferSize),
+	}
+}
+
+// Release returns the internal bufio.Writer to the pool.
+func (pw *RedisProtocolWriter) Release() {
+	pw.Reset(nil)
+	protocolWriterPool.Put(pw)
+}
+
 // RedisProtocolReader provides a high-level reader for Redis RESP2 and RESP3 protocols.
 // It uses an internal bufio.Reader for efficiency and maintains an accumulation buffer
 // to return complete protocol messages.
 type RedisProtocolReader struct {
-	br     *bufio.Reader
-	buffer []byte // Accumulation buffer for the current message
-	stack  []int  // Reusable stack for parsing nested structures
+	br       *bufio.Reader
+	buffer   []byte  // Accumulation buffer for the current message
+	stack    []int   // Reusable stack for parsing nested structures
+	stackBuf [16]int // Fixed buffer for the stack to avoid allocations for common nesting levels
 }
 
-// NewRedisProtocolReader creates a new reader, potentially reusing a bufio.Reader from the pool.
+// NewRedisProtocolReader creates a new reader, potentially reusing one from the pool.
 // initialBufferSize specifies the starting capacity of the internal bufio.Reader if one is created.
 func NewRedisProtocolReader(reader io.Reader, bufferSize int) *RedisProtocolReader {
-	var br *bufio.Reader
-	if v := readerPool.Get(); v != nil {
-		br = v.(*bufio.Reader)
-		br.Reset(reader)
-	} else {
-		br = bufio.NewReaderSize(reader, bufferSize)
+	if v := protocolReaderPool.Get(); v != nil {
+		pr := v.(*RedisProtocolReader)
+		pr.br.Reset(reader)
+		pr.buffer = nil
+		pr.stack = pr.stackBuf[:0]
+		return pr
 	}
-	return &RedisProtocolReader{
-		br:     br,
-		buffer: nil,
-		stack:  make([]int, 0, 8),
+	pr := &RedisProtocolReader{
+		br: bufio.NewReaderSize(reader, bufferSize),
 	}
+	pr.stack = pr.stackBuf[:0]
+	return pr
 }
 
 // Release returns the internal bufio.Reader and any remaining accumulation buffer to their respective pools.
@@ -63,13 +86,12 @@ func NewRedisProtocolReader(reader io.Reader, bufferSize int) *RedisProtocolRead
 func (r *RedisProtocolReader) Release() {
 	if r.br != nil {
 		r.br.Reset(nil)
-		readerPool.Put(r.br)
-		r.br = nil
 	}
 	if r.buffer != nil {
 		ReleaseBuffer(r.buffer)
 		r.buffer = nil
 	}
+	protocolReaderPool.Put(r)
 }
 
 // readLine reads a single CRLF-terminated line from the source and appends it to the accumulation buffer.

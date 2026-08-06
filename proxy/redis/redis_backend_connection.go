@@ -1,7 +1,6 @@
 package redis
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -108,7 +107,8 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 	// Read queries and send them to the backend
 	go func() {
 		batch := make([]RedisQuery, 0, 32)
-		writer := bufio.NewWriterSize(rbc.conn, rbc.pool.proxy.bufferSize)
+		writer := NewRedisProtocolWriter(rbc.conn, rbc.pool.proxy.bufferSize)
+		defer writer.Release()
 		for {
 			select {
 			case query := <-rbc.inputChan:

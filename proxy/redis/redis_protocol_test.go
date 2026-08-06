@@ -22,17 +22,17 @@ func TestRedisProtocolReader_Release(t *testing.T) {
 		t.Fatalf("msg1 failed: %v, %s", err, string(msg1))
 	}
 
-	// Capture the bufio.Reader to verify it's the same one later
-	br := reader.br
+	// Capture the reader to verify it's the same one later
+	oldReader := reader
 	reader.Release()
 
-	// New reader should potentially pick up the same bufio.Reader from the pool
+	// New reader should potentially pick up the same reader from the pool
 	input2 := "+PONG\r\n"
 	r2 := bytes.NewReader([]byte(input2))
 	reader2 := NewRedisProtocolReader(r2, 128)
 	defer reader2.Release()
 
-	if reader2.br != br {
+	if reader2 != oldReader {
 		t.Log("Note: sync.Pool did not return the same reader (this is normal but doesn't test reuse)")
 	}
 
@@ -744,4 +744,44 @@ type interfaceReader struct {
 
 func (ir interfaceReader) Read(p []byte) (int, error) {
 	return ir.read(p)
+}
+
+// TestRedisWriter_Release verifies that the writer can be acquired and released
+// via the sync.Pool, and that it correctly resets for a new destination.
+func TestRedisWriter_Release(t *testing.T) {
+	var buf1 bytes.Buffer
+	writer := NewRedisProtocolWriter(&buf1, 128)
+
+	data1 := "hello"
+	writer.Write([]byte(data1))
+	writer.Flush()
+
+	if buf1.String() != data1 {
+		t.Fatalf("writer failed: expected %s, got %s", data1, buf1.String())
+	}
+
+	// Capture the writer to verify it's the same one later
+	oldWriter := writer
+	writer.Release()
+
+	// New writer should potentially pick up the same writer from the pool
+	var buf2 bytes.Buffer
+	writer2 := NewRedisProtocolWriter(&buf2, 128)
+	defer writer2.Release()
+
+	if writer2 != oldWriter {
+		t.Log("Note: sync.Pool did not return the same writer (this is normal but doesn't test reuse)")
+	}
+
+	data2 := "world"
+	writer2.Write([]byte(data2))
+	writer2.Flush()
+
+	if buf2.String() != data2 {
+		t.Fatalf("writer2 failed: expected %s, got %s", data2, buf2.String())
+	}
+
+	if buf1.String() != data1 {
+		t.Fatalf("buf1 was modified by writer2: expected %s, got %s", data1, buf1.String())
+	}
 }

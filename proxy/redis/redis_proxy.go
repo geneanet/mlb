@@ -1,7 +1,6 @@
 package redis
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"io"
@@ -372,7 +371,8 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	defer close(responseChanStop) // Ensure no backend will block trying to send replies if the client connection is closed
 	go func() {
 		batch := make([]RedisReponse, 0, 32)
-		writer := bufio.NewWriterSize(connFront, p.bufferSize)
+		writer := NewRedisProtocolWriter(connFront, p.bufferSize)
+		defer writer.Release()
 		for {
 			select {
 			case response := <-responseChan:
