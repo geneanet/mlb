@@ -313,29 +313,35 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 
 	defer p.connectionsWG.Done()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	done := make(chan struct{})
+	var closeOnce sync.Once
 
-	// If the connection context is closed, close the connection
-	context.AfterFunc(ctx, func() {
-		p.log.Debug().Str("peer", peerAddress).Msg("Closing Frontend connection")
-		err := connFront.Close()
-		if err != nil && !errors.Is(err, net.ErrClosed) {
-			p.log.Error().Err(err).Str("peer", peerAddress).Msg("Error while closing frontend connection")
-		}
-	})
+	closeConn := func() {
+		closeOnce.Do(func() {
+			p.log.Debug().Str("peer", peerAddress).Msg("Closing Frontend connection")
+			close(done)
+			err := connFront.Close()
+			if err != nil && !errors.Is(err, net.ErrClosed) {
+				p.log.Error().Err(err).Str("peer", peerAddress).Msg("Error while closing frontend connection")
+			}
+		})
+	}
+	defer closeConn()
 
 	// If the proxy context is closed, close the connection context after a grace period
 	stopGracefulClosing := context.AfterFunc(p.ctx, func() {
 		p.log.Debug().Str("peer", peerAddress).Msg("Frontend closed, waiting for connection to end.")
-		timer := time.AfterFunc(p.closeTimeout, func() {
+		timer := time.NewTimer(p.closeTimeout)
+		defer timer.Stop()
+
+		select {
+		case <-done:
+			// Connection closed normally
+			return
+		case <-timer.C:
 			p.log.Debug().Str("peer", peerAddress).Msg("Frontend close timeout reached, closing connection")
-			cancel()
-		})
-		// Ensure we stop the timer if the connection finishes before the timeout
-		context.AfterFunc(ctx, func() {
-			timer.Stop()
-		})
+			closeConn()
+		}
 	})
 	defer stopGracefulClosing()
 
@@ -396,15 +402,20 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 				}
 
 				if err != nil {
-					if errors.Is(err, net.ErrClosed) || ctx.Err() != nil {
+					select {
+					case <-done:
 						p.log.Debug().Err(err).Str("peer", peerAddress).Msg("Error while writing to client (connection closed)")
-					} else {
-						p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
+					default:
+						if errors.Is(err, net.ErrClosed) {
+							p.log.Debug().Err(err).Str("peer", peerAddress).Msg("Error while writing to client (connection closed)")
+						} else {
+							p.log.Error().Err(err).Str("peer", peerAddress).Msg("Unexpected error while writing to client")
+						}
 					}
-					cancel()
+					closeConn()
 				}
 				feMetrics.bytesOut.Add(float64(totalWritten))
-			case <-ctx.Done():
+			case <-done:
 				return
 			}
 		}

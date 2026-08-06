@@ -324,23 +324,36 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	peerAddress := connFront.RemoteAddr().String()
 
 	defer p.connectionsWG.Done()
-	defer connFront.Close()
-	defer p.log.Debug().Str("peer", peerAddress).Msg("Closing Frontend connection")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	done := make(chan struct{})
+	var closeOnce sync.Once
+
+	closeConn := func() {
+		closeOnce.Do(func() {
+			p.log.Debug().Str("peer", peerAddress).Msg("Closing Frontend connection")
+			close(done)
+			err := connFront.Close()
+			if err != nil && !errors.Is(err, net.ErrClosed) {
+				p.log.Error().Err(err).Str("peer", peerAddress).Msg("Error while closing frontend connection")
+			}
+		})
+	}
+	defer closeConn()
 
 	// If the proxy context is closed, close the connection after a grace period
 	stopGracefulClosing := context.AfterFunc(p.ctx, func() {
 		p.log.Debug().Str("peer", peerAddress).Msg("Frontend closed, waiting for connection to end.")
-		timer := time.AfterFunc(p.closeTimeout, func() {
+		timer := time.NewTimer(p.closeTimeout)
+		defer timer.Stop()
+
+		select {
+		case <-done:
+			// Connection closed normally
+			return
+		case <-timer.C:
 			p.log.Warn().Str("peer", peerAddress).Msg("Timeout reached, force closing connection.")
-			cancel()
-		})
-		// Ensure we stop the timer if the connection finishes before the timeout
-		context.AfterFunc(ctx, func() {
-			timer.Stop()
-		})
+			closeConn()
+		}
 	})
 	defer stopGracefulClosing()
 
@@ -389,8 +402,13 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 
 	if p.closeOnBackendRemoval && backend.Ctx != nil {
 		stopReset := context.AfterFunc(backend.Ctx, func() {
-			p.log.Debug().Str("peer", peerAddress).Msg("Backend removed from balancer, closing connection")
-			cancel()
+			select {
+			case <-done:
+				// Connection already closed
+			default:
+				p.log.Debug().Str("peer", peerAddress).Msg("Backend removed from balancer, closing connection")
+				closeConn()
+			}
 		})
 		defer stopReset()
 	}
@@ -425,7 +443,7 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	select {
 	case <-doneFrontBack:
 	case <-doneBackFront:
-	case <-ctx.Done():
+	case <-done:
 	}
 
 	// Ensure both ends are closed so both pipes will exit
