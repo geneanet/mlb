@@ -8,6 +8,30 @@ import (
 )
 
 var protocolReaderPool sync.Pool
+var protocolWriterPool sync.Pool
+
+// MemcacheProtocolWriter provides a high-level writer for Memcache protocol.
+type MemcacheProtocolWriter struct {
+	*bufio.Writer
+}
+
+// NewMemcacheProtocolWriter creates a new writer, potentially reusing one from the pool.
+func NewMemcacheProtocolWriter(writer io.Writer, bufferSize int) *MemcacheProtocolWriter {
+	if v := protocolWriterPool.Get(); v != nil {
+		pw := v.(*MemcacheProtocolWriter)
+		pw.Reset(writer)
+		return pw
+	}
+	return &MemcacheProtocolWriter{
+		Writer: bufio.NewWriterSize(writer, bufferSize),
+	}
+}
+
+// Release returns the internal bufio.Writer to the pool.
+func (pw *MemcacheProtocolWriter) Release() {
+	pw.Reset(nil)
+	protocolWriterPool.Put(pw)
+}
 
 // MemcacheProtocolReader handles reading from a memcache connection with minimal allocations.
 // It uses an internal buffer to accumulate data and provides methods for reading

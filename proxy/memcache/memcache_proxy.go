@@ -416,6 +416,9 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 	futureChanStop := make(chan struct{})
 	defer close(futureChanStop) // Ensure no backend will block trying to send replies if the client connection is closed
 	go func() {
+		writer := NewMemcacheProtocolWriter(connFront, p.bufferSize)
+		defer writer.Release()
+
 		defer func() {
 			// ponytail: drain futureChan on exit to return channels to pool
 			for {
@@ -449,7 +452,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 				}
 
 				p.log.Debug().Uint64("queryId", response.query.id).Msg("Received response")
-				n, err := connFront.Write(response.item)
+				n, err := writer.Write(response.item)
 				response.Release() // ponytail: return pooled buffer
 				if err != nil {
 					select {
@@ -465,6 +468,13 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 					closeConn()
 				}
 				feMetrics.bytesOut.Add(float64(n))
+
+				// ponytail: flush if no more responses are immediately available
+				if len(futureChan) == 0 {
+					if err := writer.Flush(); err != nil {
+						closeConn()
+					}
+				}
 
 				// ponytail: return channel to pool
 				putResponseChan(respChan)

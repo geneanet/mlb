@@ -91,28 +91,54 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 
 	// Read queries and send them to the backend
 	go func() {
+		batch := make([]MemcacheQuery, 0, 32)
+		writer := NewMemcacheProtocolWriter(mbc.conn, mbc.pool.proxy.bufferSize)
+		defer writer.Release()
 		for {
 			select {
 			case query := <-mbc.inputChan:
-				select {
-				case mbc.inFlight <- query:
-				case <-mbc.ctx.Done():
-					query.Abort()
-					query.Release()
-					return
-				}
-				n, err := mbc.conn.Write(query.item)
-				query.Release() // ponytail: release pooled query buffer if any
-				if err != nil {
-					if err != io.EOF && !errors.Is(err, net.ErrClosed) {
-						mbc.pool.proxy.log.Error().Str("peer", mbc.backend.Address).Err(err).Msg("Unexpected error while sending query to the backend")
+				batch = append(batch, query)
+
+				// Try to gather more queries if available without blocking
+			gather:
+				for len(batch) < cap(batch) {
+					select {
+					case q := <-mbc.inputChan:
+						batch = append(batch, q)
+					default:
+						break gather
 					}
+				}
+
+				for _, q := range batch {
+					select {
+					case mbc.inFlight <- q:
+					case <-mbc.ctx.Done():
+						q.Abort()
+						q.Release()
+						continue
+					}
+					n, err := writer.Write(q.item)
+					q.Release() // ponytail: release pooled query buffer if any
+					if err != nil {
+						if err != io.EOF && !errors.Is(err, net.ErrClosed) {
+							mbc.pool.proxy.log.Error().Str("peer", mbc.backend.Address).Err(err).Msg("Unexpected error while sending query to the backend")
+						}
+						mbc.fail(err)
+						mbc.AbortInflightQueries()
+						return
+					}
+					mbc.metrics.requests.Inc()
+					mbc.metrics.bytesOut.Add(float64(n))
+				}
+
+				if err := writer.Flush(); err != nil {
 					mbc.fail(err)
 					mbc.AbortInflightQueries()
 					return
 				}
-				mbc.metrics.requests.Inc()
-				mbc.metrics.bytesOut.Add(float64(n))
+
+				batch = batch[:0]
 			case <-mbc.ctx.Done():
 				return
 			}
