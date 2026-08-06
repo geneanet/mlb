@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -107,6 +108,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 	// Read queries and send them to the backend
 	go func() {
 		batch := make([]RedisQuery, 0, 32)
+		writer := bufio.NewWriterSize(rbc.conn, rbc.pool.proxy.bufferSize)
 		for {
 			select {
 			case query := <-rbc.inputChan:
@@ -120,12 +122,20 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 					rbc.inFlight <- next
 				}
 
-				var buffers net.Buffers
+				var totalWritten int64
+				var err error
 				for _, q := range batch {
-					buffers = append(buffers, q.item)
+					var n int
+					n, err = writer.Write(q.item)
+					totalWritten += int64(n)
+					if err != nil {
+						break
+					}
+				}
+				if err == nil {
+					err = writer.Flush()
 				}
 
-				n, err := buffers.WriteTo(rbc.conn)
 				for _, q := range batch {
 					ReleaseBuffer(q.item)
 				}
@@ -139,7 +149,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 					return
 				}
 				rbc.metrics.requests.Add(float64(len(batch)))
-				rbc.metrics.bytesOut.Add(float64(n))
+				rbc.metrics.bytesOut.Add(float64(totalWritten))
 			case <-rbc.ctx.Done():
 				return
 			}

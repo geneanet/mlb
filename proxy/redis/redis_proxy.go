@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
@@ -365,6 +366,7 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	defer close(responseChanStop) // Ensure no backend will block trying to send replies if the client connection is closed
 	go func() {
 		batch := make([]RedisReponse, 0, 32)
+		writer := bufio.NewWriterSize(connFront, p.bufferSize)
 		for {
 			select {
 			case response := <-responseChan:
@@ -374,13 +376,21 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 					batch = append(batch, <-responseChan)
 				}
 
-				var buffers net.Buffers
+				var totalWritten int64
+				var err error
 				for _, resp := range batch {
 					p.log.Debug().Uint64("queryId", resp.query.id).Msg("Received response")
-					buffers = append(buffers, resp.item)
+					var n int
+					n, err = writer.Write(resp.item)
+					totalWritten += int64(n)
+					if err != nil {
+						break
+					}
 				}
-
-				n, err := buffers.WriteTo(connFront)
+				if err == nil {
+					err = writer.Flush()
+				}
+				
 				for _, resp := range batch {
 					resp.Release()
 				}
@@ -393,7 +403,7 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 					}
 					cancel()
 				}
-				feMetrics.bytesOut.Add(float64(n))
+				feMetrics.bytesOut.Add(float64(totalWritten))
 			case <-ctx.Done():
 				return
 			}
