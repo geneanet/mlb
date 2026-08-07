@@ -28,9 +28,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/coreos/go-systemd/v22/daemon"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sys/unix"
 
 	_ "net/http/pprof"
 )
@@ -161,6 +163,12 @@ func main() {
 		if err := upg.Ready(); err != nil {
 			log.Error().Err(err).Msg("Failed to signal readiness to tableflip")
 		}
+
+		// Notify systemd that we are ready and communicate the new MAINPID.
+		// This is crucial for systemd to track the correct process after a tableflip upgrade
+		// and avoid killing the new process.
+		_, _ = daemon.SdNotify(false, daemon.SdNotifyReady)
+		_, _ = daemon.SdNotify(false, fmt.Sprintf("MAINPID=%d", os.Getpid()))
 	}()
 
 	// Termination signals
@@ -177,6 +185,13 @@ func main() {
 					return
 				case syscall.SIGHUP:
 					log.Info().Msg("Upgrade signal (SIGHUP) received")
+
+					// Notify systemd that a reload is initiating.
+					// For Type=notify-reload, systemd expects RELOADING=1 and MONOTONIC_USEC.
+					var ts unix.Timespec
+					unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts)
+					_, _ = daemon.SdNotify(false, fmt.Sprintf("%s\nMONOTONIC_USEC=%d", daemon.SdNotifyReloading, ts.Nano()/1000))
+
 					if err := upg.Upgrade(); err != nil {
 						log.Error().Err(err).Msg("Upgrade failed")
 					}
