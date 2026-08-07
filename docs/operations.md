@@ -30,41 +30,32 @@ docker build -t mlb .
 - `-configtest`: Checks the configuration syntax and schema for errors without starting the load balancer. Returns exit code 0 if valid, 1 otherwise. Uses the path from `-config`.
 - `-version`: Displays the application version and exit.
 - `-debug`: Enables debug logging level.
-- `-process-manager`: Enables the process manager mode for zero-downtime restarts.
-- `-notify-parent`: Internal flag used by worker processes to signal the process manager they are ready.
 
 ## Zero-Downtime Restarts
 
-MLB includes a built-in process manager that allows you to reload your configuration without dropping active connections.
+MLB uses the `tableflip` library to handle zero-downtime restarts. This allows you to reload your configuration or upgrade the MLB binary without dropping active connections.
 
 ### How it works
 
-1.  Start MLB with the `-process-manager` flag.
-2.  The process manager starts an initial worker process.
-3.  When the worker is ready (all modules started), it notifies the parent.
-4.  To reload, send a `SIGHUP` signal to the process manager.
-5.  The process manager starts a *new* worker process with the updated configuration.
-6.  The new worker opens its own listening ports using `SO_REUSEPORT`, allowing it to share the port with the old worker.
-7.  Once the new worker is ready, it notifies the process manager.
-8.  The process manager then sends a `SIGTERM` to the old worker.
-9.  The old worker stops accepting new connections and waits for existing ones to finish (honoring `close_timeout`) before exiting.
+1.  Start MLB normally.
+2.  To reload the configuration or upgrade the binary, send a `SIGHUP` signal to the MLB process.
+3.  MLB will spawn a new instance of itself.
+4.  The new instance inherits the listening sockets from the old instance.
+5.  Once the new instance is ready and has started all modules, it signals the old instance.
+6.  The old instance stops accepting new connections and waits for existing ones to finish (honoring `close_timeout`) before exiting.
 
 ### Signals
 
-Sent to the **Process Manager**:
-- `SIGHUP`: Trigger a zero-downtime restart (reload config).
-- `SIGINT` / `SIGTERM`: Gracefully shut down the process manager and all workers.
+- `SIGHUP`: Trigger a zero-downtime restart (reload config and/or upgrade binary).
+- `SIGINT` / `SIGTERM`: Gracefully shut down MLB and all active connections.
 
-Sent to a **Worker** (directly):
-- `SIGINT` / `SIGTERM`: Gracefully shut down the worker.
-- `SIGUSR1`: Used internally by the process manager (don't send this manually).
+## Configuration
 
-## Resource Limits
-
-In high-traffic environments, you should ensure that MLB has enough file descriptors. Use the `system` block in your configuration to adjust `nofile`.
+You can use the `system` block to adjust resource limits (like the maximum number of open files) and specify a PID file to help coordinate restarts:
 
 ```hcl
 system {
+  pid_file = "/var/run/mlb.pid"
   rlimit {
     nofile = 100000
   }
@@ -100,4 +91,3 @@ Common endpoints:
 ### Common Issues
 
 - **"no backend found"**: This usually means your filter condition is too restrictive or the upstream inventory (like Consul) is not returning any healthy instances. Check the dashboard to see which backends are being discovered and their current metadata.
-- **Port Conflict**: If you receive a "bind: address already in use" error when starting a new worker (during `SIGHUP`), ensure that `SO_REUSEPORT` is supported by your operating system and that no other application is using the same port without `SO_REUSEPORT`.

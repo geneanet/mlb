@@ -3,16 +3,13 @@ package metrics
 import (
 	"context"
 	"errors"
-	"net"
+	"mlb/system"
 	"net/http"
-	"os"
 	"sync"
-	"syscall"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/rs/zerolog/log"
-	"golang.org/x/sys/unix"
 )
 
 // MetricsConfig defines the HCL configuration for the metrics server.
@@ -43,7 +40,7 @@ func HttpLogWrapper(originalHandler http.Handler) http.Handler {
 	return http.HandlerFunc(logFn)
 }
 
-// NewHTTPServer creates and starts a new HTTP server with SO_REUSEPORT.
+// NewHTTPServer creates and starts a new HTTP server managed by tableflip.
 func NewHTTPServer(address string, wg *sync.WaitGroup, ctx context.Context) error {
 	srv := http.Server{}
 
@@ -57,21 +54,8 @@ func NewHTTPServer(address string, wg *sync.WaitGroup, ctx context.Context) erro
 		}
 	})
 
-	// Set SO_REUSEPORT
-	lc := net.ListenConfig{
-		Control: func(network, address string, conn syscall.RawConn) error {
-			var operr error
-			if err := conn.Control(func(fd uintptr) {
-				operr = os.NewSyscallError("setsockopt", syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEPORT, 1))
-			}); err != nil {
-				return err
-			}
-			return operr
-		},
-	}
-
 	// Bind
-	listener, err := lc.Listen(context.Background(), "tcp", address)
+	listener, err := system.Listen("tcp", address)
 	if err != nil {
 		return err
 	}

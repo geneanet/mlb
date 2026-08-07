@@ -67,6 +67,8 @@ metrics {
 	address = "127.0.0.1:9090"
 }
 system {
+	pid_file = "/tmp/mlb.pid"
+	gomaxprocs = 4
 	rlimit {
 		nofile = 1024
 	}
@@ -85,6 +87,16 @@ system {
 		}
 		if cfg == nil {
 			t.Errorf("Expected non-nil config object")
+		}
+
+		if cfg.System == nil {
+			t.Fatalf("Expected System config to be parsed")
+		}
+		if cfg.System.PIDFile != "/tmp/mlb.pid" {
+			t.Errorf("Expected PIDFile /tmp/mlb.pid, got %s", cfg.System.PIDFile)
+		}
+		if cfg.System.GoMaxProcs != 4 {
+			t.Errorf("Expected GoMaxProcs 4, got %d", cfg.System.GoMaxProcs)
 		}
 	})
 

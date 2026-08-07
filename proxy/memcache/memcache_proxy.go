@@ -10,11 +10,10 @@ import (
 	"mlb/config"
 	"mlb/metrics"
 	"mlb/module"
+	"mlb/system"
 	"mlb/util"
 	"net"
-	"os"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
@@ -22,7 +21,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"golang.org/x/sys/unix"
 )
 
 func init() {
@@ -267,21 +265,8 @@ func (p *MemcacheProxy) listen(address string, wg *sync.WaitGroup) error {
 		requests:  metrics.FeRequests.WithLabelValues(address, p.id),
 	}
 
-	// Set SO_REUSEPORT
-	lc := net.ListenConfig{
-		Control: func(network, address string, conn syscall.RawConn) error {
-			var operr error
-			if err := conn.Control(func(fd uintptr) {
-				operr = os.NewSyscallError("setsockopt", syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEPORT, 1))
-			}); err != nil {
-				return err
-			}
-			return operr
-		},
-	}
-
 	// Bind
-	listener, err := lc.Listen(context.Background(), "tcp", address)
+	listener, err := system.Listen("tcp", address)
 	if err != nil {
 		return err
 	}

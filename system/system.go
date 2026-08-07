@@ -13,6 +13,7 @@ import (
 type SystemConfig struct {
 	RLimit     *RLimitConfig `hcl:"rlimit,block"`
 	GoMaxProcs int           `hcl:"gomaxprocs,optional"`
+	PIDFile    string        `hcl:"pid_file,optional"`
 }
 
 // RLimitConfig defines the HCL configuration for resource limits.

@@ -23,4 +23,4 @@ All subsequent modules (like `simple_filter` or `wrr` balancer) can then use thi
 
 ## Zero-Downtime Design
 
-MLB is designed for high availability from the ground up. By using `SO_REUSEPORT` and a dedicated process manager, it allows for seamless configuration reloads and binary upgrades without losing a single client connection. See the [Operations Guide](operations.md) for more details.
+MLB is designed for high availability from the ground up. By using the `tableflip` library for graceful upgrades, it allows for seamless configuration reloads and binary upgrades without losing a single client connection. See the [Operations Guide](operations.md) for more details.
