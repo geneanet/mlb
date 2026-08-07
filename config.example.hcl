@@ -109,6 +109,7 @@ proxy "tcp" "mysql_main_ro" {
     // balancer.wrr.other_balancer
     ]
   addresses = [":3306"]
+  // addresses = ["unix:/tmp/mysql_proxy.sock"]
   // close_timeout = "0s"
   // connect_timeout = "0s"
   // client_timeout = "0s"

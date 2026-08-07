@@ -2,6 +2,15 @@
 
 The MLB configuration file uses the HCL (HashiCorp Configuration Language) format. This document describes the top-level configuration blocks.
 
+## Network Addresses
+
+Most configuration blocks that require a listening address (like `metrics` or `proxy`) support both TCP and Unix domain sockets.
+
+- **TCP**: Specified as `host:port` (e.g., `127.0.0.1:2112`) or `:port` (e.g., `:2112`).
+- **Unix Domain Socket**: Specified with the `unix:` prefix followed by the file path (e.g., `unix:/tmp/mlb.sock`).
+
+When using a Unix domain socket, MLB will automatically handle stale socket files by unlinking them if they are not inherited from a parent process during an upgrade.
+
 ## Metrics Block
 
 The `metrics` block configures the internal HTTP server used for Prometheus metrics and the built-in dashboard.
