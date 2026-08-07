@@ -215,10 +215,11 @@ func TestMySQL(t *testing.T) {
 
 	// Modified backend
 	b.Meta.Set("test", "test", cty.StringVal("test"))
-	// Set a value in the mysql bucket to verify it's preserved
+	// Set a custom value in the mysql bucket to verify it's preserved
+	// We use "test_preserve" instead of "status" to avoid race conditions with the running checker
 	mysqlChecker.checksMtex.RLock()
 	check := mysqlChecker.checks["127.0.0.1:3306"]
-	check.backend.Meta.Set("mysql", "status", cty.StringVal("preserved"))
+	check.backend.Meta.Set("mysql", "test_preserve", cty.StringVal("preserved"))
 	mysqlChecker.checksMtex.RUnlock()
 
 	mysqlChecker.ReceiveUpdate(backend.BackendUpdate{
@@ -238,7 +239,7 @@ func TestMySQL(t *testing.T) {
 		if !ok || val.AsString() != "test" {
 			return false
 		}
-		val, ok = check.backend.Meta.Get("mysql", "status")
+		val, ok = check.backend.Meta.Get("mysql", "test_preserve")
 		return ok && val.AsString() == "preserved"
 	}, 1*time.Second, 10*time.Millisecond)
 
