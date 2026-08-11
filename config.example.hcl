@@ -68,6 +68,10 @@ backends_processor "redis" "redis" {
   // connect_timeout = "1s"
   // read_timeout = "1s"
   // write_timeout = "1s"
+  // retry_period = "100ms"
+  // retry_max_period = "1s"
+  // retry_backoff_factor = 1.5
+  // retry_max_attempts = 3
 }
 
 backends_processor "simple_filter" "mysql_main_ro" {

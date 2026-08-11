@@ -57,6 +57,10 @@ backends_processor "redis" "my_redis" {
 - `connect_timeout` (duration string, optional): Maximum duration to wait for a TCP connection to the Redis server. Default: `1s`.
 - `read_timeout` (duration string, optional): Maximum duration to wait for a response from the Redis server (used for the `ROLE` or `INFO` commands). Default: `1s`.
 - `write_timeout` (duration string, optional): Maximum duration to wait for a command to be sent to the Redis server. Default: `1s`.
+- `retry_period` (duration string, optional): Initial wait time before retrying a failed health check. Default: `100ms`.
+- `retry_max_period` (duration string, optional): Maximum duration between retries when exponential backoff is applied. Default: `1s`.
+- `retry_backoff_factor` (number, optional): The factor by which the retry wait time increases on failure. Default: `1.5`.
+- `retry_max_attempts` (number, optional): Maximum number of retry attempts before reporting the backend as down. Default: `3`.
 
 ### Metadata Provided (`redis` bucket)
 

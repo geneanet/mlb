@@ -141,7 +141,7 @@ backends_processor "redis" "test" {
 	})
 
 	// Lifecycle tests
-	check := NewRedisCheck(b.Clone(), "", time.Millisecond, time.Millisecond, 1.0, time.Second, time.Second, time.Second, make(chan *backend.Backend, 1))
+	check := NewRedisCheck(b.Clone(), "", time.Millisecond, time.Millisecond, 1.0, 100*time.Millisecond, time.Second, 1.5, 3, time.Second, time.Second, time.Second, make(chan *backend.Backend, 1))
 	check.StartPolling()
 	check.StartPolling() // already running
 	time.Sleep(10 * time.Millisecond)
@@ -301,7 +301,7 @@ func TestRedisCheck_UpdateStatus(t *testing.T) {
 		Meta:    backend.NewEmptyMetaMap(0),
 	}
 	statusChan := make(chan *backend.Backend, 1)
-	check := NewRedisCheck(b, "", time.Second, 5*time.Second, 1.5, time.Second, time.Second, time.Second, statusChan)
+	check := NewRedisCheck(b, "", time.Second, 5*time.Second, 1.5, 100*time.Millisecond, time.Second, 1.5, 3, time.Second, time.Second, time.Second, statusChan)
 	check.ctx = context.Background()
 	check.ticker = misc.NewExponentialBackoffTicker(time.Second, 5*time.Second, 1.5)
 
@@ -384,6 +384,67 @@ func TestRedisCheck_UpdateStatus(t *testing.T) {
 		msip, _ := b.Meta.Get("redis", "master_sync_in_progress")
 		if msip.True() {
 			t.Error("expected master_sync_in_progress false")
+		}
+	})
+
+	t.Run("retry success", func(t *testing.T) {
+		attempt := 0
+		mock.infoFunc = func(ctx context.Context, section ...string) *redis.StringCmd {
+			attempt++
+			cmd := redis.NewStringCmd(ctx)
+			if attempt < 3 {
+				cmd.SetErr(fmt.Errorf("connection error"))
+				return cmd
+			}
+			cmd.SetVal("# Replication\nrole:master\n")
+			return cmd
+		}
+		mock.roleFunc = func(ctx context.Context) *redis.Cmd {
+			cmd := redis.NewCmd(ctx)
+			cmd.SetErr(fmt.Errorf("ROLE not supported"))
+			return cmd
+		}
+
+		check.updateStatus()
+
+		select {
+		case <-statusChan:
+		case <-time.After(1 * time.Second): // Needs to be long enough for retries
+			t.Fatal("timeout waiting for status update")
+		}
+
+		status, _ := b.Meta.Get("redis", "status")
+		if status.AsString() != "ok" {
+			t.Errorf("expected status ok, got %s", status.AsString())
+		}
+		if attempt != 3 {
+			t.Errorf("expected 3 attempts, got %d", attempt)
+		}
+	})
+
+	t.Run("retry fail", func(t *testing.T) {
+		attempt := 0
+		mock.infoFunc = func(ctx context.Context, section ...string) *redis.StringCmd {
+			attempt++
+			cmd := redis.NewStringCmd(ctx)
+			cmd.SetErr(fmt.Errorf("connection error"))
+			return cmd
+		}
+
+		check.updateStatus()
+
+		select {
+		case <-statusChan:
+		case <-time.After(1 * time.Second): // Needs to be long enough for retries
+			t.Fatal("timeout waiting for status update")
+		}
+
+		status, _ := b.Meta.Get("redis", "status")
+		if status.AsString() != "err" {
+			t.Errorf("expected status err, got %s", status.AsString())
+		}
+		if attempt != 3 {
+			t.Errorf("expected 3 attempts, got %d", attempt)
 		}
 	})
 }

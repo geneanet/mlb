@@ -27,36 +27,44 @@ func init() {
 // RedisChecker manages multiple health checks for Redis backends.
 // It subscribes to a backend source and maintains a registry of monitored Redis instances.
 type RedisChecker struct {
-	id             string
-	checks         map[string]*RedisCheck
-	checksMtex     sync.RWMutex
-	password       string
-	defaultPeriod  time.Duration
-	maxPeriod      time.Duration
-	backoffFactor  float64
-	backends       *backend.Registry
-	ctx            context.Context
-	cancel         context.CancelFunc
-	log            zerolog.Logger
-	updChan        chan backend.BackendUpdate
-	updChanStop    chan struct{}
-	source         string
-	connectTimeout time.Duration
-	readTimeout    time.Duration
-	writeTimeout   time.Duration
+	id                 string
+	checks             map[string]*RedisCheck
+	checksMtex         sync.RWMutex
+	password           string
+	defaultPeriod      time.Duration
+	maxPeriod          time.Duration
+	backoffFactor      float64
+	retryPeriod        time.Duration
+	retryMaxPeriod     time.Duration
+	retryBackoffFactor float64
+	retryMaxAttempts   int
+	backends           *backend.Registry
+	ctx                context.Context
+	cancel             context.CancelFunc
+	log                zerolog.Logger
+	updChan            chan backend.BackendUpdate
+	updChanStop        chan struct{}
+	source             string
+	connectTimeout     time.Duration
+	readTimeout        time.Duration
+	writeTimeout       time.Duration
 }
 
 // RedisCheckerConfig defines the HCL configuration schema for the Redis backend processor.
 type RedisCheckerConfig struct {
-	ID             string  `hcl:"id,label"`
-	Source         string  `hcl:"source"`
-	Password       string  `hcl:"password,optional"`
-	Period         string  `hcl:"period,optional"`
-	MaxPeriod      string  `hcl:"max_period,optional"`
-	BackoffFactor  float64 `hcl:"backoff_factor,optional"`
-	ConnectTimeout string  `hcl:"connect_timeout,optional"`
-	ReadTimeout    string  `hcl:"read_timeout,optional"`
-	WriteTimeout   string  `hcl:"write_timeout,optional"`
+	ID                 string  `hcl:"id,label"`
+	Source             string  `hcl:"source"`
+	Password           string  `hcl:"password,optional"`
+	Period             string  `hcl:"period,optional"`
+	MaxPeriod          string  `hcl:"max_period,optional"`
+	BackoffFactor      float64 `hcl:"backoff_factor,optional"`
+	ConnectTimeout     string  `hcl:"connect_timeout,optional"`
+	ReadTimeout        string  `hcl:"read_timeout,optional"`
+	WriteTimeout       string  `hcl:"write_timeout,optional"`
+	RetryPeriod        string  `hcl:"retry_period,optional"`
+	RetryMaxPeriod     string  `hcl:"retry_max_period,optional"`
+	RetryBackoffFactor float64 `hcl:"retry_backoff_factor,optional"`
+	RetryMaxAttempts   int     `hcl:"retry_max_attempts,optional"`
 }
 
 // validateRedisCheckerConfig validates the Redis checker configuration.
@@ -69,6 +77,8 @@ func validateRedisCheckerConfig(tc *module.Config) hcl.Diagnostics {
 	config.CheckDuration(&diags, configBody.ConnectTimeout, "connect_timeout")
 	config.CheckDuration(&diags, configBody.ReadTimeout, "read_timeout")
 	config.CheckDuration(&diags, configBody.WriteTimeout, "write_timeout")
+	config.CheckDuration(&diags, configBody.RetryPeriod, "retry_period")
+	config.CheckDuration(&diags, configBody.RetryMaxPeriod, "retry_max_period")
 
 	return diags
 }
@@ -98,6 +108,18 @@ func parseRedisCheckerConfig(tc *module.Config) *RedisCheckerConfig {
 	if config.WriteTimeout == "" {
 		config.WriteTimeout = "1s"
 	}
+	if config.RetryPeriod == "" {
+		config.RetryPeriod = "100ms"
+	}
+	if config.RetryMaxPeriod == "" {
+		config.RetryMaxPeriod = "1s"
+	}
+	if config.RetryBackoffFactor == 0 {
+		config.RetryBackoffFactor = 1.5
+	}
+	if config.RetryMaxAttempts == 0 {
+		config.RetryMaxAttempts = 3 // default to 3 attempts (or whatever logic handles time limit)
+	}
 	return config
 }
 
@@ -106,15 +128,17 @@ func newRedisChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 	config := parseRedisCheckerConfig(tc)
 
 	c := &RedisChecker{
-		id:            config.ID,
-		checks:        make(map[string]*RedisCheck),
-		password:      config.Password,
-		backoffFactor: config.BackoffFactor,
-		log:           log.With().Str("id", config.ID).Logger(),
-		updChan:       make(chan backend.BackendUpdate, 100),
-		updChanStop:   make(chan struct{}),
-		source:        config.Source,
-		backends:      backend.NewRegistry(),
+		id:                 config.ID,
+		checks:             make(map[string]*RedisCheck),
+		password:           config.Password,
+		backoffFactor:      config.BackoffFactor,
+		retryBackoffFactor: config.RetryBackoffFactor,
+		retryMaxAttempts:   config.RetryMaxAttempts,
+		log:                log.With().Str("id", config.ID).Logger(),
+		updChan:            make(chan backend.BackendUpdate, 100),
+		updChanStop:        make(chan struct{}),
+		source:             config.Source,
+		backends:           backend.NewRegistry(),
 	}
 
 	var err error
@@ -124,6 +148,26 @@ func newRedisChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 		return nil, err
 	}
 	c.maxPeriod, err = time.ParseDuration(config.MaxPeriod)
+	if err != nil {
+		return nil, err
+	}
+	c.connectTimeout, err = time.ParseDuration(config.ConnectTimeout)
+	if err != nil {
+		return nil, err
+	}
+	c.readTimeout, err = time.ParseDuration(config.ReadTimeout)
+	if err != nil {
+		return nil, err
+	}
+	c.writeTimeout, err = time.ParseDuration(config.WriteTimeout)
+	if err != nil {
+		return nil, err
+	}
+	c.retryPeriod, err = time.ParseDuration(config.RetryPeriod)
+	if err != nil {
+		return nil, err
+	}
+	c.retryMaxPeriod, err = time.ParseDuration(config.RetryMaxPeriod)
 	if err != nil {
 		return nil, err
 	}
@@ -183,6 +227,10 @@ func newRedisChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 							c.defaultPeriod,
 							c.maxPeriod,
 							c.backoffFactor,
+							c.retryPeriod,
+							c.retryMaxPeriod,
+							c.retryBackoffFactor,
+							c.retryMaxAttempts,
 							c.connectTimeout,
 							c.readTimeout,
 							c.writeTimeout,
@@ -268,40 +316,48 @@ type redisClient interface {
 
 // RedisCheck represents a background health checker for a single Redis instance.
 type RedisCheck struct {
-	backend        *backend.Backend
-	password       string
-	period         time.Duration
-	defaultPeriod  time.Duration
-	maxPeriod      time.Duration
-	backoffFactor  float64
-	statusChan     chan *backend.Backend
-	ticker         *misc.ExponentialBackoffTicker
-	stopChan       chan struct{}
-	ctx            context.Context
-	cancel         context.CancelFunc
-	running        bool
-	runningMu      sync.Mutex
-	client         redisClient
-	connectTimeout time.Duration
-	readTimeout    time.Duration
-	writeTimeout   time.Duration
+	backend            *backend.Backend
+	password           string
+	period             time.Duration
+	defaultPeriod      time.Duration
+	maxPeriod          time.Duration
+	backoffFactor      float64
+	retryPeriod        time.Duration
+	retryMaxPeriod     time.Duration
+	retryBackoffFactor float64
+	retryMaxAttempts   int
+	statusChan         chan *backend.Backend
+	ticker             *misc.ExponentialBackoffTicker
+	stopChan           chan struct{}
+	ctx                context.Context
+	cancel             context.CancelFunc
+	running            bool
+	runningMu          sync.Mutex
+	client             redisClient
+	connectTimeout     time.Duration
+	readTimeout        time.Duration
+	writeTimeout       time.Duration
 }
 
 // NewRedisCheck initializes a new health checker for a specific Redis backend.
-func NewRedisCheck(backend *backend.Backend, password string, defaultPeriod time.Duration, maxPeriod time.Duration, backoffFactor float64, connectTimeout, readTimeout, writeTimeout time.Duration, statusChan chan *backend.Backend) *RedisCheck {
+func NewRedisCheck(backend *backend.Backend, password string, defaultPeriod time.Duration, maxPeriod time.Duration, backoffFactor float64, retryPeriod, retryMaxPeriod time.Duration, retryBackoffFactor float64, retryMaxAttempts int, connectTimeout, readTimeout, writeTimeout time.Duration, statusChan chan *backend.Backend) *RedisCheck {
 	c := &RedisCheck{
-		backend:        backend,
-		password:       password,
-		period:         defaultPeriod,
-		defaultPeriod:  defaultPeriod,
-		maxPeriod:      maxPeriod,
-		backoffFactor:  backoffFactor,
-		statusChan:     statusChan,
-		stopChan:       make(chan struct{}),
-		running:        false,
-		connectTimeout: connectTimeout,
-		readTimeout:    readTimeout,
-		writeTimeout:   writeTimeout,
+		backend:            backend,
+		password:           password,
+		period:             defaultPeriod,
+		defaultPeriod:      defaultPeriod,
+		maxPeriod:          maxPeriod,
+		backoffFactor:      backoffFactor,
+		retryPeriod:        retryPeriod,
+		retryMaxPeriod:     retryMaxPeriod,
+		retryBackoffFactor: retryBackoffFactor,
+		retryMaxAttempts:   retryMaxAttempts,
+		statusChan:         statusChan,
+		stopChan:           make(chan struct{}),
+		running:            false,
+		connectTimeout:     connectTimeout,
+		readTimeout:        readTimeout,
+		writeTimeout:       writeTimeout,
 	}
 	// Pre-initialize metadata with unknown values
 	backend.Meta.Set("redis", "status", cty.UnknownVal(cty.String))
@@ -402,10 +458,26 @@ func (c *RedisCheck) fetchStatus() (retStatus cty.Value, retRole cty.Value, retR
 		readTimeout = 1 * time.Second // ponytail: safeguard against immediate timeout if misconfigured to 0s
 	}
 
-	ctx, cancel := context.WithTimeout(c.ctx, readTimeout)
-	defer cancel()
+	retryBackoff := misc.NewExponentialBackoff(c.retryPeriod, c.retryMaxPeriod, c.retryBackoffFactor)
 
-	infoResult, err := c.client.Info(ctx, "replication").Result()
+	var infoResult string
+	var err error
+
+	for attempt := 0; attempt < c.retryMaxAttempts; attempt++ {
+		if attempt > 0 {
+			log.Warn().Str("address", c.backend.Address).Int("attempt", attempt).Msg("Retrying Redis check")
+			retryBackoff.Sleep(c.ctx)
+		}
+
+		ctx, cancel := context.WithTimeout(c.ctx, readTimeout)
+		infoResult, err = c.client.Info(ctx, "replication").Result()
+		cancel()
+
+		if err == nil {
+			break
+		}
+	}
+
 	if err != nil {
 		panic(err)
 	}
@@ -413,9 +485,12 @@ func (c *RedisCheck) fetchStatus() (retStatus cty.Value, retRole cty.Value, retR
 	retRole, retReadonly, retSlaves, retMasterLinkStatus, retMasterSyncInProgress = parseInfoResponse(infoResult)
 
 	// Use ROLE command (available since Redis 2.8.12) which returns a structured array if possible for role and slaves.
-	roleResult, err := c.client.Do(ctx, "ROLE").Result()
-	if err == nil {
-		if rRole, rReadonly, rSlaves, err := parseRoleResponse(roleResult); err == nil {
+	ctxRole, cancelRole := context.WithTimeout(c.ctx, readTimeout)
+	roleResult, errRole := c.client.Do(ctxRole, "ROLE").Result()
+	cancelRole()
+
+	if errRole == nil {
+		if rRole, rReadonly, rSlaves, errParse := parseRoleResponse(roleResult); errParse == nil {
 			retRole = rRole
 			retReadonly = rReadonly
 			retSlaves = rSlaves
