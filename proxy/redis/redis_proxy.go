@@ -206,6 +206,7 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (
 	if err != nil {
 		return nil, err
 	}
+	p.retryBackoffFactor = config.RetryBackoffFactor
 
 	p.ctx, p.cancel = context.WithCancel(ctx)
 

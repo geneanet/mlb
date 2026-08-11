@@ -187,6 +187,7 @@ func (rbcp *RedisBackendConnectionPool) Update() {
 
 	// Add new connections if needed
 	backoff := misc.NewExponentialBackoff(rbcp.proxy.retryPeriod, rbcp.proxy.retryMaxPeriod, rbcp.proxy.retryBackoffFactor)
+	tries := 0
 
 	for {
 		rbcp.mutex.Lock()
@@ -198,34 +199,29 @@ func (rbcp *RedisBackendConnectionPool) Update() {
 		}
 
 		// Pick a backend
-		var backend *backend.Backend
-		for {
-			backends := rbcp.proxy.backends.GetSortedList()
-			if len(backends) > 0 {
-				backend = backends[0]
-				break
-			}
+		backends := rbcp.proxy.backends.GetSortedList()
+		if len(backends) == 0 {
 			rbcp.proxy.log.Warn().Msg("Unable to find a new backend")
-			backoff.Sleep(rbcp.ctx)
-
-			// Exit if the context is cancelled
-			select {
-			case <-rbcp.ctx.Done():
-				return
-			default:
-			}
+			break // Don't loop infinitely, wait for the next update event
 		}
-		backoff.Reset()
+		backend := backends[0]
 
 		// Add the backend (network call is done outside of rbcp.mutex lock)
 		rbc, err := NewRedisBackendConnection(rbcp, backend)
 		if err != nil {
 			rbcp.proxy.log.Warn().Err(err).Str("peer", backend.Address).Msg("Unable to connect to backend")
+			tries++
+			if tries >= 3 {
+				break // Give up after 3 failures to avoid blocking other updates
+			}
 			backoff.Sleep(rbcp.ctx)
 		} else {
 			rbcp.mutex.Lock()
 			rbcp.pool[rbc] = struct{}{}
+			rbcp.updateWaitState()
 			rbcp.mutex.Unlock()
+			backoff.Reset()
+			tries = 0
 		}
 
 		// Exit if the context is cancelled

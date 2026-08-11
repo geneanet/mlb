@@ -397,7 +397,12 @@ func (c *RedisCheck) fetchStatus() (retStatus cty.Value, retRole cty.Value, retR
 
 	log.Trace().Str("address", c.backend.Address).Msg("Probing Redis Backend")
 
-	ctx, cancel := context.WithTimeout(c.ctx, c.readTimeout)
+	readTimeout := c.readTimeout
+	if readTimeout <= 0 {
+		readTimeout = 1 * time.Second // ponytail: safeguard against immediate timeout if misconfigured to 0s
+	}
+
+	ctx, cancel := context.WithTimeout(c.ctx, readTimeout)
 	defer cancel()
 
 	infoResult, err := c.client.Info(ctx, "replication").Result()

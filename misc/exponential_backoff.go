@@ -15,6 +15,9 @@ type ExponentialBackoff struct {
 
 // NewExponentialBackoff creates a new ExponentialBackoff instance.
 func NewExponentialBackoff(defaultDuration time.Duration, maxDuration time.Duration, backoffFactor float64) *ExponentialBackoff {
+	if backoffFactor < 1.0 {
+		backoffFactor = 1.0
+	}
 	return &ExponentialBackoff{
 		defaultDuration: defaultDuration,
 		maxDuration:     maxDuration,
@@ -45,7 +48,12 @@ func (eb *ExponentialBackoff) Get() time.Duration {
 // Sleep blocks for the current duration or until the context is cancelled.
 // It also increases the duration for the next call.
 func (eb *ExponentialBackoff) Sleep(ctx context.Context) {
-	timer := time.NewTimer(eb.Get())
+	d := eb.Get()
+	if d <= 0 {
+		d = 100 * time.Millisecond // safeguard against 0 duration
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
 	select {
 	case <-timer.C:
 	case <-ctx.Done():
