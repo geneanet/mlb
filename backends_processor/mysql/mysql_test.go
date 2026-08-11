@@ -258,7 +258,7 @@ func TestMySQL(t *testing.T) {
 
 	// Test directly some checks to cover panic cases and fetch logic
 	runTestCheck := func(name string) {
-		c := NewMySQLCheck(b, name, time.Millisecond, time.Millisecond, 1.0, time.Minute*5, make(chan *backend.Backend, 1), true)
+		c := NewMySQLCheck(b, name, time.Millisecond, time.Millisecond, 1.0, time.Millisecond, time.Millisecond, 1.0, 1, time.Minute*5, make(chan *backend.Backend, 1), true)
 		c.ticker = misc.NewExponentialBackoffTicker(time.Millisecond, time.Millisecond, 1.0)
 		c.db, _ = sql.Open("mysql_mock", name)
 		c.fetchStatus()
@@ -273,7 +273,7 @@ func TestMySQL(t *testing.T) {
 	runTestCheck("err_readonly")
 	runTestCheck("err_replica")
 
-	lifecycleCheck := NewMySQLCheck(b, "error", time.Millisecond, time.Millisecond, 1.0, time.Minute*5, make(chan *backend.Backend, 1), true)
+	lifecycleCheck := NewMySQLCheck(b, "error", time.Millisecond, time.Millisecond, 1.0, time.Millisecond, time.Millisecond, 1.0, 1, time.Minute*5, make(chan *backend.Backend, 1), true)
 	setMySQLDriverName("invalid_driver")
 	lifecycleCheck.StartPolling() // Error opening db
 	setMySQLDriverName("mysql_mock")
@@ -319,7 +319,7 @@ func TestMySQL_Coverage(t *testing.T) {
 		for range statusChan {
 		}
 	}()
-	check := NewMySQLCheck(b, "ok", 1*time.Millisecond, 10*time.Millisecond, 2.0, time.Minute*5, statusChan, true)
+	check := NewMySQLCheck(b, "ok", 1*time.Millisecond, 10*time.Millisecond, 2.0, 1*time.Millisecond, 10*time.Millisecond, 2.0, 1, time.Minute*5, statusChan, true)
 	check.db, _ = sql.Open("mysql_mock", "ok")
 	check.ticker = misc.NewExponentialBackoffTicker(1*time.Millisecond, 10*time.Millisecond, 2.0)
 	mysqlChecker.checksMtex.Lock()

@@ -55,6 +55,10 @@ backends_processor "mysql" "mysql" {
   // connect_timeout = "0s"
   // read_timeout = "0s"
   // write_timeout = "0s"
+  // retry_period = "100ms"
+  // retry_max_period = "1s"
+  // retry_backoff_factor = 1.5
+  // retry_max_attempts = 3
   // conn_max_lifetime = "5m"
   // check_replica = false
 }

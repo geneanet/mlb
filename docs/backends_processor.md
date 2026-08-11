@@ -27,6 +27,10 @@ backends_processor "mysql" "my_db" {
 - `connect_timeout` (duration string, optional): Maximum duration to wait for a connection to the MySQL server to be established. Default: `0s` (OS default).
 - `read_timeout` (duration string, optional): Maximum duration to wait for a response from the MySQL server during a check. Default: `0s`.
 - `write_timeout` (duration string, optional): Maximum duration to wait for a command to be sent to the MySQL server. Default: `0s`.
+- `retry_period` (duration string, optional): Initial delay between retry attempts for transient errors during a health check (e.g. read-only or replica latency status fetching). Default: `100ms`.
+- `retry_max_period` (duration string, optional): Maximum delay between retry attempts. Default: `1s`.
+- `retry_backoff_factor` (number, optional): Multiplier applied to the delay between retry attempts. Default: `1.5`.
+- `retry_max_attempts` (integer, optional): Maximum number of attempts per health check operation before giving up. Default: `3`.
 - `conn_max_lifetime` (duration string, optional): The maximum amount of time a health check connection may be reused before being recreated. Default: `5m`.
 
 ### Metadata Provided (`mysql` bucket)
