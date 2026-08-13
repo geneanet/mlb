@@ -35,14 +35,15 @@ proxy "tcp" "my_tcp_proxy" {
 
 ## Redis Proxy
 
-A Redis-protocol aware proxy. It maintains a pool of connections to backends and handles commands.
+A Redis-protocol aware proxy using connection-level multiplexing (connection pinning). Each frontend connection is exclusively paired with a backend connection for its entire duration. This architecture supports all Redis features, including transactions, blocking commands (`BLPOP`, etc.), and PubSub.
 
 ```hcl
 proxy "redis" "my_redis_proxy" {
   source = balancer.wrr.redis_master
   addresses = [":6379"]
-  backend_min_connections = 5
-  backend_max_connections = 20
+  preconnect = 5
+  idle_timeout = "10m"
+  healthcheck = true
 }
 ```
 
@@ -52,17 +53,12 @@ proxy "redis" "my_redis_proxy" {
 - `close_timeout` (duration string, optional): Grace period for existing connections to finish after a shutdown signal. Default: `0s`.
 - `backend_wait_timeout` (duration string, optional): How long to wait for a backend to become available if the balancer is empty before returning an error to the client. Default: `0s`.
 - `buffer_size` (number, optional): Size of the read/write buffers for network I/O. Default: `16384`.
-- `client_queue_size` (number, optional): The maximum number of pipelined requests allowed per client connection. Default: `64`.
-- `backend_input_queue_size` (number, optional): Size of the internal buffer for requests waiting to be sent to a backend connection. Default: `1024`.
-- `backend_inflight_queue_size` (number, optional): Size of the internal buffer for tracking requests that are currently being processed by a backend. Default: `512`.
-- `backend_min_connections` (number, optional): The minimum number of persistent connections to maintain for each discovered backend. Default: `1`.
-- `backend_max_connections` (number, optional): The maximum number of persistent connections allowed per backend. Default: `backend_min_connections`.
-- `backend_tcp_keepalive` (duration string, optional): Timeout for sending TCP keepalive probes to backend connections. Set to `0s` to disable. Default: `15s`.
-- `retry_period` (duration string, optional): Initial wait time before retrying a failed backend connection. Default: `100ms`.
-- `retry_max_period` (duration string, optional): Maximum wait time between connection retries. Default: `1s`.
-- `retry_backoff_factor` (number, optional): The factor by which the retry wait time increases after each failure. Default: `1.5`.
+- `preconnect` (number, optional): The number of connections to establish to backends at startup. Default: `0`.
+- `idle_timeout` (duration string, optional): How long an unused connection remains in the pool before being closed. Default: `5m`.
+- `healthcheck` (boolean, optional): If `true`, the proxy sends a `PING` to verify a connection's health before handing it to a client. Default: `false`.
+- `backend_tcp_keepalive` (duration string, optional): Timeout for sending TCP keepalive probes to backend connections. Set to `0s` to disable. Default: `5s`.
 
-*Note: Some restricted commands like `SUBSCRIBE`, `CONFIG`, etc., are denied by the proxy.*
+*Note: When a client disconnects, the proxy automatically sends a `RESET` command to the backend to clear the connection state (e.g., clearing PubSub subscriptions or discarding open transactions) before returning the connection to the pool.*
 
 ---
 
@@ -88,6 +84,6 @@ proxy "memcache" "my_memcache_proxy" {
 - `backend_inflight_queue_size` (number, optional): Size of the internal buffer for tracking requests that are currently being processed by a backend. Default: `512`.
 - `backend_min_connections` (number, optional): The minimum number of persistent connections to maintain for each discovered backend. Default: `1`.
 - `backend_max_connections` (number, optional): The maximum number of persistent connections allowed per backend. Default: `backend_min_connections`.
-- `backend_tcp_keepalive` (duration string, optional): Timeout for sending TCP keepalive probes to backend connections. Set to `0s` to disable. Default: `15s`.
+- `backend_tcp_keepalive` (duration string, optional): Timeout for sending TCP keepalive probes to backend connections. Set to `0s` to disable. Default: `5s`.
 - `max_fields_per_command` (number, optional): The maximum number of space-separated fields allowed in a single Memcache command line. Default: `16`.
 - `flush_backend_when_added` (boolean, optional): If `true`, MLB will send a `flush_all` command to a backend immediately after it is discovered. Useful for ensuring a clean state when adding new cache nodes. Default: `false`.

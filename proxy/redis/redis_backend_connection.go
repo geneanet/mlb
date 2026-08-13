@@ -1,240 +1,185 @@
 package redis
 
 import (
+	"bytes"
 	"context"
-	"errors"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
-	"io"
 	"mlb/backend"
 	"net"
 	"sync"
+	"time"
 )
 
 //--------------------------
 // Redis Backend Connection
 //--------------------------
 
+type responseExpectation int
+
+const (
+	expectNormal responseExpectation = iota
+	expectSubConfirmation
+)
+
 // RedisBackendConnection represents a single persistent connection to a Redis backend.
+// It manages the TCP connection, metrics, and lifecycle (context-based).
 type RedisBackendConnection struct {
-	pool          *RedisBackendConnectionPool
-	backend       *backend.Backend
-	conn          net.Conn
-	inputChanStop chan struct{}
-	inputChan     chan RedisQuery
-	inFlight      chan RedisQuery
-	ctx           context.Context
-	cancel        context.CancelFunc
-	metrics       *Metrics
-	failureErr    error
-	failureOnce   sync.Once
+	pool        *RedisBackendConnectionPool
+	backend     *backend.Backend
+	conn        net.Conn           // The actual TCP connection to the Redis backend
+	ctx         context.Context    // Connection-scoped context
+	cancel      context.CancelFunc // Used to close the connection and signal cleanup
+	metrics     *Metrics           // Prometheus metrics for this backend
+	failureErr  error              // The error that caused the connection to fail, if any
+	failureOnce sync.Once          // Ensures we only process failure once
+	lastUsed    time.Time          // Timestamp of when it was last returned to the pool
 }
 
+// fail marks the connection as failed, cancels its context, and logs the error.
 func (rbc *RedisBackendConnection) fail(err error) {
 	rbc.failureOnce.Do(func() {
+		rbc.pool.proxy.log.Warn().Err(err).Str("peer", rbc.backend.Address).Msg("Backend connection failed")
 		rbc.failureErr = err
 		rbc.cancel()
 	})
 }
 
-// NewRedisBackendConnection creates a new RedisBackendConnection and starts its lifecycle.
+// NewRedisBackendConnection creates a new RedisBackendConnection, dials the backend,
+// and starts a background cleanup routine that closes the TCP connection when the context is done.
 func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backend.Backend) (rbc *RedisBackendConnection, e error) {
-	// Error handler
-	defer func() {
-		if r := recover(); r != nil {
-			if err, ok := r.(error); ok {
-				e = err
-			} else {
-				e = fmt.Errorf("%v", r)
-			}
-			rbc = nil
-		}
-	}()
-
 	rbc = &RedisBackendConnection{
-		pool:          pool,
-		backend:       backend,
-		inputChan:     make(chan RedisQuery, pool.proxy.backendInputQueueSize), // ponytail: buffered to allow saturation check
-		inputChanStop: make(chan struct{}),
-		inFlight:      make(chan RedisQuery, pool.proxy.backendInflightQueueSize),
-		metrics:       pool.proxy.getBackendMetrics(backend.Address),
+		pool:    pool,
+		backend: backend,
+		metrics: pool.proxy.getBackendMetrics(backend.Address),
 	}
 
-	rbc.ctx, rbc.cancel = context.WithCancel(context.Background())
+	rbc.ctx, rbc.cancel = context.WithCancel(pool.ctx)
 
-	// Prometheus
+	// Increment Prometheus processed connection counter.
 	rbc.metrics.processed.Inc()
 
-	// Open backend connection
-	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Opening Backend connection")
+	// Open the TCP connection to the backend.
+	pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Opening Backend connection")
 	dialer := &net.Dialer{
-		Timeout:   rbc.pool.proxy.connectTimeout,
-		KeepAlive: rbc.pool.proxy.backendTCPKeepAlive,
+		Timeout:   pool.proxy.connectTimeout,
+		KeepAlive: pool.proxy.backendTCPKeepAlive,
 	}
 	connBack, err := dialer.DialContext(rbc.ctx, "tcp", rbc.backend.Address)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	rbc.conn = connBack
+	rbc.lastUsed = time.Now()
 
-	// Prometheus
+	// Increment Prometheus active connection gauge.
 	rbc.metrics.active.Inc()
 
-	// Cleanup routine: If the connection context is closed, ensure the connection is closed, abort all in flight request and notify the pool
-	context.AfterFunc(rbc.ctx, func() {
-		// Ensure the connection is closed
-		rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Closing Backend connection")
+	// Background cleanup routine: close the connection when the context is cancelled.
+	go func() {
+		<-rbc.ctx.Done()
+		pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Closing Backend connection")
 		rbc.conn.Close()
-
-		// Ensure no new queries can be added to the input queue
-		close(rbc.inputChanStop)
-
-		// Abort all in flight requests
-		abortedCount := rbc.AbortInflightQueries()
-
-		// Notify the pool
-		rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Notifying pool")
-		err := rbc.failureErr
-		if err == nil {
-			err = rbc.ctx.Err()
-		}
-		rbc.pool.NotifyFailure(rbc, err, abortedCount > 0)
-
-		// Prometheus
 		rbc.metrics.active.Dec()
-	})
-
-	// Read queries and send them to the backend
-	go func() {
-		batch := make([]RedisQuery, 0, 32)
-		writer := NewRedisProtocolWriter(rbc.conn, rbc.pool.proxy.bufferSize)
-		defer writer.Release()
-		for {
-			select {
-			case query := <-rbc.inputChan:
-				batch = append(batch[:0], query)
-				rbc.inFlight <- query
-
-				// Drain available queries
-				for len(rbc.inputChan) > 0 && len(batch) < cap(batch) && len(rbc.inFlight) < cap(rbc.inFlight) {
-					next := <-rbc.inputChan
-					batch = append(batch, next)
-					rbc.inFlight <- next
-				}
-
-				var totalWritten int64
-				var err error
-				for _, q := range batch {
-					var n int
-					n, err = writer.Write(q.item)
-					totalWritten += int64(n)
-					if err != nil {
-						break
-					}
-				}
-				if err == nil {
-					err = writer.Flush()
-				}
-
-				for _, q := range batch {
-					ReleaseBuffer(q.item)
-				}
-
-				if err != nil {
-					if err != io.EOF && !errors.Is(err, net.ErrClosed) {
-						rbc.pool.proxy.log.Error().Str("peer", rbc.backend.Address).Err(err).Msg("Unexpected error while sending query to the backend")
-					}
-					rbc.fail(err)
-					rbc.AbortInflightQueries() // Extra call to AbortInflightQueries in case the query we were processing has not been aborted by the "cleanup" goroutine
-					return
-				}
-				rbc.metrics.requests.Add(float64(len(batch)))
-				rbc.metrics.bytesOut.Add(float64(totalWritten))
-			case <-rbc.ctx.Done():
-				return
-			}
-		}
-	}()
-
-	// Read backend responses and send them to the client
-	go func() {
-		reader := NewRedisProtocolReader(rbc.conn, rbc.pool.proxy.bufferSize)
-		defer reader.Release()
-
-		for {
-			item, err := reader.ReadMessage(false)
-			if err != nil {
-				if err != io.EOF && !errors.Is(err, net.ErrClosed) {
-					rbc.pool.proxy.log.Error().Str("peer", rbc.backend.Address).Err(err).Msg("Unexpected error while reading from the backend")
-				}
-				rbc.fail(err)
-				return
-			}
-			rbc.metrics.bytesIn.Add(float64(len(item)))
-			var query RedisQuery
-			select {
-			case query = <-rbc.inFlight:
-			case <-rbc.ctx.Done():
-				return
-			}
-
-			err = query.Reply(item)
-			if err != nil {
-				if err.Error() == "response channel is closed" {
-					rbc.pool.proxy.log.Debug().Uint64("queryId", query.id).Msg("Unable to reply to client: response channel is closed")
-				} else {
-					rbc.pool.proxy.log.Warn().Uint64("queryId", query.id).Err(err).Msg("Unable to reply to client")
-				}
-			}
-		}
 	}()
 
 	return rbc, nil
 }
 
-// Query sends a query to the backend.
-func (rbc *RedisBackendConnection) Query(q RedisQuery) (retError error) {
-	select {
-	case rbc.inputChan <- q:
-		return nil
-	case <-rbc.inputChanStop:
-		return fmt.Errorf("backend input channel is closed")
-	}
-}
+// Healthcheck sends a PING command to the backend and waits for a PONG.
+// It is used to verify connection viability before reusing it from the pool.
+func (rbc *RedisBackendConnection) Healthcheck() error {
+	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Performing healthcheck")
+	rbc.conn.SetDeadline(time.Now().Add(rbc.pool.proxy.connectTimeout))
+	defer rbc.conn.SetDeadline(time.Time{})
 
-// IsFull returns true if the connection's input channel is full.
-func (rbc *RedisBackendConnection) IsFull() bool {
-	return len(rbc.inputChan) >= cap(rbc.inputChan)
-}
-
-// AbortInflightQueries aborts all queries that are currently waiting for a response from the backend
-// or are still in the input queue.
-// It returns the number of queries that were aborted.
-func (rbc *RedisBackendConnection) AbortInflightQueries() int {
-	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Aborting in-flight requests")
-	count := 0
-	// 1. Abort queries in the input queue
-	for {
-		select {
-		case query := <-rbc.inputChan:
-			query.Abort()
-			ReleaseBuffer(query.item)
-			count++
-		default:
-			goto inFlight
-		}
+	_, err := rbc.conn.Write([]byte("PING\r\n"))
+	if err != nil {
+		return err
 	}
 
-inFlight:
-	// 2. Abort queries waiting for response
+	reader := NewRedisProtocolReader(rbc.conn, rbc.pool.proxy.bufferSize)
+	defer reader.Release()
+
+	resp, err := reader.ReadMessage(false)
+	if err != nil {
+		return err
+	}
+	defer ReleaseBuffer(resp)
+
+	if string(resp) != "+PONG\r\n" {
+		return fmt.Errorf("unexpected healthcheck response: %s", string(resp))
+	}
+
+	return nil
+}
+
+// ResetAndRelease prepares the connection for reuse by sending a Redis RESET command.
+// This clears any client state (like subscriptions or transactions) before returning
+// the connection to the idle pool.
+func (rbc *RedisBackendConnection) ResetAndRelease() {
+	if rbc.ctx.Err() != nil {
+		rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Not releasing backend connection (context cancelled)")
+		return
+	}
+
+	// Generate a unique token to synchronize the connection state.
+	token := make([]byte, 8)
+	if _, err := rand.Read(token); err != nil {
+		rbc.fail(fmt.Errorf("failed to generate reset token: %w", err))
+		return
+	}
+	hexToken := hex.EncodeToString(token)
+
+	// Send RESET and ECHO <token> commands to ensure the connection is in a clean state.
+	// We use ECHO as a marker to know when the RESET command has been fully processed.
+	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Str("token", hexToken).Msg("Sending RESET and ECHO to backend connection")
+
+	// Construct the pipelined command:
+	// RESET: *1\r\n$5\r\nRESET\r\n
+	// ECHO:  *2\r\n$4\r\nECHO\r\n$16\r\n<hexToken>\r\n
+	var buf bytes.Buffer
+	buf.WriteString("*1\r\n$5\r\nRESET\r\n")
+	buf.WriteString("*2\r\n$4\r\nECHO\r\n$16\r\n")
+	buf.WriteString(hexToken)
+	buf.WriteString("\r\n")
+
+	_, err := rbc.conn.Write(buf.Bytes())
+	if err != nil {
+		rbc.fail(fmt.Errorf("failed to send RESET/ECHO: %w", err))
+		return
+	}
+
+	// Drain responses from the backend until we receive the ECHO confirmation.
+	// This is necessary because there might be pending data (like Pub/Sub messages) in the buffer.
+	reader := NewRedisProtocolReader(rbc.conn, rbc.pool.proxy.bufferSize)
+	defer reader.Release()
+
+	// Set a short deadline for the reset operation to prevent hanging.
+	rbc.conn.SetDeadline(time.Now().Add(2 * time.Second))
+	defer rbc.conn.SetDeadline(time.Time{})
+
+	expectedResponse := []byte("$16\r\n" + hexToken + "\r\n")
+
 	for {
-		select {
-		case query := <-rbc.inFlight:
-			query.Abort()
-			ReleaseBuffer(query.item)
-			count++
-		default:
-			return count
+		item, err := reader.ReadMessage(false)
+		if err != nil {
+			rbc.fail(fmt.Errorf("error while draining backend connection: %w", err))
+			return
 		}
+
+		// When we see the expected ECHO response, we know the connection is clean and ready to be reused.
+		if bytes.Equal(item, expectedResponse) {
+			rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Backend connection reset successful")
+			ReleaseBuffer(item)
+			rbc.lastUsed = time.Now()
+			rbc.pool.Put(rbc)
+			return
+		}
+
+		// Discard any other messages received while waiting for the reset response.
+		ReleaseBuffer(item)
 	}
 }

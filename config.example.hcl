@@ -133,15 +133,13 @@ proxy "redis" "redis" {
   // connect_timeout = "0s"
   // close_timeout = "0s"
   // backend_wait_timeout = "0s"
+  // backend_tcp_keepalive = "5s"
   // buffer_size = 16384
   // client_queue_size = 64
   // backend_input_queue_size = 1024
-  // backend_inflight_queue_size = 512
-  // backend_min_connections = 1
-  // backend_max_connections = 1
-  // retry_period = "100ms"
-  // retry_max_period = "1s"
-  // retry_backoff_factor = 1.5
+  // preconnect = 0
+  // idle_timeout = "5m"
+  // healthcheck = false
 }
 
 proxy "memcache" "memcache" {

@@ -122,7 +122,7 @@ func parseMemcacheProxyConfig(tc *module.Config) *MemcacheProxyConfig {
 		config.CloseTimeout = "0s"
 	}
 	if config.BackendTCPKeepAlive == "" {
-		config.BackendTCPKeepAlive = "15s"
+		config.BackendTCPKeepAlive = "5s"
 	}
 	if config.BufferSize == 0 {
 		config.BufferSize = 16384

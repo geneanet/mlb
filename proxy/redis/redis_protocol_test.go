@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -623,13 +624,60 @@ func TestReadMessage_Errors(t *testing.T) {
 		}
 	})
 
-	// 20. coverage for inline error and empty line
-	t.Run("InlineErrorAndEmpty", func(t *testing.T) {
-		r := bytes.NewReader([]byte("PING\r\n"))
+	// 21. readLine with ErrBufferFull
+	t.Run("ReadLineBufferFull", func(t *testing.T) {
+		// A long line that will exceed a small buffer
+		longLine := strings.Repeat("a", 200) + "\r\n"
+		r := bytes.NewReader([]byte(longLine))
+		// Use a buffer size smaller than the line to trigger ErrBufferFull internally
+		reader := NewRedisProtocolReader(r, 64)
+		msg, err := reader.readLine()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if !bytes.Equal(msg, []byte(longLine)) {
+			t.Errorf("expected long line, got length %d", len(msg))
+		}
+	})
+
+	// 22. readRaw IO error
+	t.Run("ReadRawIOError", func(t *testing.T) {
+		expectedErr := errors.New("read raw fail")
+		er := &errorReader{
+			data: []byte("$5\r\nabc"), // Incomplete bulk string data
+			err:  expectedErr,
+		}
+		reader := NewRedisProtocolReader(er, 128)
+		_, err := reader.ReadMessage(false)
+		if err == nil {
+			t.Errorf("expected error, got nil")
+		}
+	})
+
+	// 23. readRaw EOF
+	t.Run("ReadRawEOF", func(t *testing.T) {
+		r := bytes.NewReader([]byte("$5\r\nabc")) // Incomplete bulk string data
 		reader := NewRedisProtocolReader(r, 128)
 		_, err := reader.ReadMessage(false)
-		if err == nil || !strings.Contains(err.Error(), "unsupported item type") {
-			t.Errorf("expected unsupported item type error, got %v", err)
+		if !errors.Is(err, io.ErrUnexpectedEOF) {
+			t.Errorf("expected io.ErrUnexpectedEOF, got %v", err)
+		}
+	})
+
+	// 24. readRaw direct call with nil buffer
+	t.Run("ReadRawDirectNilBuffer", func(t *testing.T) {
+		r := bytes.NewReader([]byte("hello\r\n"))
+		reader := &RedisProtocolReader{
+			br: bufio.NewReader(r),
+		}
+		defer reader.Release()
+
+		msg, err := reader.readRaw(5)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if !bytes.Equal(msg, []byte("hello\r\n")) {
+			t.Errorf("expected hello\\r\\n, got %s", string(msg))
 		}
 	})
 }
