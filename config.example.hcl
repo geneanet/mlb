@@ -123,6 +123,7 @@ proxy "tcp" "mysql_main_ro" {
   // client_timeout = "0s"
   // server_timeout = "0s"
   // timeout_margin = "1s"
+  // backend_tcp_keepalive = "5s"
   // buffer_size = 16384
   // close_on_backend_removal = false
 }
@@ -153,6 +154,7 @@ proxy "memcache" "memcache" {
   // backend_inflight_queue_size = 512
   // backend_min_connections = 1
   // backend_max_connections = 1
+  // backend_tcp_keepalive = "5s"
   // max_fields_per_command = 16
   // flush_backend_when_added = false
 }

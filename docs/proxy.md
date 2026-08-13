@@ -30,6 +30,7 @@ proxy "tcp" "my_tcp_proxy" {
 - `timeout_margin` (duration string, optional): A small margin added to deadlines to prevent race conditions between client and server timeouts. Default: `1s`.
 - `buffer_size` (number, optional): Proxy buffer size in bytes. Default: `32768`.
 - `close_on_backend_removal` (boolean, optional): If `true`, client connections are closed if the backend they are connected to is removed from the balancer. Default: `false`.
+- `backend_tcp_keepalive` (duration string, optional): Timeout for sending TCP keepalive probes to backend connections. Set to `0s` to disable. Default: `5s`.
 
 ---
 

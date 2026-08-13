@@ -45,6 +45,7 @@ type ProxyTCP struct {
 	beMetricsCache        map[string]*Metrics
 	beMetricsMutex        sync.RWMutex
 	closeOnBackendRemoval bool
+	backendTCPKeepAlive   time.Duration
 }
 
 // Metrics holds Prometheus metrics for a specific backend.
@@ -70,6 +71,7 @@ type TCPProxyConfig struct {
 	TimeoutMargin         string   `hcl:"timeout_margin,optional"`
 	BufferSize            int      `hcl:"buffer_size,optional"`
 	CloseOnBackendRemoval bool     `hcl:"close_on_backend_removal,optional"`
+	BackendTCPKeepAlive   string   `hcl:"backend_tcp_keepalive,optional"`
 }
 
 // validateTCPProxyConfig validates the TCP proxy configuration.
@@ -90,6 +92,7 @@ func validateTCPProxyConfig(tc *module.Config) hcl.Diagnostics {
 	config.CheckDuration(&diags, configBody.ServerTimeout, "server_timeout")
 	config.CheckDuration(&diags, configBody.CloseTimeout, "close_timeout")
 	config.CheckDuration(&diags, configBody.TimeoutMargin, "timeout_margin")
+	config.CheckDuration(&diags, configBody.BackendTCPKeepAlive, "backend_tcp_keepalive")
 
 	return diags
 }
@@ -122,6 +125,9 @@ func parseTCPProxyConfig(tc *module.Config) *TCPProxyConfig {
 	if config.CloseTimeout == "" {
 		config.CloseTimeout = "0s"
 	}
+	if config.BackendTCPKeepAlive == "" {
+		config.BackendTCPKeepAlive = "5s"
+	}
 	if config.TimeoutMargin == "" {
 		config.TimeoutMargin = "1s"
 	}
@@ -148,6 +154,10 @@ func newTCPProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 	var err error
 
 	p.connectTimeout, err = time.ParseDuration(config.ConnectTimeout)
+	if err != nil {
+		return nil, err
+	}
+	p.backendTCPKeepAlive, err = time.ParseDuration(config.BackendTCPKeepAlive)
 	if err != nil {
 		return nil, err
 	}
@@ -405,7 +415,11 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 
 	// Open backend connection
 	p.log.Debug().Str("peer", backendAddress).Msg("Opening Backend connection")
-	connBack, err := net.DialTimeout("tcp", backendAddress, p.connectTimeout)
+	dialer := &net.Dialer{
+		Timeout:   p.connectTimeout,
+		KeepAlive: p.backendTCPKeepAlive,
+	}
+	connBack, err := dialer.DialContext(p.ctx, "tcp", backendAddress)
 	if err != nil {
 		panic(err)
 	}
