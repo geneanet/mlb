@@ -32,7 +32,7 @@ func NewRedisBackendConnectionPool(proxy *RedisProxy) *RedisBackendConnectionPoo
 	// It periodically scans the pool and closes connections that haven't been used
 	// for more than the configured idleTimeout.
 	go func() {
-		ticker := time.NewTicker(1 * time.Minute)
+		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
@@ -53,10 +53,16 @@ func (rbcp *RedisBackendConnectionPool) cleanupIdle() {
 	defer rbcp.mutex.Unlock()
 
 	now := time.Now()
+	closedCount := 0
 	newPool := make([]*RedisBackendConnection, 0, len(rbcp.pool))
 	for _, rbc := range rbcp.pool {
 		if now.Sub(rbc.lastUsed) > rbcp.proxy.idleTimeout {
-			rbcp.proxy.log.Debug().Str("peer", rbc.backend.Address).Dur("idle_time", now.Sub(rbc.lastUsed)).Msg("Closing idle backend connection")
+			closedCount++
+			rbcp.proxy.log.Debug().
+				Str("peer", rbc.backend.Address).
+				Dur("idle_time", now.Sub(rbc.lastUsed)).
+				Int("pool_size", len(rbcp.pool)-closedCount).
+				Msg("Closing idle backend connection")
 			if rbc.cancel != nil {
 				rbc.cancel() // This triggers the cleanup routine in NewRedisBackendConnection
 			}
@@ -85,7 +91,7 @@ func (rbcp *RedisBackendConnectionPool) Get(ctx context.Context) (*RedisBackendC
 		if rbc == nil {
 			// Pool is empty, attempt to find a backend and dial a new connection.
 			backends := rbcp.proxy.backends.GetSortedList()
-			
+
 			// If no backends are available, we might wait a bit for the registry to be populated
 			// (e.g., during startup or service discovery updates).
 			if len(backends) == 0 && rbcp.proxy.backendWaitTimeout > 0 {
@@ -99,7 +105,7 @@ func (rbcp *RedisBackendConnectionPool) Get(ctx context.Context) (*RedisBackendC
 			if len(backends) == 0 {
 				return nil, fmt.Errorf("No backends available to create new connection")
 			}
-			
+
 			// Pick a random backend from the available ones to balance new connections.
 			backend := backends[rand.Intn(len(backends))]
 			rbcp.proxy.log.Debug().Str("peer", backend.Address).Msg("Creating new backend connection (pool empty)")
@@ -145,7 +151,7 @@ func (rbcp *RedisBackendConnectionPool) Update() {
 
 	rbcp.mutex.Lock()
 	rbcp.proxy.log.Debug().Int("pool_size", len(rbcp.pool)).Msg("Updating backend connection pool")
-	
+
 	// Remove connections that belong to backends no longer in the registry.
 	newPool := make([]*RedisBackendConnection, 0, len(rbcp.pool))
 	for _, rbc := range rbcp.pool {
@@ -191,4 +197,3 @@ func (rbcp *RedisBackendConnectionPool) Update() {
 		}
 	}
 }
-
