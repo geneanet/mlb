@@ -16,13 +16,14 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 
 	reg := backend.NewRegistry()
 	p := &RedisProxy{
-		id:             "test-pool",
-		backends:       reg,
-		ctx:            ctx,
-		log:            log.With().Str("test", "pool").Logger(),
-		idleTimeout:    100 * time.Millisecond,
-		connectTimeout: time.Second,
-		beMetricsCache: make(map[string]*Metrics),
+		id:                 "test-pool",
+		backends:           reg,
+		ctx:                ctx,
+		log:                log.With().Str("test", "pool").Logger(),
+		idleTimeout:        100 * time.Millisecond,
+		connectTimeout:     time.Second,
+		healthcheckTimeout: time.Second,
+		beMetricsCache:     make(map[string]*Metrics),
 	}
 	pool := NewRedisBackendConnectionPool(p)
 
@@ -127,6 +128,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 			log:                log.With().Str("test", "wait").Logger(),
 			backendWaitTimeout: 500 * time.Millisecond,
 			connectTimeout:     time.Second,
+			healthcheckTimeout: time.Second,
 			beMetricsCache:     make(map[string]*Metrics),
 		}
 		pool := NewRedisBackendConnectionPool(p)
@@ -182,6 +184,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 			log:                log.With().Str("test", "wait-exceeded").Logger(),
 			backendWaitTimeout: 100 * time.Millisecond,
 			connectTimeout:     time.Second,
+			healthcheckTimeout: time.Second,
 			beMetricsCache:     make(map[string]*Metrics),
 		}
 		pool := NewRedisBackendConnectionPool(p)

@@ -57,6 +57,7 @@ proxy "redis" "my_redis_proxy" {
 - `preconnect` (number, optional): The number of connections to establish to backends at startup. Default: `0`.
 - `idle_timeout` (duration string, optional): How long an unused connection remains in the pool before being closed. Default: `5m`.
 - `healthcheck` (boolean, optional): If `true`, the proxy sends a `PING` to verify a connection's health before handing it to a client. Default: `false`.
+- `healthcheck_timeout` (duration, optional): Timeout for the healthcheck operation. Default: `1s`.
 - `backend_tcp_keepalive` (duration string, optional): Timeout for sending TCP keepalive probes to backend connections. Set to `0s` to disable. Default: `5s`.
 
 *Note: When a client disconnects, the proxy automatically sends a `RESET` command to the backend to clear the connection state (e.g., clearing PubSub subscriptions or discarding open transactions) before returning the connection to the pool.*

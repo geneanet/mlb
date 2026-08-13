@@ -58,11 +58,12 @@ func TestRedisBackendConnection(t *testing.T) {
 	defer cancel()
 
 	p := &RedisProxy{
-		id:             "test-rbc",
-		ctx:            ctx,
-		connectTimeout: time.Second,
-		bufferSize:     1024,
-		beMetricsCache: make(map[string]*Metrics),
+		id:                 "test-rbc",
+		ctx:                ctx,
+		connectTimeout:     time.Second,
+		healthcheckTimeout: time.Second,
+		bufferSize:         1024,
+		beMetricsCache:     make(map[string]*Metrics),
 	}
 	pool := NewRedisBackendConnectionPool(p)
 	be := &backend.Backend{Address: ln.Addr().String()}

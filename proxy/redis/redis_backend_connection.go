@@ -92,7 +92,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 // It is used to verify connection viability before reusing it from the pool.
 func (rbc *RedisBackendConnection) Healthcheck() error {
 	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Performing healthcheck")
-	rbc.conn.SetDeadline(time.Now().Add(rbc.pool.proxy.connectTimeout))
+	rbc.conn.SetDeadline(time.Now().Add(rbc.pool.proxy.healthcheckTimeout))
 	defer rbc.conn.SetDeadline(time.Time{})
 
 	_, err := rbc.conn.Write([]byte("PING\r\n"))

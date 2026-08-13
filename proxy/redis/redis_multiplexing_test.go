@@ -80,6 +80,7 @@ func TestRedisProxyMultiplexing(t *testing.T) {
 		cancel:              cancel,
 		idleTimeout:         time.Minute,
 		connectTimeout:      time.Second,
+		healthcheckTimeout:  time.Second,
 		backendTCPKeepAlive: time.Second,
 		beMetricsCache:      make(map[string]*Metrics),
 	}
