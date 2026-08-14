@@ -23,6 +23,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 		idleTimeout:        100 * time.Millisecond,
 		connectTimeout:     time.Second,
 		healthcheckTimeout: time.Second,
+		resetTimeout:       2 * time.Second,
 		beMetricsCache:     make(map[string]*Metrics),
 	}
 	pool := NewRedisBackendConnectionPool(p)
@@ -133,6 +134,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 			backendWaitTimeout: 500 * time.Millisecond,
 			connectTimeout:     time.Second,
 			healthcheckTimeout: time.Second,
+		resetTimeout:       2 * time.Second,
 			beMetricsCache:     make(map[string]*Metrics),
 		}
 		pool := NewRedisBackendConnectionPool(p)
@@ -189,6 +191,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 			backendWaitTimeout: 100 * time.Millisecond,
 			connectTimeout:     time.Second,
 			healthcheckTimeout: time.Second,
+		resetTimeout:       2 * time.Second,
 			beMetricsCache:     make(map[string]*Metrics),
 		}
 		pool := NewRedisBackendConnectionPool(p)

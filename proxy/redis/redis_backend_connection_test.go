@@ -62,6 +62,7 @@ func TestRedisBackendConnection(t *testing.T) {
 		ctx:                ctx,
 		connectTimeout:     time.Second,
 		healthcheckTimeout: time.Second,
+		resetTimeout:       2 * time.Second,
 		bufferSize:         1024,
 		beMetricsCache:     make(map[string]*Metrics),
 		backends:           backend.NewRegistry(),

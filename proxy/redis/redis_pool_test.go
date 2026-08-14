@@ -49,6 +49,7 @@ func TestPool_GetPut(t *testing.T) {
 		idleTimeout:        1 * time.Minute,
 		connectTimeout:     1 * time.Second,
 		healthcheckTimeout: 1 * time.Second,
+		resetTimeout:       2 * time.Second,
 		healthcheck:        true,
 		bufferSize:         4096,
 	}
@@ -96,6 +97,7 @@ func TestPool_EmptyBackends(t *testing.T) {
 	proxy := &RedisProxy{
 		backends:           backend.NewRegistry(),
 		healthcheckTimeout: time.Second,
+		resetTimeout:       2 * time.Second,
 	}
 	proxy.ctx, proxy.cancel = context.WithCancel(context.Background())
 	defer proxy.cancel()
@@ -115,6 +117,7 @@ func TestPool_CleanupIdle(t *testing.T) {
 	proxy := &RedisProxy{
 		idleTimeout:        10 * time.Millisecond,
 		healthcheckTimeout: time.Second,
+		resetTimeout:       2 * time.Second,
 		log:                log.Logger,
 	}
 	proxy.ctx, proxy.cancel = context.WithCancel(context.Background())
@@ -158,6 +161,7 @@ func TestPool_UpdatePreconnect(t *testing.T) {
 		idleTimeout:        1 * time.Minute,
 		connectTimeout:     1 * time.Second,
 		healthcheckTimeout: 1 * time.Second,
+		resetTimeout:       2 * time.Second,
 		bufferSize:         4096,
 	}
 	proxy.ctx, proxy.cancel = context.WithCancel(context.Background())
@@ -271,6 +275,7 @@ func TestConnection_ResetAndRelease(t *testing.T) {
 		log:                log.Logger,
 		bufferSize:         4096,
 		healthcheckTimeout: time.Second,
+		resetTimeout:       2 * time.Second,
 		backends:           backend.NewRegistry(),
 	}
 	proxy.ctx, proxy.cancel = context.WithCancel(context.Background())
@@ -303,6 +308,7 @@ func TestPool_GetStaleConnection(t *testing.T) {
 		log:                log.Logger,
 		healthcheck:        false,
 		healthcheckTimeout: time.Second,
+		resetTimeout:       2 * time.Second,
 	}
 	proxy.ctx, proxy.cancel = context.WithCancel(context.Background())
 	defer proxy.cancel()

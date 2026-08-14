@@ -48,6 +48,7 @@ type RedisProxy struct {
 	idleCleanupPeriod        time.Duration
 	healthcheck              bool
 	healthcheckTimeout       time.Duration
+	resetTimeout             time.Duration
 	beMetricsCache           map[string]*Metrics
 	beMetricsMutex           sync.RWMutex
 }
@@ -77,6 +78,7 @@ type RedisProxyConfig struct {
 	IdleCleanupPeriod     string   `hcl:"idle_cleanup_period,optional"`
 	Healthcheck           bool     `hcl:"healthcheck,optional"`
 	HealthcheckTimeout    string   `hcl:"healthcheck_timeout,optional"`
+	ResetTimeout          string   `hcl:"reset_timeout,optional"`
 }
 
 // validateRedisProxyConfig validates the Redis proxy configuration.
@@ -91,6 +93,7 @@ func validateRedisProxyConfig(tc *module.Config) hcl.Diagnostics {
 	config.CheckDuration(&diags, configBody.IdleTimeout, "idle_timeout")
 	config.CheckDuration(&diags, configBody.IdleCleanupPeriod, "idle_cleanup_period")
 	config.CheckDuration(&diags, configBody.HealthcheckTimeout, "healthcheck_timeout")
+	config.CheckDuration(&diags, configBody.ResetTimeout, "reset_timeout")
 
 	return diags
 }
@@ -125,6 +128,9 @@ func parseRedisProxyConfig(tc *module.Config) *RedisProxyConfig {
 	}
 	if config.HealthcheckTimeout == "" {
 		config.HealthcheckTimeout = "1s"
+	}
+	if config.ResetTimeout == "" {
+		config.ResetTimeout = "2s"
 	}
 	return config
 }
@@ -174,6 +180,10 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (
 		return nil, err
 	}
 	p.healthcheckTimeout, err = time.ParseDuration(config.HealthcheckTimeout)
+	if err != nil {
+		return nil, err
+	}
+	p.resetTimeout, err = time.ParseDuration(config.ResetTimeout)
 	if err != nil {
 		return nil, err
 	}

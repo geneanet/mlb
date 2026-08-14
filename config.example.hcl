@@ -141,6 +141,7 @@ proxy "redis" "redis" {
   // idle_cleanup_period = "10s"
   // healthcheck = false
   // healthcheck_timeout = "1s"
+  // reset_timeout = "2s"
 }
 
 proxy "memcache" "memcache" {

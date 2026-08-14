@@ -158,7 +158,7 @@ func (rbc *RedisBackendConnection) ResetAndRelease() {
 	defer reader.Release()
 
 	// Set a short deadline for the reset operation to prevent hanging.
-	rbc.conn.SetDeadline(time.Now().Add(2 * time.Second))
+	rbc.conn.SetDeadline(time.Now().Add(rbc.pool.proxy.resetTimeout))
 	defer rbc.conn.SetDeadline(time.Time{})
 
 	expectedResponse := []byte("$16\r\n" + hexToken + "\r\n")
