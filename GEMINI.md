@@ -9,6 +9,7 @@
 - **Simplicity**: Keep tests simple, readable, and follow idiomatic Go patterns.
 
 ## Linting & Verification
+- **Formatting**: Always run `go fmt ./...` to ensure consistent code style.
 - **Run Linters**: Use `golangci-lint` if available; otherwise, use `go vet`.
 
 ## Documentation & Configuration
