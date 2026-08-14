@@ -27,6 +27,7 @@ type RedisBackendConnection struct {
 	metrics       *Metrics
 	failureErr    error
 	failureOnce   sync.Once
+	workersWG     sync.WaitGroup
 }
 
 func (rbc *RedisBackendConnection) fail(err error) {
@@ -60,6 +61,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 	}
 
 	rbc.ctx, rbc.cancel = context.WithCancel(context.Background())
+	rbc.workersWG.Add(2)
 
 	// Prometheus
 	rbc.metrics.processed.Inc()
@@ -89,6 +91,9 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 		// Ensure no new queries can be added to the input queue
 		close(rbc.inputChanStop)
 
+		// Wait for reader and writer to stop
+		rbc.workersWG.Wait()
+
 		// Abort all in flight requests
 		abortedCount := rbc.AbortInflightQueries()
 
@@ -106,6 +111,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 
 	// Read queries and send them to the backend
 	go func() {
+		defer rbc.workersWG.Done()
 		batch := make([]RedisQuery, 0, 32)
 		writer := NewRedisProtocolWriter(rbc.conn, rbc.pool.proxy.bufferSize)
 		defer writer.Release()
@@ -113,13 +119,20 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 			select {
 			case query := <-rbc.inputChan:
 				batch = append(batch[:0], query)
-				rbc.inFlight <- query
+
+				select {
+				case rbc.inFlight <- query:
+				case <-rbc.ctx.Done():
+					query.Abort()
+					ReleaseBuffer(query.item)
+					continue
+				}
 
 				// Drain available queries
 				for len(rbc.inputChan) > 0 && len(batch) < cap(batch) && len(rbc.inFlight) < cap(rbc.inFlight) {
 					next := <-rbc.inputChan
 					batch = append(batch, next)
-					rbc.inFlight <- next
+					rbc.inFlight <- next // Safe because of len < cap condition
 				}
 
 				var totalWritten int64
@@ -145,7 +158,6 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 						rbc.pool.proxy.log.Error().Str("peer", rbc.backend.Address).Err(err).Msg("Unexpected error while sending query to the backend")
 					}
 					rbc.fail(err)
-					rbc.AbortInflightQueries() // Extra call to AbortInflightQueries in case the query we were processing has not been aborted by the "cleanup" goroutine
 					return
 				}
 				rbc.metrics.requests.Add(float64(len(batch)))
@@ -158,6 +170,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 
 	// Read backend responses and send them to the client
 	go func() {
+		defer rbc.workersWG.Done()
 		reader := NewRedisProtocolReader(rbc.conn, rbc.pool.proxy.bufferSize)
 		defer reader.Release()
 
@@ -175,6 +188,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 			select {
 			case query = <-rbc.inFlight:
 			case <-rbc.ctx.Done():
+				ReleaseBuffer(item)
 				return
 			}
 

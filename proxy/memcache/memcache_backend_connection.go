@@ -27,6 +27,7 @@ type MemcacheBackendConnection struct {
 	metrics       *Metrics
 	failureErr    error
 	failureOnce   sync.Once
+	workersWG     sync.WaitGroup
 }
 
 func (mbc *MemcacheBackendConnection) fail(err error) {
@@ -50,6 +51,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 	}
 
 	mbc.ctx, mbc.cancel = context.WithCancel(context.Background())
+	mbc.workersWG.Add(2)
 
 	// Prometheus
 	mbc.metrics.processed.Inc()
@@ -74,6 +76,8 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 		mbc.conn.Close()
 		close(mbc.inputChanStop)
 
+		mbc.workersWG.Wait()
+
 		// Abort all in flight requests
 		abortedCount := mbc.AbortInflightQueries()
 
@@ -91,6 +95,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 
 	// Read queries and send them to the backend
 	go func() {
+		defer mbc.workersWG.Done()
 		batch := make([]MemcacheQuery, 0, 32)
 		writer := NewMemcacheProtocolWriter(mbc.conn, mbc.pool.proxy.bufferSize)
 		defer writer.Release()
@@ -125,7 +130,6 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 							mbc.pool.proxy.log.Error().Str("peer", mbc.backend.Address).Err(err).Msg("Unexpected error while sending query to the backend")
 						}
 						mbc.fail(err)
-						mbc.AbortInflightQueries()
 						return
 					}
 					mbc.metrics.requests.Inc()
@@ -134,7 +138,6 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 
 				if err := writer.Flush(); err != nil {
 					mbc.fail(err)
-					mbc.AbortInflightQueries()
 					return
 				}
 
@@ -147,6 +150,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 
 	// Read backend responses and send them to the client
 	go func() {
+		defer mbc.workersWG.Done()
 		reader := NewMemcacheProtocolReader(mbc.conn, mbc.pool.proxy.bufferSize)
 		defer reader.Release()
 
