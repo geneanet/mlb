@@ -110,7 +110,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		defer ln.Close()
+		defer func() { _ = ln.Close() }()
 
 		p.backends.Add(&backend.Backend{Address: ln.Addr().String()})
 		p.preconnect = 2
@@ -144,7 +144,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		defer ln.Close()
+		defer func() { _ = ln.Close() }()
 		go func() {
 			for {
 				conn, err := ln.Accept()

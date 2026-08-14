@@ -142,8 +142,8 @@ backends_processor "redis" "test" {
 
 	// Lifecycle tests
 	check := NewRedisCheck(b.Clone(), "", time.Millisecond, time.Millisecond, 1.0, 100*time.Millisecond, time.Second, 1.5, 3, time.Second, time.Second, time.Second, make(chan *backend.Backend, 1))
-	check.StartPolling()
-	check.StartPolling() // already running
+	_ = check.StartPolling()
+	_ = check.StartPolling() // already running
 	time.Sleep(10 * time.Millisecond)
 	check.StopPolling()
 	check.StopPolling() // already stopped
@@ -171,7 +171,7 @@ func TestRedisChecker_ModuleMethods(t *testing.T) {
 	modules := make(module.ModulesRegistry)
 	provider := &testutil.DummyProvider{ID: "test-source", Backends: registry}
 	modules.AddModule("test-source", provider)
-	c.Bind(modules)
+	_ = c.Bind(modules)
 }
 
 func TestParseResponse(t *testing.T) {
@@ -228,6 +228,7 @@ func TestParseResponse(t *testing.T) {
 		// Master with 1 slave
 		infoMaster := "# Replication\nrole:master\nconnected_slaves:1\nslave0:ip=127.0.0.1,port=6380,state=online,offset=123,lag=0\n"
 		role, readonly, slaves, mls, msip := parseInfoResponse(infoMaster)
+		_ = msip // Ignore unused msip
 		if role.AsString() != "master" {
 			t.Errorf("expected master, got %s", role.AsString())
 		}

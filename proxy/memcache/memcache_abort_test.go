@@ -16,7 +16,7 @@ func TestMemcacheBackendConnection_AbortInflightQueries_WithPending(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -40,7 +40,7 @@ func TestMemcacheBackendConnection_AbortInflightQueries_WithPending(t *testing.T
 	go func() {
 		conn, _ := l.Accept()
 		if conn != nil {
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 			// Don't read anything
 			time.Sleep(1 * time.Second)
 		}

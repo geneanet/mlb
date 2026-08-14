@@ -14,7 +14,7 @@ func TestRedisBackendConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	go func() {
 		for {
@@ -23,7 +23,7 @@ func TestRedisBackendConnection(t *testing.T) {
 				return
 			}
 			go func(c net.Conn) {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				reader := NewRedisProtocolReader(c, 1024)
 				defer reader.Release()
 				for {
@@ -33,9 +33,9 @@ func TestRedisBackendConnection(t *testing.T) {
 					}
 					smsg := string(msg)
 					if smsg == "PING\r\n" || smsg == "*1\r\n$4\r\nPING\r\n" {
-						c.Write([]byte("+PONG\r\n"))
+						_, _ = c.Write([]byte("+PONG\r\n"))
 					} else if smsg == "*1\r\n$5\r\nRESET\r\n" {
-						c.Write([]byte("+RESET\r\n"))
+						_, _ = c.Write([]byte("+RESET\r\n"))
 					} else if len(smsg) > 14 && smsg[:14] == "*2\r\n$4\r\nECHO\r\n" {
 						// ECHO command: *2\r\n$4\r\nECHO\r\n$length\r\ntoken\r\n
 						idx := 14
@@ -43,10 +43,10 @@ func TestRedisBackendConnection(t *testing.T) {
 							idx++
 						}
 						if idx < len(smsg) {
-							c.Write([]byte(smsg[idx:]))
+							_, _ = c.Write([]byte(smsg[idx:]))
 						}
 					} else {
-						c.Write(msg) // Echo
+						_, _ = c.Write(msg) // Echo
 					}
 					ReleaseBuffer(msg)
 				}
@@ -91,7 +91,7 @@ func TestRedisBackendConnection(t *testing.T) {
 		}
 
 		// Actually we can just write to the real mock backend
-		rbc.conn.Write([]byte("PING\r\n"))
+		_, _ = rbc.conn.Write([]byte("PING\r\n"))
 
 		rbc.ResetAndRelease()
 
@@ -114,7 +114,7 @@ func TestRedisBackendConnection(t *testing.T) {
 		// Send multiple PINGs to create a backlog of PONGs in the backend.
 		// These will be sitting in the connection buffer when ResetAndRelease is called.
 		for i := 0; i < 5; i++ {
-			rbc.conn.Write([]byte("PING\r\n"))
+			_, _ = rbc.conn.Write([]byte("PING\r\n"))
 		}
 
 		// Now ResetAndRelease should drain all 5 PONGs, then the +RESET, and finally catch the ECHO.

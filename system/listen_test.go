@@ -25,7 +25,7 @@ func TestListen_Unix(t *testing.T) {
 	if l.Addr().String() != socketPath {
 		t.Errorf("Expected address %q, got %q", socketPath, l.Addr().String())
 	}
-	l.Close()
+	_ = l.Close()
 	if _, err := os.Stat(socketPath); err == nil {
 		t.Errorf("Expected socket file %q to be removed after close", socketPath)
 	}
@@ -40,7 +40,7 @@ func TestListen_Unix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Listen with stale socket failed: %v", err)
 	}
-	l2.Close()
+	_ = l2.Close()
 }
 
 func TestListen_Fallback(t *testing.T) {
@@ -51,7 +51,7 @@ func TestListen_Fallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Listen failed: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	if l.Addr() == nil {
 		t.Error("Expected listener address to be non-nil")
@@ -81,7 +81,7 @@ func TestInitTableflip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Listen with upgrader failed: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	// Clean up for other tests
 	upgrader = nil

@@ -60,7 +60,7 @@ func getFreePort() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	return listener.Addr().String(), nil
 }
 
@@ -78,7 +78,7 @@ func startEchoServer(t *testing.T) net.Listener {
 				return
 			}
 			go func(c net.Conn) {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				_, _ = io.Copy(c, c)
 			}(conn)
 		}
@@ -248,10 +248,10 @@ func TestTCPProxyFactory_Defaults(t *testing.T) {
 //  5. The stats ticker loop in handleConnection correctly processes data counters over time.
 func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 	primaryBackend := startEchoServer(t)
-	defer primaryBackend.Close()
+	defer func() { _ = primaryBackend.Close() }()
 
 	backupBackend := startEchoServer(t)
-	defer backupBackend.Close()
+	defer func() { _ = backupBackend.Close() }()
 
 	proxyAddr, err := getFreePort()
 	if err != nil {
@@ -288,13 +288,13 @@ func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("primary_backend", primaryProvider)
 	modules.AddModule("backup_backend", backupProvider)
-	p.Bind(modules)
+	_ = p.Bind(modules)
 
 	// Wait for proxy listener to start
 	testutil.Eventually(t, func() bool {
 		conn, err := net.DialTimeout("tcp", proxyAddr, 10*time.Millisecond)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			return true
 		}
 		return false
@@ -320,7 +320,7 @@ func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 	if !bytes.Equal(testData1, buf[:n1]) {
 		t.Errorf("expected %v, got %v", testData1, buf[:n1])
 	}
-	conn1.Close()
+	_ = conn1.Close()
 
 	// Scenario 2: Main backend fails, fallback to backup
 	primaryProvider.setReturnNil(true)
@@ -342,7 +342,7 @@ func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 	if !bytes.Equal(testData2, buf[:n2]) {
 		t.Errorf("expected %v, got %v", testData2, buf[:n2])
 	}
-	conn2.Close()
+	_ = conn2.Close()
 
 	// Wait for piping goroutines to settle
 	time.Sleep(50 * time.Millisecond)
@@ -386,13 +386,13 @@ func TestTCPProxy_NoBackendPanic(t *testing.T) {
 	provider := &mockBackendProvider{id: "missing_backend", backendAddress: "", returnNil: true}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("missing_backend", provider)
-	p.Bind(modules)
+	_ = p.Bind(modules)
 
 	// Wait for proxy listener to start
 	testutil.Eventually(t, func() bool {
 		conn, err := net.DialTimeout("tcp", proxyAddr, 10*time.Millisecond)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			return true
 		}
 		return false
@@ -411,7 +411,7 @@ func TestTCPProxy_NoBackendPanic(t *testing.T) {
 	}
 
 	time.Sleep(10 * time.Millisecond)
-	conn.Close()
+	_ = conn.Close()
 }
 
 // TestTCPProxy_TimeoutAndContextCancel tests the proxy's graceful shutdown and hanging
@@ -421,7 +421,7 @@ func TestTCPProxy_NoBackendPanic(t *testing.T) {
 // 3. The select statement waiting on time.After(p.closeTimeout) properly executes and invokes cancel().
 func TestTCPProxy_TimeoutAndContextCancel(t *testing.T) {
 	backend := startEchoServer(t)
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	proxyAddr, err := getFreePort()
 	if err != nil {
@@ -454,13 +454,13 @@ func TestTCPProxy_TimeoutAndContextCancel(t *testing.T) {
 	provider := &mockBackendProvider{id: "test_backend", backendAddress: backend.Addr().String()}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("test_backend", provider)
-	p.Bind(modules)
+	_ = p.Bind(modules)
 
 	// Wait for proxy listener to start
 	testutil.Eventually(t, func() bool {
 		conn, err := net.DialTimeout("tcp", proxyAddr, 10*time.Millisecond)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			return true
 		}
 		return false
@@ -725,7 +725,7 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	go func() {
 		for {
@@ -771,13 +771,13 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 	provider := &mockBackendProvider{id: "test_backend", backendAddress: backendAddr}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("test_backend", provider)
-	p.Bind(modules)
+	_ = p.Bind(modules)
 
 	// Wait for proxy listener to start
 	testutil.Eventually(t, func() bool {
 		conn, err := net.DialTimeout("tcp", proxyAddr, 10*time.Millisecond)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			return true
 		}
 		return false
@@ -812,7 +812,7 @@ func (c *customBackendProvider) Bind(modules module.ModulesRegistry) {}
 // the backend is removed from the balancer, if close_on_backend_removal is enabled.
 func TestTCPProxy_CloseOnBackendRemoval(t *testing.T) {
 	backendServer := startEchoServer(t)
-	defer backendServer.Close()
+	defer func() { _ = backendServer.Close() }()
 
 	proxyAddr, err := getFreePort()
 	if err != nil {
@@ -854,13 +854,13 @@ func TestTCPProxy_CloseOnBackendRemoval(t *testing.T) {
 	provider := &customBackendProvider{id: "test_backend", be: testBe}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("test_backend", provider)
-	p.Bind(modules)
+	_ = p.Bind(modules)
 
 	// Wait for proxy listener to start
 	testutil.Eventually(t, func() bool {
 		conn, err := net.DialTimeout("tcp", proxyAddr, 10*time.Millisecond)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			return true
 		}
 		return false

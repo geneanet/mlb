@@ -35,7 +35,7 @@ func TestLoadConfig(t *testing.T) {
 	go io.Copy(io.Discard, r)
 	defer func() {
 		os.Stdout = oldStdout
-		w.Close()
+		_ = w.Close()
 	}()
 
 	// Subtest 1: Successful parsing of a comprehensive, valid configuration.
@@ -86,7 +86,7 @@ system {
 			t.Errorf("Unexpected diagnostics errors: %s", diags.Error())
 		}
 		if cfg == nil {
-			t.Errorf("Expected non-nil config object")
+			t.Fatalf("Expected non-nil config object")
 		}
 
 		if cfg.System == nil {

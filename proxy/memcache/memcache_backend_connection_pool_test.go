@@ -13,7 +13,7 @@ import (
 
 func TestMemcacheBackendConnectionPool_Del(t *testing.T) {
 	b1L, _ := net.Listen("tcp", "127.0.0.1:0")
-	defer b1L.Close()
+	defer func() { _ = b1L.Close() }()
 	go dummyMemcacheServer(b1L, "v1")
 
 	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}
@@ -60,7 +60,7 @@ func TestMemcacheBackendConnectionPool_Del(t *testing.T) {
 
 func TestMemcacheBackendConnectionPool_UpdateRemovesDeadBackends(t *testing.T) {
 	b1L, _ := net.Listen("tcp", "127.0.0.1:0")
-	defer b1L.Close()
+	defer func() { _ = b1L.Close() }()
 	go dummyMemcacheServer(b1L, "v1")
 
 	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}
@@ -112,7 +112,7 @@ func TestMemcacheMinMaxPoolGrowth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	addr := l.Addr().String()
 	b1 := &backend.Backend{Address: addr}
@@ -171,14 +171,14 @@ func TestMemcacheMinMaxPoolGrowth(t *testing.T) {
 		if conn != nil {
 			// Don't read anything, let the proxy fill the TCP buffer
 			time.Sleep(2 * time.Second)
-			conn.Close()
+			_ = conn.Close()
 		}
 	}()
 
 	// Send queries until conn1.IsFull() is true
 	for i := 0; i < 100; i++ {
 		q := NewMemcacheQuery([]byte("set k 0 0 1\r\nv\r\n"), nil, nil)
-		conn1.Query(q)
+		_ = conn1.Query(q)
 		if conn1.IsFull() {
 			break
 		}
@@ -209,7 +209,7 @@ func TestMemcacheMinMaxPoolGrowth(t *testing.T) {
 	// (Saturate conn2 first)
 	for i := 0; i < 100; i++ {
 		q := NewMemcacheQuery([]byte("set k 0 0 1\r\nv\r\n"), nil, nil)
-		conn2.Query(q)
+		_ = conn2.Query(q)
 		if conn2.IsFull() {
 			break
 		}
@@ -227,7 +227,7 @@ func TestMemcacheMinMaxPoolGrowth(t *testing.T) {
 func TestMemcacheBackendConnectionPool_UpdateParallel(t *testing.T) {
 	// One good backend, one faulty (not listening)
 	b1L, _ := net.Listen("tcp", "127.0.0.1:0")
-	defer b1L.Close()
+	defer func() { _ = b1L.Close() }()
 	go dummyMemcacheServer(b1L, "v1")
 
 	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}

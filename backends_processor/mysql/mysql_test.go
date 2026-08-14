@@ -63,7 +63,8 @@ func (s *mockStmt) Exec(args []driver.Value) (driver.Result, error) {
 }
 
 func (s *mockStmt) Query(args []driver.Value) (driver.Rows, error) {
-	if s.query == "SELECT @@read_only" {
+	switch s.query {
+	case "SELECT @@read_only":
 		if s.conn.name == "panic_readonly" {
 			panic("panic readonly")
 		}
@@ -74,7 +75,7 @@ func (s *mockStmt) Query(args []driver.Value) (driver.Rows, error) {
 			columns: []string{"@@read_only"},
 			data:    [][]driver.Value{{int64(0)}},
 		}, nil
-	} else if s.query == "SHOW REPLICA STATUS" {
+	case "SHOW REPLICA STATUS":
 		if s.conn.name == "panic_replica" {
 			panic("panic replica")
 		}
@@ -193,7 +194,7 @@ func TestMySQL(t *testing.T) {
 	dp := &testutil.DummyProvider{ID: "test", Backends: backend.NewRegistry()}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("test", dp)
-	mysqlChecker.Bind(modules)
+	_ = mysqlChecker.Bind(modules)
 
 	subscriber := &mockSubscriber{}
 	mysqlChecker.ProvideUpdates(subscriber)
@@ -261,7 +262,7 @@ func TestMySQL(t *testing.T) {
 		c := NewMySQLCheck(b, name, time.Millisecond, time.Millisecond, 1.0, time.Millisecond, time.Millisecond, 1.0, 1, time.Minute*5, make(chan *backend.Backend, 1), true)
 		c.ticker = misc.NewExponentialBackoffTicker(time.Millisecond, time.Millisecond, 1.0)
 		c.db, _ = sql.Open("mysql_mock", name)
-		c.fetchStatus()
+		_, _, _, _ = c.fetchStatus()
 	}
 
 	runTestCheck("panic_readonly")
@@ -275,7 +276,7 @@ func TestMySQL(t *testing.T) {
 
 	lifecycleCheck := NewMySQLCheck(b, "error", time.Millisecond, time.Millisecond, 1.0, time.Millisecond, time.Millisecond, 1.0, 1, time.Minute*5, make(chan *backend.Backend, 1), true)
 	setMySQLDriverName("invalid_driver")
-	lifecycleCheck.StartPolling() // Error opening db
+	_ = lifecycleCheck.StartPolling() // Error opening db
 	setMySQLDriverName("mysql_mock")
 	lifecycleCheck.StopPolling()  // Try to stop not running
 	lifecycleCheck.running = true // Force running to true
@@ -332,8 +333,8 @@ func TestMySQL_Coverage(t *testing.T) {
 	time.Sleep(2 * time.Millisecond)
 
 	// 3. StartPolling / StopPolling early returns logic (c.running = true/false)
-	check.StartPolling()
-	check.StartPolling()
+	_ = check.StartPolling()
+	_ = check.StartPolling()
 	time.Sleep(2 * time.Millisecond)
 	check.StopPolling()
 	check.StopPolling()
@@ -354,27 +355,27 @@ func TestMySQL_Coverage(t *testing.T) {
 	check.dsn = "error" // sql.Open("mysql_mock", "error") evaluates to an error mock
 	check.db, _ = sql.Open("mysql_mock", "panic_readonly")
 	setMySQLDriverName("invalid_driver")
-	check.fetchStatus()
+	_, _, _, _ = check.fetchStatus()
 	setMySQLDriverName("mysql_mock")
 
 	// Hit Reset update == true in fetchStatus
 	check.dsn = "ok"
 	check.db, _ = sql.Open("mysql_mock", "ok")
 	check.ticker.ApplyBackoff() // Force it to backoff state
-	check.fetchStatus()         // Should succeed and call Reset() -> true
+	_, _, _, _ = check.fetchStatus()         // Should succeed and call Reset() -> true
 
 	// Hit Reset update == false in fetchStatus
-	check.fetchStatus()
+	_, _, _, _ = check.fetchStatus()
 
 	// Hit checkReplica == false in fetchStatus
 	check.checkReplica = false
-	check.fetchStatus()
+	_, _, _, _ = check.fetchStatus()
 	check.checkReplica = true
 
 	// Hit c.db == nil inside recover block of fetchStatus
 	check.db = nil
 	check.dsn = "panic_readonly"
-	check.fetchStatus()
+	_, _, _, _ = check.fetchStatus()
 
 	// Hit ApplyBackoff update == false in fetchStatus error
 	check.dsn = "panic_readonly"
@@ -383,7 +384,7 @@ func TestMySQL_Coverage(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		check.ticker.ApplyBackoff()
 	}
-	check.fetchStatus()
+	_, _, _, _ = check.fetchStatus()
 
 	// 6. Unknown backend removed
 	mysqlChecker.ReceiveUpdate(backend.BackendUpdate{

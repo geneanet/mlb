@@ -68,7 +68,7 @@ func TestPool_GetPut(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if rbc == nil {
-		t.Error("expected rbc to be not nil")
+		t.Fatalf("expected rbc to be not nil")
 	}
 	if rbc.backend.Address != addr {
 		t.Errorf("expected %v, got %v", addr, rbc.backend.Address)

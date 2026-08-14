@@ -76,9 +76,10 @@ backends_inventory "static" "test" {
 		if u.Kind != backend.UpdBackendAdded {
 			t.Errorf("Expected UpdBackendAdded, got %v", u.Kind)
 		}
-		if u.Address == "127.0.0.1:8080" {
+		switch u.Address {
+		case "127.0.0.1:8080":
 			has8080 = true
-		} else if u.Address == "127.0.0.1:8081" {
+		case "127.0.0.1:8081":
 			has8081 = true
 		}
 	}

@@ -53,7 +53,7 @@ backends_processor "simple_filter" "test" {
 
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("foo", dp)
-	filterMod.Bind(modules)
+	_ = filterMod.Bind(modules)
 
 	// Wait for goroutines to settle
 	time.Sleep(2 * time.Millisecond)
@@ -138,7 +138,7 @@ backends_processor "simple_filter" "test" {
 	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry()}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("foo", dp)
-	filterMod.Bind(modules)
+	_ = filterMod.Bind(modules)
 
 	// We need a subscriber to wait for the backend to be added, otherwise we can't be sure it's processed
 	sub1 := &testutil.DummySubscriber{Wg: sync.WaitGroup{}}
@@ -189,7 +189,7 @@ backends_processor "simple_filter" "test_meta" {
 
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("foo", dp)
-	filterMod.Bind(modules)
+	_ = filterMod.Bind(modules)
 
 	// Add backend (matches initially)
 	b := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
@@ -348,7 +348,7 @@ backends_processor "simple_filter" "test" {
 
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("foo", dp)
-	filterMod.Bind(modules)
+	_ = filterMod.Bind(modules)
 
 	// Add 3 backends with different weights
 	b1 := &backend.Backend{Address: "127.0.0.1:8081", Meta: backend.NewEmptyMetaMap(0)}
@@ -465,7 +465,7 @@ backends_processor "simple_filter" "test3" {
 		
 		modules := make(module.ModulesRegistry)
 		modules.AddModule("foo", dp)
-		filterMod.Bind(modules)
+		_ = filterMod.Bind(modules)
 
 		setup(dp)
 		// Wait a bit for processing

@@ -39,19 +39,20 @@ func TestRedisProxyMultiplexing(t *testing.T) {
 					}
 					// Very simple mock redis
 					smsg := string(msg)
-					if smsg == "*1\r\n$4\r\nPING\r\n" || smsg == "PING\r\n" {
+					switch smsg {
+					case "*1\r\n$4\r\nPING\r\n", "PING\r\n":
 						c.Write([]byte("+PONG\r\n"))
-					} else if smsg == "*1\r\n$5\r\nRESET\r\n" {
+					case "*1\r\n$5\r\nRESET\r\n":
 						c.Write([]byte("+OK\r\n"))
-					} else if smsg == "*2\r\n$4\r\nECHO\r\n$2\r\nHI\r\n" {
+					case "*2\r\n$4\r\nECHO\r\n$2\r\nHI\r\n":
 						c.Write([]byte("$2\r\nHI\r\n"))
-					} else if smsg == "*2\r\n$9\r\nSUBSCRIBE\r\n$2\r\nch\r\n" {
+					case "*2\r\n$9\r\nSUBSCRIBE\r\n$2\r\nch\r\n":
 						// RESP2 subscribe response
 						c.Write([]byte("*3\r\n$9\r\nsubscribe\r\n$2\r\nch\r\n:1\r\n"))
 						// Push a message after a short delay
 						time.Sleep(100 * time.Millisecond)
 						c.Write([]byte("*3\r\n$7\r\nmessage\r\n$2\r\nch\r\n$4\r\ndata\r\n"))
-					} else {
+					default:
 						// fmt.Printf("Mock received unknown: %q\n", smsg)
 						c.Write([]byte("-ERR unknown\r\n"))
 					}

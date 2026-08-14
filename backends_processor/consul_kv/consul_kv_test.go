@@ -41,9 +41,9 @@ func TestConsulKV_Basic(t *testing.T) {
 	// Create mock consul server
 	var mu sync.Mutex
 	callCount := 0
-	var consulIndex string = "1"
-	var consulValue string = "default"
-	var statusToReturn int = 200
+	var consulIndex = "1"
+	var consulValue = "default"
+	var statusToReturn = 200
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
@@ -70,7 +70,7 @@ func TestConsulKV_Basic(t *testing.T) {
 			},
 		}
 		b, _ := json.Marshal(res)
-		w.Write(b)
+		_, _ = w.Write(b)
 	}))
 	defer ts.Close()
 
@@ -117,7 +117,7 @@ backends_processor "consul_kv" "test" {
 	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry()}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("foo", dp)
-	consulMod.Bind(modules)
+	_ = consulMod.Bind(modules)
 
 	sub := &testutil.DummySubscriber{Wg: sync.WaitGroup{}}
 	consulMod.ProvideUpdates(sub)
@@ -254,7 +254,7 @@ backends_processor "consul_kv" "test" {
 	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry()}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("foo", dp)
-	consulMod.Bind(modules)
+	_ = consulMod.Bind(modules)
 
 	b1 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
 	sub1 := &testutil.DummySubscriber{Wg: sync.WaitGroup{}}
@@ -381,7 +381,7 @@ func TestConsulKV_FetchErrors(t *testing.T) {
 		body := responseBody
 		mu.Unlock()
 		w.Header().Set("X-Consul-Index", "1")
-		w.Write([]byte(body))
+		_, _ = w.Write([]byte(body))
 	}))
 	defer ts.Close()
 

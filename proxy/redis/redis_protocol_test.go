@@ -738,7 +738,7 @@ func TestBufferPool_Reuse(t *testing.T) {
 
 	ReleaseBuffer(knownBuf)
 
-	ptr := bufferPool.Get().([]byte)
+	ptr := bufferPool.Get().(*[]byte)
 	if ptr == nil {
 		t.Fatal("bufferPool.Get() returned nil")
 	}

@@ -158,7 +158,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry()}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("src1", provider)
-	balancer.Bind(modules)
+	_ = balancer.Bind(modules)
 
 	// Test timeout when no reg are available
 	start := time.Now()

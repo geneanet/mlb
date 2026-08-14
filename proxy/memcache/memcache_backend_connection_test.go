@@ -20,7 +20,7 @@ func TestMemcacheBackendConnection_QueryAndAbort(t *testing.T) {
 		conn, err := b1L.Accept()
 		if err == nil {
 			time.Sleep(1 * time.Second)
-			conn.Close()
+			_ = conn.Close()
 		}
 	}()
 
@@ -135,7 +135,7 @@ func TestMemcacheBackendConnection_ReadFull(t *testing.T) {
 	respChan2 := make(chan MemcacheResponse, 1)
 	stopChan2 := make(chan struct{})
 	q2 := NewMemcacheQuery([]byte("set key 0 0 2\r\nv1\r\n"), respChan2, stopChan2)
-	conn.Query(q2)
+	_ = conn.Query(q2)
 
 	resp2 := <-respChan2
 	if string(resp2.item) != "STORED\r\n" {

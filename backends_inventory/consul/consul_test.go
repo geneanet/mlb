@@ -46,7 +46,8 @@ func TestConsulBackendsInventory_All(t *testing.T) {
 		w.Header().Set("X-Consul-Index", "1")
 
 		var services consulServicesSlice
-		if cnt == 1 {
+		switch cnt {
+		case 1:
 			// First call: service node1 with tag1
 			services = consulServicesSlice{
 				{
@@ -72,7 +73,7 @@ func TestConsulBackendsInventory_All(t *testing.T) {
 					},
 				},
 			}
-		} else if cnt == 2 {
+		case 2:
 			// Second call: service node1 with changed tag and index
 			services = consulServicesSlice{
 				{
@@ -98,12 +99,12 @@ func TestConsulBackendsInventory_All(t *testing.T) {
 					},
 				},
 			}
-		} else {
+		default:
 			// Subsequent calls: empty services (service removed)
 			services = consulServicesSlice{}
 		}
 
-		json.NewEncoder(w).Encode(services)
+		_ = json.NewEncoder(w).Encode(services)
 	}))
 	defer ts.Close()
 
@@ -182,11 +183,12 @@ backends_inventory "consul" "test" {
 	hasRemoved := false
 	sub.mu.Lock()
 	for _, u := range sub.updates {
-		if u.Kind == backend.UpdBackendAdded {
+		switch u.Kind {
+		case backend.UpdBackendAdded:
 			hasAdded = true
-		} else if u.Kind == backend.UpdBackendModified {
+		case backend.UpdBackendModified:
 			hasModified = true
-		} else if u.Kind == backend.UpdBackendRemoved {
+		case backend.UpdBackendRemoved:
 			hasRemoved = true
 		}
 	}
@@ -255,7 +257,7 @@ func TestConsulBackendsInventory_Recovery(t *testing.T) {
 
 		w.Header().Set("X-Consul-Index", "1")
 		services := consulServicesSlice{}
-		json.NewEncoder(w).Encode(services)
+		_ = json.NewEncoder(w).Encode(services)
 	}))
 	defer ts.Close()
 
@@ -369,7 +371,7 @@ func TestConsulBackendsInventory_ProvideUpdates(t *testing.T) {
 				},
 			},
 		}
-		json.NewEncoder(w).Encode(services)
+		_ = json.NewEncoder(w).Encode(services)
 	}))
 	defer ts.Close()
 

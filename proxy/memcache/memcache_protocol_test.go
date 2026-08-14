@@ -154,7 +154,7 @@ func TestReleaseBuffer(t *testing.T) {
 func TestMemcacheProtocolReader_Release_LargeBuffer(t *testing.T) {
 	r := NewMemcacheProtocolReader(bytes.NewReader(nil), 1024)
 	// Grow buffer to be very large
-	r.ReadFull(128 * 1024) // This will read EOF but should grow the buffer
+	_, _ = r.ReadFull(128 * 1024) // This will read EOF but should grow the buffer
 	r.Release()
 
 	// Acquire a new reader, it shouldn't have the huge buffer if it came from the pool

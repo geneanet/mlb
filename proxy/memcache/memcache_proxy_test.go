@@ -6,13 +6,14 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"mlb/backend"
-	"mlb/metrics"
-	"mlb/module"
 	"net"
 	"sync"
 	"testing"
 	"time"
+
+	"mlb/backend"
+	"mlb/metrics"
+	"mlb/module"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -39,7 +40,7 @@ func TestMemcacheProxyConfigAndInit(t *testing.T) {
 		Config: f.Body,
 		Ctx:    &hcl.EvalContext{},
 	}
-	
+
 	diags = validateMemcacheProxyConfig(tc)
 	if diags.HasErrors() {
 		t.Fatalf("Validation failed: %v", diags)
@@ -159,7 +160,7 @@ func TestMemcacheConfigValidation(t *testing.T) {
 				Ctx:    &hcl.EvalContext{},
 			}
 			vDiags := validateMemcacheProxyConfig(tc)
-			if (vDiags.HasErrors()) != tt.wantErr {
+			if vDiags.HasErrors() != tt.wantErr {
 				t.Errorf("validateMemcacheProxyConfig() error = %v, wantErr %v", vDiags.HasErrors(), tt.wantErr)
 			}
 		})
@@ -258,19 +259,13 @@ func (m *mockUpdateProvider) ProvideUpdates(sub backend.BackendUpdateSubscriber)
 	m.subs = append(m.subs, sub)
 }
 
-func (m *mockUpdateProvider) push(upd backend.BackendUpdate) {
-	for _, sub := range m.subs {
-		sub.ReceiveUpdate(upd)
-	}
-}
-
 func TestMemcacheHashRing(t *testing.T) {
 	ring := newMemcacheHashRing()
 	b1 := &backend.Backend{Address: "127.0.0.1:11211"}
 	b2 := &backend.Backend{Address: "127.0.0.1:11212"}
-	
+
 	ring.update([]*backend.Backend{b1, b2})
-	
+
 	// Check distribution
 	counts := map[string]int{}
 	for i := 0; i < 1000; i++ {
@@ -278,7 +273,7 @@ func TestMemcacheHashRing(t *testing.T) {
 		b := ring.getBackend(key)
 		counts[b.Address]++
 	}
-	
+
 	if len(counts) != 2 || counts[b1.Address] == 0 || counts[b2.Address] == 0 {
 		t.Fatalf("Expected distribution between 2 backends, got %v", counts)
 	}
@@ -302,22 +297,22 @@ func TestMemcacheProxyScatterGather(t *testing.T) {
 	defer cancel()
 
 	proxy := &MemcacheProxy{
-		id:                 "test_proxy",
-		source:             "mock",
-		addresses:          []string{"127.0.0.1:0"},
-		ctx:                ctx,
-		cancel:             cancel,
-		wg:                 wg,
-		connectTimeout:     time.Second,
-		closeTimeout:       time.Second,
-		backendMinConnections:     2,
-		backendMaxConnections:     2,
+		id:                       "test_proxy",
+		source:                   "mock",
+		addresses:                []string{"127.0.0.1:0"},
+		ctx:                      ctx,
+		cancel:                   cancel,
+		wg:                       wg,
+		connectTimeout:           time.Second,
+		closeTimeout:             time.Second,
+		backendMinConnections:    2,
+		backendMaxConnections:    2,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		backends:           backend.NewRegistry(),
-		ring:               newMemcacheHashRing(),
-		backendUpdatesChan: make(chan backend.BackendUpdate, 10),
-		beMetricsCache:     make(map[string]*Metrics),
+		backends:                 backend.NewRegistry(),
+		ring:                     newMemcacheHashRing(),
+		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
+		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -347,13 +342,13 @@ func TestMemcacheProxyScatterGather(t *testing.T) {
 
 	proxy.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Backend: b1, Address: b1.Address})
 	proxy.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Backend: b2, Address: b2.Address})
-	
+
 	// Wait for ring to update
 	time.Sleep(100 * time.Millisecond)
 
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer l.Close()
-	
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -372,7 +367,7 @@ func TestMemcacheProxyScatterGather(t *testing.T) {
 
 	// Send scatter gather
 	client.Write([]byte("get key1 key2\r\n"))
-	
+
 	reader := bufio.NewReader(client)
 	var resp []byte
 	for {
@@ -382,7 +377,7 @@ func TestMemcacheProxyScatterGather(t *testing.T) {
 			break
 		}
 	}
-	
+
 	if !bytes.Contains(resp, []byte("VALUE key1")) || !bytes.Contains(resp, []byte("VALUE key2")) {
 		t.Fatalf("Expected both keys in response, got %s", string(resp))
 	}
@@ -394,21 +389,21 @@ func TestMemcacheProxyEmptyBackends(t *testing.T) {
 	defer cancel()
 
 	proxy := &MemcacheProxy{
-		id:                        "test_proxy_empty",
-		source:                    "mock",
-		addresses:                 []string{"127.0.0.1:0"},
-		ctx:                       ctx,
-		cancel:                    cancel,
-		wg:                        wg,
-		connectTimeout:            time.Second,
-		closeTimeout:              time.Second,
-		backendMinConnections:     2,
-		backendMaxConnections:     2,
+		id:                       "test_proxy_empty",
+		source:                   "mock",
+		addresses:                []string{"127.0.0.1:0"},
+		ctx:                      ctx,
+		cancel:                   cancel,
+		wg:                       wg,
+		connectTimeout:           time.Second,
+		closeTimeout:             time.Second,
+		backendMinConnections:    2,
+		backendMaxConnections:    2,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		backends:                  backend.NewRegistry(),
-		ring:                      newMemcacheHashRing(),
-		backendUpdatesChan:        make(chan backend.BackendUpdate, 10),
+		backends:                 backend.NewRegistry(),
+		ring:                     newMemcacheHashRing(),
+		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
 		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
@@ -421,7 +416,7 @@ func TestMemcacheProxyEmptyBackends(t *testing.T) {
 
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer l.Close()
-	
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -440,7 +435,7 @@ func TestMemcacheProxyEmptyBackends(t *testing.T) {
 
 	client.SetDeadline(time.Now().Add(1 * time.Second))
 	client.Write([]byte("set key1 0 0 2\r\nv1\r\n"))
-	
+
 	reader := bufio.NewReader(client)
 	respBytes := make([]byte, len("SERVER_ERROR no backend available\r\n"))
 	io.ReadFull(reader, respBytes)
@@ -452,21 +447,28 @@ func TestMemcacheProxyEmptyBackends(t *testing.T) {
 func dummyMemcacheServer(l net.Listener, val string) {
 	for {
 		conn, err := l.Accept()
-		if err != nil { return }
-		
+		if err != nil {
+			return
+		}
+
 		go func(c net.Conn) {
 			defer c.Close()
 			reader := bufio.NewReader(c)
 			for {
 				line, err := reader.ReadBytes('\n')
-				if err != nil { return }
-				
+				if err != nil {
+					return
+				}
+
 				fields := bytes.Fields(line)
-				if len(fields) == 0 { continue }
-				
+				if len(fields) == 0 {
+					continue
+				}
+
 				cmd := string(fields[0])
-				
-				if cmd == "set" || cmd == "add" || cmd == "replace" {
+
+				switch cmd {
+				case "set", "add", "replace":
 					if len(fields) >= 5 {
 						size := 0
 						for _, b := range fields[4] {
@@ -478,7 +480,7 @@ func dummyMemcacheServer(l net.Listener, val string) {
 						io.ReadFull(reader, buf)
 					}
 					c.Write([]byte("STORED\r\n"))
-				} else if cmd == "ms" {
+				case "ms":
 					if len(fields) >= 3 {
 						size := 0
 						for _, b := range fields[2] {
@@ -490,16 +492,16 @@ func dummyMemcacheServer(l net.Listener, val string) {
 						io.ReadFull(reader, buf)
 					}
 					c.Write([]byte("HD\r\n"))
-				} else if cmd == "mg" {
+				case "mg":
 					c.Write([]byte("VA 2\r\nv1\r\n"))
-				} else if cmd == "get" {
+				case "get":
 					for _, k := range fields[1:] {
-						c.Write([]byte(fmt.Sprintf("VALUE %s 0 %d\r\n%s\r\n", string(k), len(val), val)))
+						fmt.Fprintf(c, "VALUE %s 0 %d\r\n%s\r\n", string(k), len(val), val)
 					}
 					c.Write([]byte("END\r\n"))
-				} else if cmd == "quit" {
+				case "quit":
 					return
-				} else {
+				default:
 					c.Write([]byte("STORED\r\n"))
 				}
 			}
@@ -520,21 +522,21 @@ func TestMemcacheProxyProtocol(t *testing.T) {
 	defer cancel()
 
 	proxy := &MemcacheProxy{
-		id:                        "test_proxy",
-		source:                    "mock",
-		addresses:                 []string{"127.0.0.1:0"},
-		ctx:                       ctx,
-		cancel:                    cancel,
-		wg:                        wg,
-		connectTimeout:            time.Second,
-		closeTimeout:              time.Second,
-		backendMinConnections:     2,
-		backendMaxConnections:     2,
+		id:                       "test_proxy",
+		source:                   "mock",
+		addresses:                []string{"127.0.0.1:0"},
+		ctx:                      ctx,
+		cancel:                   cancel,
+		wg:                       wg,
+		connectTimeout:           time.Second,
+		closeTimeout:             time.Second,
+		backendMinConnections:    2,
+		backendMaxConnections:    2,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		backends:                  backend.NewRegistry(),
-		ring:                      newMemcacheHashRing(),
-		backendUpdatesChan:        make(chan backend.BackendUpdate, 10),
+		backends:                 backend.NewRegistry(),
+		ring:                     newMemcacheHashRing(),
+		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
 		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
@@ -564,12 +566,12 @@ func TestMemcacheProxyProtocol(t *testing.T) {
 	}()
 
 	proxy.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Backend: b1, Address: b1.Address})
-	
+
 	time.Sleep(100 * time.Millisecond)
 
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer l.Close()
-	
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -630,18 +632,18 @@ func TestMemcacheProxy_HandleConnection_GracefulShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	proxy := &MemcacheProxy{
-		id:                    "test_graceful",
-		log:                   log.Logger,
-		closeTimeout:          100 * time.Millisecond,
-		connectTimeout:        time.Second,
-		backendMinConnections: 1,
-		backendMaxConnections: 1,
+		id:                       "test_graceful",
+		log:                      log.Logger,
+		closeTimeout:             100 * time.Millisecond,
+		connectTimeout:           time.Second,
+		backendMinConnections:    1,
+		backendMaxConnections:    1,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		wg:                    wg,
-		ctx:                   ctx,
-		cancel:                cancel,
-		beMetricsCache:        make(map[string]*Metrics),
+		wg:                       wg,
+		ctx:                      ctx,
+		cancel:                   cancel,
+		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -688,18 +690,18 @@ func TestMemcacheProxy_ForwardSingle_Errors(t *testing.T) {
 	defer cancel()
 
 	proxy := &MemcacheProxy{
-		id:                    "test_errors",
-		log:                   log.Logger,
-		backends:              backend.NewRegistry(),
-		ring:                  newMemcacheHashRing(),
-		backendUpdatesChan:    make(chan backend.BackendUpdate, 10),
-		ctx:                   ctx,
-		cancel:                cancel,
-		backendMinConnections: 1,
-		backendMaxConnections: 1,
+		id:                       "test_errors",
+		log:                      log.Logger,
+		backends:                 backend.NewRegistry(),
+		ring:                     newMemcacheHashRing(),
+		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
+		ctx:                      ctx,
+		cancel:                   cancel,
+		backendMinConnections:    1,
+		backendMaxConnections:    1,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		beMetricsCache:        make(map[string]*Metrics),
+		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -727,7 +729,7 @@ func TestMemcacheProxy_ForwardSingle_Errors(t *testing.T) {
 	proxy.ring.update(proxy.backends.GetList())
 
 	q2 := NewMemcacheQuery([]byte("get key\r\n"), responseChan, responseChanStop)
-	proxy.forwardSingle(q2, []byte("key") )
+	proxy.forwardSingle(q2, []byte("key"))
 	resp2 := <-responseChan
 	if string(resp2.item) != "SERVER_ERROR backend failure\r\n" {
 		t.Errorf("Expected SERVER_ERROR backend failure, got %s", string(resp2.item))
@@ -783,21 +785,21 @@ func TestMemcachePipelining(t *testing.T) {
 	defer cancel()
 
 	p := &MemcacheProxy{
-		id:                        "test-pipeline",
-		log:                       log.Logger,
-		connectTimeout:            time.Second,
-		closeTimeout:              time.Second,
-		wg:                        wg,
-		ctx:                       ctx,
-		cancel:                    cancel,
-		backends:                  backend.NewRegistry(),
-		ring:                      newMemcacheHashRing(),
-		backendMinConnections:     1,
-		backendMaxConnections:     1,
+		id:                       "test-pipeline",
+		log:                      log.Logger,
+		connectTimeout:           time.Second,
+		closeTimeout:             time.Second,
+		wg:                       wg,
+		ctx:                      ctx,
+		cancel:                   cancel,
+		backends:                 backend.NewRegistry(),
+		ring:                     newMemcacheHashRing(),
+		backendMinConnections:    1,
+		backendMaxConnections:    1,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		bufferSize:                16384,
-		clientQueueSize:           64,
+		bufferSize:               16384,
+		clientQueueSize:          64,
 		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
@@ -866,8 +868,6 @@ func TestMemcachePipelining(t *testing.T) {
 	}
 }
 
-
-
 func TestMemcacheProxyMetaProtocol(t *testing.T) {
 	b1L, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer b1L.Close()
@@ -880,22 +880,22 @@ func TestMemcacheProxyMetaProtocol(t *testing.T) {
 	defer cancel()
 
 	proxy := &MemcacheProxy{
-		id:                    "test_meta_proxy",
-		source:                "mock",
-		addresses:             []string{"127.0.0.1:0"},
-		ctx:                   ctx,
-		cancel:                cancel,
-		wg:                    wg,
-		connectTimeout:        time.Second,
-		closeTimeout:          time.Second,
-		backendMinConnections: 1,
-		backendMaxConnections: 1,
+		id:                       "test_meta_proxy",
+		source:                   "mock",
+		addresses:                []string{"127.0.0.1:0"},
+		ctx:                      ctx,
+		cancel:                   cancel,
+		wg:                       wg,
+		connectTimeout:           time.Second,
+		closeTimeout:             time.Second,
+		backendMinConnections:    1,
+		backendMaxConnections:    1,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		backends:              backend.NewRegistry(),
-		ring:                  newMemcacheHashRing(),
-		backendUpdatesChan:    make(chan backend.BackendUpdate, 10),
-		beMetricsCache:        make(map[string]*Metrics),
+		backends:                 backend.NewRegistry(),
+		ring:                     newMemcacheHashRing(),
+		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
+		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -948,26 +948,36 @@ func TestMemcacheProxyMetaProtocol(t *testing.T) {
 func TestMemcacheProxyMetaProtocolExpanded(t *testing.T) {
 	b1L, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer b1L.Close()
-	
+
 	// Dummy server for meta protocol
 	go func() {
 		for {
 			conn, err := b1L.Accept()
-			if err != nil { return }
+			if err != nil {
+				return
+			}
 			go func(c net.Conn) {
 				defer c.Close()
 				r := bufio.NewReader(c)
 				for {
 					line, err := r.ReadBytes('\n')
-					if err != nil { return }
+					if err != nil {
+						return
+					}
 					fields := bytes.Fields(line)
-					if len(fields) == 0 { continue }
+					if len(fields) == 0 {
+						continue
+					}
 					cmd := string(fields[0])
 					switch cmd {
-					case "md": c.Write([]byte("HD\r\n"))
-					case "ma": c.Write([]byte("HD\r\n"))
-					case "me": c.Write([]byte("EN\r\n"))
-					case "mn": c.Write([]byte("HD\r\n"))
+					case "md":
+						c.Write([]byte("HD\r\n"))
+					case "ma":
+						c.Write([]byte("HD\r\n"))
+					case "me":
+						c.Write([]byte("EN\r\n"))
+					case "mn":
+						c.Write([]byte("HD\r\n"))
 					case "ms":
 						size := 0
 						fmt.Sscanf(string(fields[2]), "%d", &size)
@@ -989,21 +999,21 @@ func TestMemcacheProxyMetaProtocolExpanded(t *testing.T) {
 	defer cancel()
 
 	proxy := &MemcacheProxy{
-		id:                    "test_meta_expanded",
-		source:                "mock",
-		addresses:             []string{"127.0.0.1:0"},
-		ctx:                   ctx,
-		cancel:                cancel,
-		wg:                    wg,
-		connectTimeout:        time.Second,
-		closeTimeout:          time.Second,
-		backendMinConnections: 1,
+		id:                       "test_meta_expanded",
+		source:                   "mock",
+		addresses:                []string{"127.0.0.1:0"},
+		ctx:                      ctx,
+		cancel:                   cancel,
+		wg:                       wg,
+		connectTimeout:           time.Second,
+		closeTimeout:             time.Second,
+		backendMinConnections:    1,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		backends:              backend.NewRegistry(),
-		ring:                  newMemcacheHashRing(),
-		backendUpdatesChan:    make(chan backend.BackendUpdate, 10),
-		beMetricsCache:        make(map[string]*Metrics),
+		backends:                 backend.NewRegistry(),
+		ring:                     newMemcacheHashRing(),
+		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
+		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -1029,7 +1039,9 @@ func TestMemcacheProxyMetaProtocolExpanded(t *testing.T) {
 	}()
 
 	client, err := net.Dial("tcp", l.Addr().String())
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer client.Close()
 
 	reader := bufio.NewReader(client)
@@ -1089,21 +1101,21 @@ func TestMemcacheProxyFlushOnConnectFunctional(t *testing.T) {
 	defer cancel()
 
 	proxy := &MemcacheProxy{
-		id:                        "test_proxy",
-		source:                    "mock",
-		log:                       zerolog.Nop(),
-		ctx:                       ctx,
-		cancel:                    cancel,
-		wg:                        wg,
-		connectTimeout:            time.Second,
+		id:                       "test_proxy",
+		source:                   "mock",
+		log:                      zerolog.Nop(),
+		ctx:                      ctx,
+		cancel:                   cancel,
+		wg:                       wg,
+		connectTimeout:           time.Second,
 		flushBackendWhenAdded:    true,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		backends:                  backend.NewRegistry(),
-		ring:                      newMemcacheHashRing(),
-		backendUpdatesChan:        make(chan backend.BackendUpdate, 10),
-		backendUpdatesChanClosed:  make(chan struct{}),
-		beMetricsCache:            make(map[string]*Metrics),
+		backends:                 backend.NewRegistry(),
+		ring:                     newMemcacheHashRing(),
+		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
+		backendUpdatesChanClosed: make(chan struct{}),
+		beMetricsCache:           make(map[string]*Metrics),
 	}
 
 	go func() {
@@ -1180,19 +1192,19 @@ func TestMemcacheProxyRandomization(t *testing.T) {
 	defer cancel()
 
 	proxy := &MemcacheProxy{
-		id:                    "test_proxy_random",
-		source:                "mock",
-		ctx:                   ctx,
-		cancel:                cancel,
-		wg:                    wg,
-		backendMinConnections: 2,
-		backendMaxConnections: 2,
+		id:                       "test_proxy_random",
+		source:                   "mock",
+		ctx:                      ctx,
+		cancel:                   cancel,
+		wg:                       wg,
+		backendMinConnections:    2,
+		backendMaxConnections:    2,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		backends:              backend.NewRegistry(),
-		ring:                  newMemcacheHashRing(),
-		backendUpdatesChan:    make(chan backend.BackendUpdate, 10),
-		beMetricsCache:        make(map[string]*Metrics),
+		backends:                 backend.NewRegistry(),
+		ring:                     newMemcacheHashRing(),
+		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
+		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, 16)
@@ -1225,7 +1237,7 @@ func TestMemcacheProxyRandomization(t *testing.T) {
 
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer l.Close()
-	
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -1303,11 +1315,12 @@ func TestMemcachePhantomResponse(t *testing.T) {
 			if err != nil {
 				return
 			}
-			if line == "get phantom\r\n" {
+			switch line {
+			case "get phantom\r\n":
 				close(phantomRespReady)
 				<-phantomRespSend
 				conn.Write([]byte("VALUE phantom 0 7\r\nphantom\r\nEND\r\n"))
-			} else if line == "get real\r\n" {
+			case "get real\r\n":
 				conn.Write([]byte("VALUE real 0 4\r\nreal\r\nEND\r\n"))
 			}
 		}
@@ -1318,20 +1331,20 @@ func TestMemcachePhantomResponse(t *testing.T) {
 	defer cancel()
 
 	p := &MemcacheProxy{
-		id:                        "phantom-test",
-		log:                       log.Logger,
-		connectTimeout:            time.Second,
-		closeTimeout:              time.Second,
-		ctx:                       ctx,
-		cancel:                    cancel,
-		backends:                  backend.NewRegistry(),
-		ring:                      newMemcacheHashRing(),
-		backendMinConnections:     1,
-		backendMaxConnections:     1,
+		id:                       "phantom-test",
+		log:                      log.Logger,
+		connectTimeout:           time.Second,
+		closeTimeout:             time.Second,
+		ctx:                      ctx,
+		cancel:                   cancel,
+		backends:                 backend.NewRegistry(),
+		ring:                     newMemcacheHashRing(),
+		backendMinConnections:    1,
+		backendMaxConnections:    1,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		bufferSize:                4096,
-		clientQueueSize:           128,
+		bufferSize:               4096,
+		clientQueueSize:          128,
 		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
@@ -1377,7 +1390,7 @@ func TestMemcachePhantomResponse(t *testing.T) {
 	defer c2.Close()
 
 	c2.Write([]byte("get real\r\n"))
-	
+
 	// Release the real response from backend
 	close(phantomRespSend)
 
@@ -1386,11 +1399,11 @@ func TestMemcachePhantomResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read from c2: %v", err)
 	}
-	
+
 	if line == "VALUE phantom 0 7\r\n" {
 		t.Fatal("Client 2 received phantom response!")
 	}
-	
+
 	if line != "VALUE real 0 4\r\n" {
 		t.Fatalf("Expected VALUE real 0 4, got %q", line)
 	}

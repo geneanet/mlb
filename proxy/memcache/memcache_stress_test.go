@@ -143,9 +143,9 @@ func TestMemcacheStressPipelining(t *testing.T) {
 				for j := 0; b*batchSize+j < requestsPerClient && j < batchSize; j++ {
 					// Alternate between SET and GET
 					if j % 2 == 0 {
-						client.Write([]byte(fmt.Sprintf("set k%d_%d 0 0 2\r\nhi\r\n", clientID, b*batchSize+j)))
+						fmt.Fprintf(client, "set k%d_%d 0 0 2\r\nhi\r\n", clientID, b*batchSize+j)
 					} else {
-						client.Write([]byte(fmt.Sprintf("get k%d_%d\r\n", clientID, b*batchSize+j)))
+						fmt.Fprintf(client, "get k%d_%d\r\n", clientID, b*batchSize+j)
 					}
 				}
 				
