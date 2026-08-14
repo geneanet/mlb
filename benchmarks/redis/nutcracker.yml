@@ -1,0 +1,11 @@
+redis:
+  listen: 0.0.0.0:6381
+  hash: fnv1a_64
+  distribution: ketama
+  redis: true
+  auto_eject_hosts: false
+  server_retry_timeout: 2000
+  server_failure_limit: 1
+  preconnect: true
+  servers:
+   - valkey1:6379:1

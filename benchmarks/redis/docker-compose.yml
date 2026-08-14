@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  valkey1:
+    image: valkey/valkey:9
+    command: ["valkey-server", "--io-threads", "4", "--io-threads-do-reads", "yes"]
+
+  mlb:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.release
+    volumes:
+      - ./mlb-config.hcl:/config.hcl
+    command: ["-config", "/config.hcl"]
+    ports:
+      - "6380:6380"
+      - "6382:6382"
+    depends_on:
+      - valkey1
+
+  twemproxy:
+    image: malexer/twemproxy:latest
+    volumes:
+      - ./nutcracker.yml:/etc/nutcracker/nutcracker.yml
+    command: ["nutcracker", "-c", "/etc/nutcracker/nutcracker.yml"]
+    ports:
+      - "6381:6381"
+    depends_on:
+      - valkey1
+
+  bench-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.bench-client
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
