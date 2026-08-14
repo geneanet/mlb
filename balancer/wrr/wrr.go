@@ -216,7 +216,11 @@ func (b *WRRBalancer) GetBackend(wait bool) (*backend.Backend, func()) {
 		ctx, ctxCancel := context.WithDeadline(b.ctx, time.Now().Add(b.timeout))
 		defer ctxCancel()
 		_ = b.backends.Wait(ctx)
+
+		// Synchronize with the main loop to ensure refreshSequence has completed
+		b.mu.Lock()
 		state = b.state.Load()
+		b.mu.Unlock()
 	}
 
 	if state.length > 0 {
