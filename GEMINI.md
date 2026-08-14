@@ -8,5 +8,8 @@
 - **Standard Library Only**: Use the standard `testing` package with explicit `if` checks and `t.Errorf`/`t.Fatalf`.
 - **Simplicity**: Keep tests simple, readable, and follow idiomatic Go patterns.
 
+## Linting & Verification
+- **Run Linters**: Use `golangci-lint` if available; otherwise, use `go vet`.
+
 ## Documentation & Configuration
 - **Synchronize**: Update documentation (`docs/`) and example files (`config.example.hcl`) whenever a configuration parameter is added, removed, or modified.
