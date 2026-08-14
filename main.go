@@ -189,7 +189,7 @@ func main() {
 					// Notify systemd that a reload is initiating.
 					// For Type=notify-reload, systemd expects RELOADING=1 and MONOTONIC_USEC.
 					var ts unix.Timespec
-					unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts)
+					_ = unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts)
 					_, _ = daemon.SdNotify(false, fmt.Sprintf("%s\nMONOTONIC_USEC=%d", daemon.SdNotifyReloading, ts.Nano()/1000))
 
 					if err := upg.Upgrade(); err != nil {

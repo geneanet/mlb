@@ -108,7 +108,7 @@ func (rbcp *RedisBackendConnectionPool) Get(ctx context.Context) (*RedisBackendC
 			}
 
 			if len(backends) == 0 {
-				return nil, fmt.Errorf("No backends available to create new connection")
+				return nil, fmt.Errorf("no backends available to create new connection")
 			}
 
 			// Pick a random backend from the available ones to balance new connections.

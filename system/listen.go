@@ -40,16 +40,16 @@ func Listen(network, address string) (net.Listener, error) {
 		return net.Listen(network, address)
 	}
 
-	l, err := upgrader.Fds.Listen(network, address)
+	l, err := upgrader.Listen(network, address)
 	if err != nil && network == "unix" {
 		// If it's a unix socket and it failed, it might be a stale socket file.
-		// Since Fds.Listen would have returned an inherited FD if it had one,
+		// Since Listen would have returned an inherited FD if it had one,
 		// failing here means it's not inherited and net.Listen failed.
 		if _, err := os.Stat(address); err == nil {
 			log.Warn().Str("address", address).Msg("Removing stale unix socket")
 			_ = os.Remove(address)
 		}
-		return upgrader.Fds.Listen(network, address)
+		return upgrader.Listen(network, address)
 	}
 
 	return l, err

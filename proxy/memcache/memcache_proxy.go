@@ -524,7 +524,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 		// Supported: set, add, replace, append, prepend, cas
 		if bytes.Equal(cmd, []byte("set")) || bytes.Equal(cmd, []byte("add")) || bytes.Equal(cmd, []byte("replace")) || bytes.Equal(cmd, []byte("append")) || bytes.Equal(cmd, []byte("prepend")) || bytes.Equal(cmd, []byte("cas")) {
 			if len(fields) < 5 {
-				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
+				_ = query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
 				query.Release()
 				p.releaseFields(fieldsPtr)
 				continue
@@ -532,7 +532,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 			// Parse the expected data size (fields[4])
 			size, err := util.ParseSize(fields[4])
 			if err != nil {
-				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
+				_ = query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
 				query.Release()
 				p.releaseFields(fieldsPtr)
 				continue
@@ -563,7 +563,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 		// ponytail: ms uses field[2] for size, unlike standard storage commands.
 		if bytes.Equal(cmd, []byte("ms")) {
 			if len(fields) < 3 {
-				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
+				_ = query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
 				query.Release()
 				p.releaseFields(fieldsPtr)
 				continue
@@ -571,7 +571,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 			// Parse the expected data size (fields[2])
 			size, err := util.ParseSize(fields[2])
 			if err != nil {
-				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
+				_ = query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
 				query.Release()
 				p.releaseFields(fieldsPtr)
 				continue
@@ -599,7 +599,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 		// Retrieval commands: <command> <key>*\r\n
 		if bytes.Equal(cmd, []byte("get")) || bytes.Equal(cmd, []byte("gets")) || bytes.Equal(cmd, []byte("gat")) || bytes.Equal(cmd, []byte("gats")) {
 			if len(fields) < 2 {
-				query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
+				_ = query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
 				p.releaseFields(fieldsPtr)
 				continue
 			}
@@ -648,21 +648,21 @@ func (p *MemcacheProxy) forwardSingle(q MemcacheQuery, key []byte) {
 	}
 
 	if b == nil {
-		q.Reply([]byte("SERVER_ERROR no backend available\r\n"))
+		_ = q.Reply([]byte("SERVER_ERROR no backend available\r\n"))
 		q.Release()
 		return
 	}
 
 	conn := p.backendConnectionPool.Get(b.Address)
 	if conn == nil {
-		q.Reply([]byte("SERVER_ERROR backend failure\r\n"))
+		_ = q.Reply([]byte("SERVER_ERROR backend failure\r\n"))
 		q.Release()
 		return
 	}
 
 	err := conn.Query(q)
 	if err != nil {
-		q.Reply([]byte("SERVER_ERROR backend failure\r\n"))
+		_ = q.Reply([]byte("SERVER_ERROR backend failure\r\n"))
 		q.Release()
 		return
 	}
@@ -680,7 +680,7 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 	}
 
 	if len(groups) == 0 {
-		q.Reply([]byte("END\r\n"))
+		_ = q.Reply([]byte("END\r\n"))
 		return
 	}
 
@@ -746,7 +746,7 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 	}
 
 	combinedResponse.Write([]byte("END\r\n"))
-	q.Reply(combinedResponse.Bytes())
+	_ = q.Reply(combinedResponse.Bytes())
 }
 
 func (p *MemcacheProxy) getBackendMetrics(backendAddress string) *Metrics {

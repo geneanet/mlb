@@ -262,7 +262,7 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inp
 			now := time.Now()
 			if nextReadDeadline.IsZero() || now.Add(inputTimeout).After(nextReadDeadline) {
 				nextReadDeadline = now.Add(inputTimeout + p.timeoutMargin)
-				input.SetReadDeadline(nextReadDeadline)
+				_ = input.SetReadDeadline(nextReadDeadline)
 			}
 		}
 		nbytes, readErr := input.Read(buffer)
@@ -277,7 +277,7 @@ func (p *ProxyTCP) pipe(input net.Conn, output net.Conn, done chan struct{}, inp
 				now := time.Now()
 				if nextWriteDeadline.IsZero() || now.Add(outputTimeout).After(nextWriteDeadline) {
 					nextWriteDeadline = now.Add(outputTimeout + p.timeoutMargin)
-					output.SetWriteDeadline(nextWriteDeadline)
+					_ = output.SetWriteDeadline(nextWriteDeadline)
 				}
 			}
 			nbytes, writeErr := output.Write(buffer[:nbytes])
@@ -446,8 +446,8 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	}
 
 	// Ensure both ends are closed so both pipes will exit
-	connFront.Close()
-	connBack.Close()
+	_ = connFront.Close()
+	_ = connBack.Close()
 }
 
 func (p *ProxyTCP) Bind(modules module.ModulesRegistry) error {

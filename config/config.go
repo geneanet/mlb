@@ -60,7 +60,7 @@ func RenderConfigDiag(diags hcl.Diagnostics, parser *hclparse.Parser) {
 		78,             // wrapping width
 		true,           // generate colored/highlighted output
 	)
-	wr.WriteDiagnostics(diags)
+	_ = wr.WriteDiagnostics(diags)
 }
 
 // LoadConfig loads and parses an HCL configuration file from the given path.

@@ -71,7 +71,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 
 	context.AfterFunc(mbc.ctx, func() {
 		mbc.pool.proxy.log.Debug().Str("peer", mbc.backend.Address).Msg("Closing Backend connection")
-		mbc.conn.Close()
+		_ = mbc.conn.Close()
 		close(mbc.inputChanStop)
 
 		// Abort all in flight requests
@@ -114,7 +114,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 					select {
 					case mbc.inFlight <- q:
 					case <-mbc.ctx.Done():
-						q.Abort()
+						_ = q.Abort()
 						q.Release()
 						continue
 					}
@@ -212,7 +212,7 @@ func (mbc *MemcacheBackendConnection) AbortInflightQueries() int {
 	for {
 		select {
 		case query := <-mbc.inputChan:
-			query.Abort()
+			_ = query.Abort()
 			query.Release()
 			count++
 		default:
@@ -225,7 +225,7 @@ inFlight:
 	for {
 		select {
 		case query := <-mbc.inFlight:
-			query.Abort()
+			_ = query.Abort()
 			query.Release()
 			count++
 		default:
@@ -247,7 +247,9 @@ func (p *MemcacheProxy) readMemcacheResponseFull(r *MemcacheProtocolReader, w io
 			return err
 		}
 
-		w.Write(line)
+		if _, err := w.Write(line); err != nil {
+			return err
+		}
 
 		// End of retrieval command (ASCII protocol)
 		if bytes.HasPrefix(line, []byte("END\r\n")) {
@@ -271,7 +273,10 @@ func (p *MemcacheProxy) readMemcacheResponseFull(r *MemcacheProtocolReader, w io
 					p.releaseFields(fieldsPtr)
 					return err
 				}
-				w.Write(buf)
+				if _, err := w.Write(buf); err != nil {
+					p.releaseFields(fieldsPtr)
+					return err
+				}
 			}
 			p.releaseFields(fieldsPtr)
 		} else if bytes.HasPrefix(line, []byte("VA ")) {
@@ -292,7 +297,10 @@ func (p *MemcacheProxy) readMemcacheResponseFull(r *MemcacheProtocolReader, w io
 					p.releaseFields(fieldsPtr)
 					return err
 				}
-				w.Write(buf)
+				if _, err := w.Write(buf); err != nil {
+					p.releaseFields(fieldsPtr)
+					return err
+				}
 			}
 			p.releaseFields(fieldsPtr)
 			// VA is a final response for a single mg command

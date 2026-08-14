@@ -418,14 +418,14 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	// on the backend connection to unblock any pending Read calls in the pipe.
 	close(stopPipes)
 	closeConn()
-	backendConnection.conn.SetReadDeadline(time.Now())
+	_ = backendConnection.conn.SetReadDeadline(time.Now())
 
 	// Wait for pipes to finish
 	<-doneFrontBack
 	<-doneBackFront
 
 	// Reset deadline for future use
-	backendConnection.conn.SetReadDeadline(time.Time{})
+	_ = backendConnection.conn.SetReadDeadline(time.Time{})
 }
 
 func (p *RedisProxy) getBackendMetrics(backendAddress string) *Metrics {

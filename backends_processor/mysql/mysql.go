@@ -537,7 +537,7 @@ func (c *MySQLCheck) fetchStatus() (retStatus cty.Value, retReadonly cty.Value, 
 			// Close and reopen MySQL connection to ensure we start on a good base next time
 			log.Info().Str("address", c.backend.Address).Msg("Reopening MySQL connection")
 			if c.db != nil {
-				c.db.Close()
+				_ = c.db.Close()
 			}
 			db, err := sql.Open(getMySQLDriverName(), c.dsn)
 			if err != nil {
@@ -565,7 +565,7 @@ func (c *MySQLCheck) fetchStatus() (retStatus cty.Value, retReadonly cty.Value, 
 	}
 
 	// Replica Latency
-	var replicaLatency cty.Value = cty.UnknownVal(cty.Number)
+	var replicaLatency = cty.UnknownVal(cty.Number)
 	if c.checkReplica {
 		replicaLatency, err = c.fetchReplicaLatency()
 		if err != nil {
@@ -692,7 +692,7 @@ func (c *MySQLCheck) StartPolling() error {
 			c.runningMu.Unlock()
 
 			if db != nil {
-				db.Close()
+				_ = db.Close()
 			}
 			if ticker != nil {
 				ticker.Stop()

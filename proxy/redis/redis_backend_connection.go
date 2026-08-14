@@ -6,22 +6,16 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"mlb/backend"
 	"net"
 	"sync"
 	"time"
+
+	"mlb/backend"
 )
 
 //--------------------------
 // Redis Backend Connection
 //--------------------------
-
-type responseExpectation int
-
-const (
-	expectNormal responseExpectation = iota
-	expectSubConfirmation
-)
 
 // RedisBackendConnection represents a single persistent connection to a Redis backend.
 // It manages the TCP connection, metrics, and lifecycle (context-based).
@@ -81,7 +75,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 	go func() {
 		<-rbc.ctx.Done()
 		pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Closing Backend connection")
-		rbc.conn.Close()
+		_ = rbc.conn.Close()
 		rbc.metrics.active.Dec()
 	}()
 
@@ -92,8 +86,8 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 // It is used to verify connection viability before reusing it from the pool.
 func (rbc *RedisBackendConnection) Healthcheck() error {
 	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Performing healthcheck")
-	rbc.conn.SetDeadline(time.Now().Add(rbc.pool.proxy.healthcheckTimeout))
-	defer rbc.conn.SetDeadline(time.Time{})
+	_ = rbc.conn.SetDeadline(time.Now().Add(rbc.pool.proxy.healthcheckTimeout))
+	defer func() { _ = rbc.conn.SetDeadline(time.Time{}) }()
 
 	_, err := rbc.conn.Write([]byte("PING\r\n"))
 	if err != nil {
@@ -158,8 +152,8 @@ func (rbc *RedisBackendConnection) ResetAndRelease() {
 	defer reader.Release()
 
 	// Set a short deadline for the reset operation to prevent hanging.
-	rbc.conn.SetDeadline(time.Now().Add(rbc.pool.proxy.resetTimeout))
-	defer rbc.conn.SetDeadline(time.Time{})
+	_ = rbc.conn.SetDeadline(time.Now().Add(rbc.pool.proxy.resetTimeout))
+	defer func() { _ = rbc.conn.SetDeadline(time.Time{}) }()
 
 	expectedResponse := []byte("$16\r\n" + hexToken + "\r\n")
 

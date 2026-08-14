@@ -80,7 +80,7 @@ func RegisterHandlers(mux *http.ServeMux, ml module.ModulesRegistry, conf *confi
 					HCL:      m.RawHCL,
 				}
 				var so sourceOnly
-				gohcl.DecodeBody(m.Config, m.Ctx, &so)
+				_ = gohcl.DecodeBody(m.Config, m.Ctx, &so)
 				node.Source = so.Source
 				nodes = append(nodes, node)
 			}

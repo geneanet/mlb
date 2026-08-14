@@ -434,7 +434,7 @@ func (c *RedisCheck) fetchStatus() (retStatus cty.Value, retRole cty.Value, retR
 			// Reconnect on error to ensure we start from a clean state next iteration.
 			log.Info().Str("address", c.backend.Address).Msg("Reconnecting Redis")
 			if c.client != nil {
-				c.client.Close()
+				_ = c.client.Close()
 			}
 			c.client = redis.NewClient(&redis.Options{
 				Addr:         c.backend.Address,
@@ -583,7 +583,7 @@ func (c *RedisCheck) StartPolling() error {
 			c.runningMu.Unlock()
 
 			if client != nil {
-				client.Close()
+				_ = client.Close()
 			}
 			if ticker != nil {
 				ticker.Stop()
