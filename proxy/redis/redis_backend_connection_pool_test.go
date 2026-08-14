@@ -4,6 +4,7 @@ import (
 	"context"
 	"mlb/backend"
 	"net"
+	"runtime"
 	"testing"
 	"time"
 
@@ -37,6 +38,10 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 	})
 
 	t.Run("Put and Get (LIFO)", func(t *testing.T) {
+		oldProcs := runtime.GOMAXPROCS(1)
+		defer runtime.GOMAXPROCS(oldProcs)
+		pool := NewRedisBackendConnectionPool(p)
+
 		rbc1 := &RedisBackendConnection{pool: pool, backend: &backend.Backend{Address: "1"}, lastUsed: time.Now(), ctx: ctx}
 		rbc2 := &RedisBackendConnection{pool: pool, backend: &backend.Backend{Address: "2"}, lastUsed: time.Now(), ctx: ctx}
 
@@ -66,22 +71,25 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 	})
 
 	t.Run("Idle Cleanup", func(t *testing.T) {
+		p.idleTimeout = 10 * time.Millisecond
+		pool := NewRedisBackendConnectionPool(p)
 		rbc := &RedisBackendConnection{
-			pool:     pool,
-			backend:  &backend.Backend{Address: "127.0.0.1:6379"},
-			lastUsed: time.Now().Add(-1 * time.Hour),
+			pool:    pool,
+			backend: &backend.Backend{Address: "127.0.0.1:6379"},
 		}
 		rbc.ctx, rbc.cancel = context.WithCancel(ctx)
 
 		p.backends.Add(rbc.backend)
 		pool.Put(rbc)
-		if len(pool.pool) != 1 {
-			t.Errorf("expected pool size 1, got %d", len(pool.pool))
+		if pool.Len() != 1 {
+			t.Errorf("expected pool size 1, got %d", pool.Len())
 		}
 
+		time.Sleep(20 * time.Millisecond)
+
 		pool.cleanupIdle()
-		if len(pool.pool) != 0 {
-			t.Errorf("expected pool size 0, got %d", len(pool.pool))
+		if pool.Len() != 0 {
+			t.Errorf("expected pool size 0, got %d", pool.Len())
 		}
 		p.backends.Remove("127.0.0.1:6379")
 		if rbc.ctx.Err() == nil {
@@ -90,6 +98,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 	})
 
 	t.Run("Update and Preconnect", func(t *testing.T) {
+		pool := NewRedisBackendConnectionPool(p)
 		// This requires a real connection attempt if we want to test NewRedisBackendConnection
 		// So we might just test the filtering logic
 		rbc := &RedisBackendConnection{
@@ -104,12 +113,13 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 		p.backends.Remove("127.0.0.1:6379")
 		pool.Update()
 
-		if len(pool.pool) != 0 {
-			t.Errorf("expected pool size 0, got %d (Connection to removed backend should be filtered out)", len(pool.pool))
+		if pool.Len() != 0 {
+			t.Errorf("expected pool size 0, got %d (Connection to removed backend should be filtered out)", pool.Len())
 		}
 	})
 
 	t.Run("Preconnect", func(t *testing.T) {
+		pool := NewRedisBackendConnectionPool(p)
 		// Mock a backend server to allow connection
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
@@ -124,7 +134,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 
 		// Note: Update might fail if NewRedisBackendConnection fails, but here it should work
 		// Actually, we need to be careful with concurrency and random picking.
-		if len(pool.pool) == 0 {
+		if pool.Len() == 0 {
 			t.Error("expected pool to have connections")
 		}
 	})

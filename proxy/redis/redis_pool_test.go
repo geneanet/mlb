@@ -77,8 +77,8 @@ func TestPool_GetPut(t *testing.T) {
 
 	// Put it back
 	pool.Put(rbc)
-	if len(pool.pool) != 1 {
-		t.Errorf("expected pool size 1, got %d", len(pool.pool))
+	if pool.Len() != 1 {
+		t.Errorf("expected pool size 1, got %d", pool.Len())
 	}
 
 	// Get it again (should be the same one, LIFO)
@@ -89,8 +89,8 @@ func TestPool_GetPut(t *testing.T) {
 	if rbc != rbc2 {
 		t.Errorf("expected %v, got %v", rbc, rbc2)
 	}
-	if len(pool.pool) != 0 {
-		t.Errorf("expected pool size 0, got %d", len(pool.pool))
+	if pool.Len() != 0 {
+		t.Errorf("expected pool size 0, got %d", pool.Len())
 	}
 }
 
@@ -103,10 +103,7 @@ func TestPool_EmptyBackends(t *testing.T) {
 	proxy.ctx, proxy.cancel = context.WithCancel(context.Background())
 	defer proxy.cancel()
 
-	pool := &RedisBackendConnectionPool{
-		proxy: proxy,
-		ctx:   proxy.ctx,
-	}
+	pool := NewRedisBackendConnectionPool(proxy)
 
 	_, err := pool.Get(context.Background())
 	if err == nil {
@@ -120,26 +117,27 @@ func TestPool_CleanupIdle(t *testing.T) {
 		healthcheckTimeout: time.Second,
 		resetTimeout:       2 * time.Second,
 		log:                log.Logger,
+		backends:           backend.NewRegistry(zerolog.Nop(), false),
 	}
 	proxy.ctx, proxy.cancel = context.WithCancel(context.Background())
 	defer proxy.cancel()
 
-	pool := &RedisBackendConnectionPool{
-		proxy: proxy,
-		ctx:   proxy.ctx,
-	}
+	pool := NewRedisBackendConnectionPool(proxy)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	rbc := &RedisBackendConnection{
-		lastUsed: time.Now().Add(-1 * time.Hour),
-		cancel:   cancel,
-		backend:  &backend.Backend{Address: "127.0.0.1:6379"},
+		ctx:     ctx,
+		cancel:  cancel,
+		backend: &backend.Backend{Address: "127.0.0.1:6379"},
 	}
-	pool.pool = append(pool.pool, rbc)
+	proxy.backends.Add(rbc.backend)
+	pool.Put(rbc)
+
+	time.Sleep(20 * time.Millisecond)
 
 	pool.cleanupIdle()
-	if len(pool.pool) != 0 {
-		t.Errorf("expected pool size 0, got %d", len(pool.pool))
+	if pool.Len() != 0 {
+		t.Errorf("expected pool size 0, got %d", pool.Len())
 	}
 	if ctx.Err() == nil {
 		t.Error("expected context to be cancelled")
@@ -174,15 +172,15 @@ func TestPool_UpdatePreconnect(t *testing.T) {
 
 	pool.Update()
 	// Preconnect should have added 2 connections
-	if len(pool.pool) != 2 {
-		t.Errorf("expected pool size 2, got %d", len(pool.pool))
+	if pool.Len() != 2 {
+		t.Errorf("expected pool size 2, got %d", pool.Len())
 	}
 
 	// Remove backend and update
 	proxy.backends.Remove(addr)
 	pool.Update()
-	if len(pool.pool) != 0 {
-		t.Errorf("expected pool size 0, got %d", len(pool.pool))
+	if pool.Len() != 0 {
+		t.Errorf("expected pool size 0, got %d", pool.Len())
 	}
 }
 
@@ -209,11 +207,12 @@ func TestConnection_HealthcheckFail(t *testing.T) {
 		beMetricsCache:     make(map[string]*Metrics),
 		log:                log.Logger,
 		bufferSize:         4096,
+		backends:           backend.NewRegistry(zerolog.Nop(), false),
 	}
 	proxy.ctx, proxy.cancel = context.WithCancel(context.Background())
 	defer proxy.cancel()
 
-	pool := &RedisBackendConnectionPool{proxy: proxy, ctx: proxy.ctx}
+	pool := NewRedisBackendConnectionPool(proxy)
 	rbc, err := NewRedisBackendConnection(pool, &backend.Backend{Address: addr})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -282,11 +281,7 @@ func TestConnection_ResetAndRelease(t *testing.T) {
 	proxy.ctx, proxy.cancel = context.WithCancel(context.Background())
 	defer proxy.cancel()
 
-	pool := &RedisBackendConnectionPool{
-		proxy: proxy,
-		ctx:   proxy.ctx,
-		pool:  make([]*RedisBackendConnection, 0),
-	}
+	pool := NewRedisBackendConnectionPool(proxy)
 	be := &backend.Backend{Address: addr}
 	proxy.backends.Add(be)
 	rbc, err := NewRedisBackendConnection(pool, be)
@@ -296,10 +291,8 @@ func TestConnection_ResetAndRelease(t *testing.T) {
 
 	rbc.ResetAndRelease()
 
-	pool.mutex.Lock()
-	defer pool.mutex.Unlock()
-	if len(pool.pool) != 1 {
-		t.Errorf("expected pool size 1, got %d", len(pool.pool))
+	if pool.Len() != 1 {
+		t.Errorf("expected pool size 1, got %d", pool.Len())
 	}
 }
 
@@ -314,20 +307,20 @@ func TestPool_GetStaleConnection(t *testing.T) {
 	proxy.ctx, proxy.cancel = context.WithCancel(context.Background())
 	defer proxy.cancel()
 
-	pool := &RedisBackendConnectionPool{
-		proxy: proxy,
-		ctx:   proxy.ctx,
-		pool:  make([]*RedisBackendConnection, 0),
-	}
+	pool := NewRedisBackendConnectionPool(proxy)
 
-	// Add a cancelled connection to pool
+	// Add a connection to pool then cancel it
 	ctx, cancel := context.WithCancel(proxy.ctx)
-	cancel() // Make it stale
 	rbc := &RedisBackendConnection{
 		ctx:     ctx,
 		backend: &backend.Backend{Address: "127.0.0.1:6379"},
 	}
-	pool.pool = append(pool.pool, rbc)
+	proxy.backends.Add(rbc.backend)
+	pool.Put(rbc)
+	cancel() // Make it stale
+
+	// Remove stale backend from registry so Get doesn't try to dial it again
+	proxy.backends.Remove("127.0.0.1:6379")
 
 	// Add a fresh backend for when Get needs to create one
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
