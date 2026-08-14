@@ -61,7 +61,7 @@ proxy "redis" "my_redis_proxy" {
 - `healthcheck_timeout` (duration, optional): Timeout for the healthcheck operation. Default: `1s`.
 - `reset_timeout` (duration string, optional): Timeout for the `RESET` operation performed when returning a connection to the pool. Default: `2s`.
 - `backend_tcp_keepalive` (duration string, optional): Timeout for sending TCP keepalive probes to backend connections. Set to `0s` to disable. Default: `5s`.
-- `log_backend_updates` (boolean, optional): If true, logs an INFO message when a backend is added or removed.
+- `log_backend_updates` (boolean, optional): If true, logs an INFO message when a backend is added or removed. Default: `false`.
 
 *Note: When a client disconnects, the proxy automatically sends a `RESET` command to the backend to clear the connection state (e.g., clearing PubSub subscriptions or discarding open transactions) before returning the connection to the pool.*
 
@@ -92,4 +92,4 @@ proxy "memcache" "my_memcache_proxy" {
 - `backend_tcp_keepalive` (duration string, optional): Timeout for sending TCP keepalive probes to backend connections. Set to `0s` to disable. Default: `5s`.
 - `max_fields_per_command` (number, optional): The maximum number of space-separated fields allowed in a single Memcache command line. Default: `16`.
 - `flush_backend_when_added` (boolean, optional): If `true`, MLB will send a `flush_all` command to a backend immediately after it is discovered. Useful for ensuring a clean state when adding new cache nodes. Default: `false`.
-- `log_backend_updates` (boolean, optional): If true, logs an INFO message when a backend is added or removed.
+- `log_backend_updates` (boolean, optional): If true, logs an INFO message when a backend is added or removed. Default: `false`.
