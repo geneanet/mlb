@@ -19,7 +19,8 @@ var protocolWriterPool sync.Pool
 // bufferPool allows reuse of byte slices to minimize allocations during ReadMessage.
 var bufferPool = sync.Pool{
 	New: func() any {
-		return make([]byte, 0, 4096)
+		b := make([]byte, 0, 4096)
+		return &b
 	},
 }
 
@@ -29,7 +30,7 @@ func ReleaseBuffer(b []byte) {
 	if b == nil || cap(b) < 4096 || cap(b) > 64*1024 {
 		return
 	}
-	bufferPool.Put(b)
+	bufferPool.Put(&b)
 }
 
 // RedisProtocolWriter provides a high-level writer for Redis RESP protocols.
@@ -98,7 +99,7 @@ func (r *RedisProtocolReader) Release() {
 // readLine reads a single CRLF-terminated line from the source and appends it to the accumulation buffer.
 func (r *RedisProtocolReader) readLine() ([]byte, error) {
 	if r.buffer == nil {
-		r.buffer = bufferPool.Get().([]byte)
+		r.buffer = *(bufferPool.Get().(*[]byte))
 		r.buffer = r.buffer[:0]
 	}
 
@@ -118,7 +119,7 @@ func (r *RedisProtocolReader) readLine() ([]byte, error) {
 // readRaw reads exactly n+2 bytes (payload + CRLF) from the source and appends them to the accumulation buffer.
 func (r *RedisProtocolReader) readRaw(n int) ([]byte, error) {
 	if r.buffer == nil {
-		r.buffer = bufferPool.Get().([]byte)
+		r.buffer = *(bufferPool.Get().(*[]byte))
 		r.buffer = r.buffer[:0]
 	}
 
@@ -137,7 +138,7 @@ func (r *RedisProtocolReader) readRaw(n int) ([]byte, error) {
 // If allowInline is true, it also supports simple space-separated inline commands.
 func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 	if r.buffer == nil {
-		r.buffer = bufferPool.Get().([]byte)
+		r.buffer = *(bufferPool.Get().(*[]byte))
 	}
 	r.buffer = r.buffer[:0]
 	eof := false
