@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -14,7 +15,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	reg := backend.NewRegistry()
+	reg := backend.NewRegistry(zerolog.Nop(), false)
 	p := &RedisProxy{
 		id:                 "test-pool",
 		backends:           reg,
@@ -39,7 +40,9 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 		rbc1 := &RedisBackendConnection{pool: pool, backend: &backend.Backend{Address: "1"}, lastUsed: time.Now(), ctx: ctx}
 		rbc2 := &RedisBackendConnection{pool: pool, backend: &backend.Backend{Address: "2"}, lastUsed: time.Now(), ctx: ctx}
 
-		p.backends.Add(rbc1.backend); p.backends.Add(rbc2.backend); pool.Put(rbc1)
+		p.backends.Add(rbc1.backend)
+		p.backends.Add(rbc2.backend)
+		pool.Put(rbc1)
 		pool.Put(rbc2)
 
 		p.backends.Remove("1")
@@ -69,8 +72,9 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 			lastUsed: time.Now().Add(-1 * time.Hour),
 		}
 		rbc.ctx, rbc.cancel = context.WithCancel(ctx)
-		
-		p.backends.Add(rbc.backend); pool.Put(rbc)
+
+		p.backends.Add(rbc.backend)
+		pool.Put(rbc)
 		if len(pool.pool) != 1 {
 			t.Errorf("expected pool size 1, got %d", len(pool.pool))
 		}
@@ -89,16 +93,17 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 		// This requires a real connection attempt if we want to test NewRedisBackendConnection
 		// So we might just test the filtering logic
 		rbc := &RedisBackendConnection{
-			pool: pool,
+			pool:    pool,
 			backend: &backend.Backend{Address: "127.0.0.1:6379"},
-			ctx: ctx,
+			ctx:     ctx,
 		}
-		p.backends.Add(rbc.backend); pool.Put(rbc)
-		
+		p.backends.Add(rbc.backend)
+		pool.Put(rbc)
+
 		// Remove backend from registry
 		p.backends.Remove("127.0.0.1:6379")
 		pool.Update()
-		
+
 		if len(pool.pool) != 0 {
 			t.Errorf("expected pool size 0, got %d (Connection to removed backend should be filtered out)", len(pool.pool))
 		}
@@ -114,9 +119,9 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 
 		p.backends.Add(&backend.Backend{Address: ln.Addr().String()})
 		p.preconnect = 2
-		
+
 		pool.Update()
-		
+
 		// Note: Update might fail if NewRedisBackendConnection fails, but here it should work
 		// Actually, we need to be careful with concurrency and random picking.
 		if len(pool.pool) == 0 {
@@ -125,7 +130,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 	})
 
 	t.Run("Wait Timeout", func(t *testing.T) {
-		reg := backend.NewRegistry()
+		reg := backend.NewRegistry(zerolog.Nop(), false)
 		p := &RedisProxy{
 			id:                 "test-wait-timeout",
 			backends:           reg,
@@ -134,7 +139,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 			backendWaitTimeout: 500 * time.Millisecond,
 			connectTimeout:     time.Second,
 			healthcheckTimeout: time.Second,
-		resetTimeout:       2 * time.Second,
+			resetTimeout:       2 * time.Second,
 			beMetricsCache:     make(map[string]*Metrics),
 		}
 		pool := NewRedisBackendConnectionPool(p)
@@ -182,7 +187,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 	})
 
 	t.Run("Wait Timeout Exceeded", func(t *testing.T) {
-		reg := backend.NewRegistry()
+		reg := backend.NewRegistry(zerolog.Nop(), false)
 		p := &RedisProxy{
 			id:                 "test-wait-timeout-exceeded",
 			backends:           reg,
@@ -191,7 +196,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 			backendWaitTimeout: 100 * time.Millisecond,
 			connectTimeout:     time.Second,
 			healthcheckTimeout: time.Second,
-		resetTimeout:       2 * time.Second,
+			resetTimeout:       2 * time.Second,
 			beMetricsCache:     make(map[string]*Metrics),
 		}
 		pool := NewRedisBackendConnectionPool(p)
@@ -208,4 +213,3 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 		}
 	})
 }
-

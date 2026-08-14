@@ -30,16 +30,16 @@ func TestMemcacheBackendConnection_QueryAndAbort(t *testing.T) {
 	defer cancel()
 
 	proxy := &MemcacheProxy{
-		id:                        "test_proxy",
-		connectTimeout:            time.Second,
-		backendMinConnections:     1,
-		backendMaxConnections:     1,
+		id:                       "test_proxy",
+		connectTimeout:           time.Second,
+		backendMinConnections:    1,
+		backendMaxConnections:    1,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		ctx:                       ctx,
-		cancel:                    cancel,
-		backends:                  backend.NewRegistry(),
-		log:                       zerolog.Nop(),
+		ctx:                      ctx,
+		cancel:                   cancel,
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
+		log:                      zerolog.Nop(),
 		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
@@ -92,16 +92,16 @@ func TestMemcacheBackendConnection_ReadFull(t *testing.T) {
 	defer cancel()
 
 	proxy := &MemcacheProxy{
-		id:                        "test_proxy",
-		connectTimeout:            time.Second,
-		backendMinConnections:     1,
-		backendMaxConnections:     1,
+		id:                       "test_proxy",
+		connectTimeout:           time.Second,
+		backendMinConnections:    1,
+		backendMaxConnections:    1,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		ctx:                       ctx,
-		cancel:                    cancel,
-		backends:                  backend.NewRegistry(),
-		log:                       zerolog.Nop(),
+		ctx:                      ctx,
+		cancel:                   cancel,
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
+		log:                      zerolog.Nop(),
 		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {

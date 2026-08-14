@@ -61,12 +61,13 @@ type BackendsInventoryConsul struct {
 
 // ConsulBackendsInventoryConfig defines the HCL configuration for Consul discovery.
 type ConsulBackendsInventoryConfig struct {
-	ID            string  `hcl:"id,label"`
-	URL           string  `hcl:"url"`
-	Service       string  `hcl:"service"`
-	Period        string  `hcl:"period,optional"`
-	MaxPeriod     string  `hcl:"max_period,optional"`
-	BackoffFactor float64 `hcl:"backoff_factor,optional"`
+	ID                string  `hcl:"id,label"`
+	URL               string  `hcl:"url"`
+	Service           string  `hcl:"service"`
+	Period            string  `hcl:"period,optional"`
+	MaxPeriod         string  `hcl:"max_period,optional"`
+	BackoffFactor     float64 `hcl:"backoff_factor,optional"`
+	LogBackendUpdates bool    `hcl:"log_backend_updates,optional"`
 }
 
 // validateConsulBackendsInventoryConfig validates the Consul discovery configuration.
@@ -105,8 +106,8 @@ func newConsulBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx conte
 		id:       config.ID,
 		url:      config.URL,
 		service:  config.Service,
-		backends: backend.NewRegistry(),
 		log:      log.With().Str("id", config.ID).Logger(),
+		backends: backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
 	}
 
 	var err error
@@ -154,7 +155,6 @@ func newConsulBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx conte
 				added, modified, removed := consulServicesDiff(old, services)
 
 				for address, service := range added {
-					log.Debug().Str("address", address).Msg("Service added")
 					c.backends.Add(&backend.Backend{
 						Address: address,
 						Meta: backend.NewMetaMap(map[string]backend.MetaBucket{
@@ -173,7 +173,6 @@ func newConsulBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx conte
 				}
 
 				for address, service := range modified {
-					log.Debug().Str("address", address).Msg("Service modified")
 					b := c.backends.Get(address)
 					b.Meta.Set("consul", "tags", ctyTagSet(service.Service.Tags))
 					b.Meta.Set("consul", "weight", cty.NumberUIntVal(service.Service.Weights.Passing))
@@ -186,7 +185,6 @@ func newConsulBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx conte
 				}
 
 				for address := range removed {
-					log.Debug().Str("address", address).Msg("Service removed")
 					c.backends.Remove(address)
 					c.backends.Publish(backend.BackendUpdate{
 						Kind:    backend.UpdBackendRemoved,

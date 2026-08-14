@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -44,7 +45,7 @@ func TestPool_GetPut(t *testing.T) {
 
 	proxy := &RedisProxy{
 		id:                 "test",
-		backends:           backend.NewRegistry(),
+		backends:           backend.NewRegistry(zerolog.Nop(), false),
 		log:                log.Logger,
 		idleTimeout:        1 * time.Minute,
 		connectTimeout:     1 * time.Second,
@@ -95,7 +96,7 @@ func TestPool_GetPut(t *testing.T) {
 
 func TestPool_EmptyBackends(t *testing.T) {
 	proxy := &RedisProxy{
-		backends:           backend.NewRegistry(),
+		backends:           backend.NewRegistry(zerolog.Nop(), false),
 		healthcheckTimeout: time.Second,
 		resetTimeout:       2 * time.Second,
 	}
@@ -155,7 +156,7 @@ func TestPool_UpdatePreconnect(t *testing.T) {
 	addr := ln.Addr().String()
 
 	proxy := &RedisProxy{
-		backends:           backend.NewRegistry(),
+		backends:           backend.NewRegistry(zerolog.Nop(), false),
 		log:                log.Logger,
 		preconnect:         2,
 		idleTimeout:        1 * time.Minute,
@@ -276,7 +277,7 @@ func TestConnection_ResetAndRelease(t *testing.T) {
 		bufferSize:         4096,
 		healthcheckTimeout: time.Second,
 		resetTimeout:       2 * time.Second,
-		backends:           backend.NewRegistry(),
+		backends:           backend.NewRegistry(zerolog.Nop(), false),
 	}
 	proxy.ctx, proxy.cancel = context.WithCancel(context.Background())
 	defer proxy.cancel()
@@ -294,7 +295,7 @@ func TestConnection_ResetAndRelease(t *testing.T) {
 	}
 
 	rbc.ResetAndRelease()
-	
+
 	pool.mutex.Lock()
 	defer pool.mutex.Unlock()
 	if len(pool.pool) != 1 {
@@ -304,7 +305,7 @@ func TestConnection_ResetAndRelease(t *testing.T) {
 
 func TestPool_GetStaleConnection(t *testing.T) {
 	proxy := &RedisProxy{
-		backends:           backend.NewRegistry(),
+		backends:           backend.NewRegistry(zerolog.Nop(), false),
 		log:                log.Logger,
 		healthcheck:        false,
 		healthcheckTimeout: time.Second,

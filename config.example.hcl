@@ -15,6 +15,7 @@ backends_inventory "consul" "mysql" {
   // period = "1s"
   // max_period = "5s"
   // backoff_factor = 1.5
+  // log_backend_updates = true
 }
 
 backends_inventory "consul" "redis" {
@@ -23,14 +24,17 @@ backends_inventory "consul" "redis" {
   // period = "1s"
   // max_period = "5s"
   // backoff_factor = 1.5
+  // log_backend_updates = true
 }
 
 backends_inventory "static" "memcache_static" {
   hosts = ["127.0.0.1:11211", "127.0.0.1:11212"]
+  // log_backend_updates = true
 }
 
 backends_inventory "static" "mysql_static" {
   hosts = ["127.0.0.1:3306", "127.0.0.1:3307"]
+  // log_backend_updates = true
 }
 
 backends_processor "consul_kv" "sqlweight" {
@@ -43,6 +47,7 @@ backends_processor "consul_kv" "sqlweight" {
     consul_key = "server_weights/${backend.meta.consul.node}"
     default = "0"
   }
+  // log_backend_updates = true
 }
 
 backends_processor "mysql" "mysql" {
@@ -61,6 +66,7 @@ backends_processor "mysql" "mysql" {
   // retry_max_attempts = 3
   // conn_max_lifetime = "5m"
   // check_replica = false
+  // log_backend_updates = true
 }
 
 backends_processor "redis" "redis" {
@@ -76,6 +82,7 @@ backends_processor "redis" "redis" {
   // retry_max_period = "1s"
   // retry_backoff_factor = 1.5
   // retry_max_attempts = 3
+  // log_backend_updates = true
 }
 
 backends_processor "simple_filter" "mysql_main_ro" {
@@ -90,6 +97,7 @@ backends_processor "simple_filter" "mysql_main_ro" {
   // sort_by = backend.meta.mysql.replica_latency
   // sort_order = "asc" // "asc" (default) or "desc"
   // limit = 10
+  // log_backend_updates = true
 }
 
 backends_processor "simple_filter" "redis_master" {
@@ -98,17 +106,20 @@ backends_processor "simple_filter" "redis_master" {
     backend.meta.redis.status == "ok"
     && backend.meta.redis.role == "master"
   )
+  // log_backend_updates = true
 }
 
 balancer "wrr" "mysql_main_ro" {
   source = backends_processor.simple_filter.mysql_main_ro
   weight = backend.meta.consul.weight
   // timeout = "0s"
+  // log_backend_updates = true
 }
 
 balancer "wrr" "redis_master" {
   source = backends_processor.simple_filter.redis_master
   // timeout = "0s"
+  // log_backend_updates = true
 }
 
 proxy "tcp" "mysql_main_ro" {
@@ -142,6 +153,7 @@ proxy "redis" "redis" {
   // healthcheck = false
   // healthcheck_timeout = "1s"
   // reset_timeout = "2s"
+  // log_backend_updates = true
 }
 
 proxy "memcache" "memcache" {
@@ -158,4 +170,5 @@ proxy "memcache" "memcache" {
   // backend_tcp_keepalive = "5s"
   // max_fields_per_command = 16
   // flush_backend_when_added = false
+  // log_backend_updates = true
 }

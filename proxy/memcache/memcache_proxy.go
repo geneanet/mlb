@@ -43,6 +43,7 @@ type MemcacheProxyConfig struct {
 	BackendTCPKeepAlive      string   `hcl:"backend_tcp_keepalive,optional"`
 	MaxFieldsPerCommand      int      `hcl:"max_fields_per_command,optional"`
 	FlushBackendWhenAdded    bool     `hcl:"flush_backend_when_added,optional"`
+	LogBackendUpdates        bool     `hcl:"log_backend_updates,optional"`
 }
 
 // MemcacheProxy implements a Memcache-compatible proxy with consistent hashing support.
@@ -168,7 +169,6 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 		beMetricsCache:           make(map[string]*Metrics),
 		log:                      log.With().Str("id", config.ID).Logger(),
 		wg:                       wg,
-		backends:                 backend.NewRegistry(),
 		ring:                     newMemcacheHashRing(),
 		backendUpdatesChan:       make(chan backend.BackendUpdate, 100),
 		backendUpdatesChanClosed: make(chan struct{}),
@@ -178,6 +178,7 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 				return &f
 			},
 		},
+		backends: backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
 	}
 
 	var err error

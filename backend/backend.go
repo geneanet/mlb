@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/rs/zerolog"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/gocty"
 )
@@ -81,13 +82,17 @@ type Registry struct {
 	subscribers []BackendUpdateSubscriber
 	mu          sync.RWMutex
 	waitChan    chan struct{}
+	log         zerolog.Logger
+	logUpdates  bool
 }
 
 // NewRegistry creates a new empty Registry.
-func NewRegistry() *Registry {
+func NewRegistry(log zerolog.Logger, logUpdates bool) *Registry {
 	return &Registry{
-		backends: make(map[string]*Backend),
-		waitChan: make(chan struct{}),
+		backends:   make(map[string]*Backend),
+		waitChan:   make(chan struct{}),
+		log:        log,
+		logUpdates: logUpdates,
 	}
 }
 
@@ -148,6 +153,13 @@ func (r *Registry) GetSortedList() BackendsList {
 func (r *Registry) Add(b *Backend) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	r.log.Debug().Str("address", b.Address).Msg("Backend added to registry")
+
+	if _, ok := r.backends[b.Address]; !ok && r.logUpdates {
+		r.log.Info().Str("address", b.Address).Msg("Backend added")
+	}
+
 	r.backends[b.Address] = b
 	r.updateWaitState()
 }
@@ -157,12 +169,17 @@ func (r *Registry) Update(b *Backend, exceptMeta ...string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	r.log.Debug().Str("address", b.Address).Msg("Backend updated in registry")
+
 	if existing, ok := r.backends[b.Address]; ok {
 		if existing == b {
 			return
 		}
 		existing.Meta.Update(b.Meta, exceptMeta...)
 	} else {
+		if r.logUpdates {
+			r.log.Info().Str("address", b.Address).Msg("Backend added")
+		}
 		r.backends[b.Address] = b
 	}
 	r.updateWaitState()
@@ -172,8 +189,16 @@ func (r *Registry) Update(b *Backend, exceptMeta ...string) {
 func (r *Registry) Remove(address string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.backends, address)
-	r.updateWaitState()
+
+	r.log.Debug().Str("address", address).Msg("Backend removed from registry")
+
+	if _, ok := r.backends[address]; ok {
+		if r.logUpdates {
+			r.log.Info().Str("address", address).Msg("Backend removed")
+		}
+		delete(r.backends, address)
+		r.updateWaitState()
+	}
 }
 
 // Has checks if a backend with the given address exists in the registry.

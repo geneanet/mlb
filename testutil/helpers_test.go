@@ -5,6 +5,8 @@ import (
 	"mlb/backend"
 	"strings"
 	"testing"
+
+	"github.com/rs/zerolog"
 )
 
 type helperMockTB struct {
@@ -57,7 +59,7 @@ func TestDummySubscriber(t *testing.T) {
 }
 
 func TestDummyProvider(t *testing.T) {
-	registry := backend.NewRegistry()
+	registry := backend.NewRegistry(zerolog.Nop(), false)
 	provider := &DummyProvider{
 		ID:       "test",
 		Backends: registry,

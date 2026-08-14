@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -114,7 +115,7 @@ backends_processor "consul_kv" "test" {
 	}
 	consulMod := mod.(*ConsulKV)
 
-	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry()}
+	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("foo", dp)
 	_ = consulMod.Bind(modules)
@@ -251,7 +252,7 @@ backends_processor "consul_kv" "test" {
 	}
 	consulMod := mod.(*ConsulKV)
 
-	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry()}
+	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("foo", dp)
 	_ = consulMod.Bind(modules)

@@ -29,7 +29,7 @@ func newMemcacheHashRing() *memcacheHashRing {
 }
 
 // update rebuilds the hash ring with the given list of backends.
-// It creates 160 virtual nodes (40 MD5 hashes * 4 uint32 each) per backend 
+// It creates 160 virtual nodes (40 MD5 hashes * 4 uint32 each) per backend
 // to ensure a smooth and uniform distribution of keys across the available backends.
 // This follows the Ketama algorithm implementation.
 func (r *memcacheHashRing) update(backends []*backend.Backend) {

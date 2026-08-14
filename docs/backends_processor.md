@@ -32,6 +32,7 @@ backends_processor "mysql" "my_db" {
 - `retry_backoff_factor` (number, optional): Multiplier applied to the delay between retry attempts. Default: `1.5`.
 - `retry_max_attempts` (integer, optional): Maximum number of attempts per health check operation before giving up. Default: `3`.
 - `conn_max_lifetime` (duration string, optional): The maximum amount of time a health check connection may be reused before being recreated. Default: `5m`.
+- `log_backend_updates` (boolean, optional): If true, logs an INFO message when a backend is added or removed.
 
 ### Metadata Provided (`mysql` bucket)
 
@@ -65,6 +66,7 @@ backends_processor "redis" "my_redis" {
 - `retry_max_period` (duration string, optional): Maximum duration between retries when exponential backoff is applied. Default: `1s`.
 - `retry_backoff_factor` (number, optional): The factor by which the retry wait time increases on failure. Default: `1.5`.
 - `retry_max_attempts` (number, optional): Maximum number of retry attempts before reporting the backend as down. Default: `3`.
+- `log_backend_updates` (boolean, optional): If true, logs an INFO message when a backend is added or removed.
 
 ### Metadata Provided (`redis` bucket)
 
@@ -94,6 +96,7 @@ backends_processor "consul_kv" "weights" {
 
 - `source` (string, required): The ID of the backend provider.
 - `url` (string, required): Consul URL.
+- `log_backend_updates` (boolean, optional): If true, logs an INFO message when a backend is added or removed.
 - `value` (block, required): Defines a KV watch.
     - `id` (label): The name of the metadata key.
     - `consul_key` (HCL expression): The key to fetch from Consul. You can use `${backend.meta...}` to dynamically build the key.
@@ -127,6 +130,7 @@ backends_processor "simple_filter" "mysql_slaves" {
 - `sort_by` (HCL expression, optional): An expression used to sort the backends.
 - `sort_order` (string, optional): `asc` (default) or `desc`.
 - `limit` (number, optional): Maximum number of backends to return after sorting.
+- `log_backend_updates` (boolean, optional): If true, logs an INFO message when a backend is added or removed.
 
 ## Metadata Summary
 

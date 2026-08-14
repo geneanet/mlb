@@ -22,16 +22,16 @@ func TestMemcacheBackendConnectionPool_Del(t *testing.T) {
 	defer cancel()
 
 	proxy := &MemcacheProxy{
-		id:                        "test_proxy",
-		connectTimeout:            time.Second,
-		backendMinConnections:     1,
-		backendMaxConnections:     2,
+		id:                       "test_proxy",
+		connectTimeout:           time.Second,
+		backendMinConnections:    1,
+		backendMaxConnections:    2,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		ctx:                       ctx,
-		cancel:                    cancel,
-		backends:                  backend.NewRegistry(),
-		log:                       zerolog.Nop(),
+		ctx:                      ctx,
+		cancel:                   cancel,
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
+		log:                      zerolog.Nop(),
 		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
@@ -69,16 +69,16 @@ func TestMemcacheBackendConnectionPool_UpdateRemovesDeadBackends(t *testing.T) {
 	defer cancel()
 
 	proxy := &MemcacheProxy{
-		id:                        "test_proxy",
-		connectTimeout:            time.Second,
-		backendMinConnections:     1,
-		backendMaxConnections:     2,
+		id:                       "test_proxy",
+		connectTimeout:           time.Second,
+		backendMinConnections:    1,
+		backendMaxConnections:    2,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		ctx:                       ctx,
-		cancel:                    cancel,
-		backends:                  backend.NewRegistry(),
-		log:                       zerolog.Nop(),
+		ctx:                      ctx,
+		cancel:                   cancel,
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
+		log:                      zerolog.Nop(),
 		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
@@ -124,7 +124,7 @@ func TestMemcacheMinMaxPoolGrowth(t *testing.T) {
 	proxy := &MemcacheProxy{
 		id:                       "test_minmax",
 		log:                      zerolog.Nop(),
-		backends:                 backend.NewRegistry(),
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
 		backendMinConnections:    1,
 		backendMaxConnections:    2,
 		backendInputQueueSize:    1, // Tiny queue to trigger saturation easily
@@ -243,10 +243,10 @@ func TestMemcacheBackendConnectionPool_UpdateParallel(t *testing.T) {
 		backendMaxConnections:    1,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		ctx:                       ctx,
+		ctx:                      ctx,
 		cancel:                   cancel,
-		backends:                  backend.NewRegistry(),
-		log:                       zerolog.Nop(),
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
+		log:                      zerolog.Nop(),
 		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
@@ -336,7 +336,7 @@ func TestMemcacheBackendConnectionPool_NotifyFailure(t *testing.T) {
 		log:            zerolog.Nop(),
 		ctx:            ctx,
 		beMetricsCache: make(map[string]*Metrics),
-		backends:       backend.NewRegistry(),
+		backends:       backend.NewRegistry(zerolog.Nop(), false),
 	}
 
 	pool := NewMemcacheBackendConnectionPool(p)
@@ -369,4 +369,3 @@ func TestMemcacheBackendConnectionPool_NotifyFailure(t *testing.T) {
 		}
 	}
 }
-

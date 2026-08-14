@@ -65,6 +65,7 @@ type RedisCheckerConfig struct {
 	RetryMaxPeriod     string  `hcl:"retry_max_period,optional"`
 	RetryBackoffFactor float64 `hcl:"retry_backoff_factor,optional"`
 	RetryMaxAttempts   int     `hcl:"retry_max_attempts,optional"`
+	LogBackendUpdates  bool    `hcl:"log_backend_updates,optional"`
 }
 
 // validateRedisCheckerConfig validates the Redis checker configuration.
@@ -138,7 +139,7 @@ func newRedisChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 		updChan:            make(chan backend.BackendUpdate, 100),
 		updChanStop:        make(chan struct{}),
 		source:             config.Source,
-		backends:           backend.NewRegistry(),
+		backends:           backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
 	}
 
 	var err error
@@ -219,8 +220,6 @@ func newRedisChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 							Backend: check.backend,
 						})
 					} else {
-						c.log.Info().Str("address", upd.Address).Msg("Adding Redis check")
-
 						check := NewRedisCheck(
 							upd.Backend.Clone(),
 							c.password,
@@ -251,7 +250,6 @@ func newRedisChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 					}
 				case backend.UpdBackendRemoved:
 					if check, ok := c.checks[upd.Address]; ok {
-						c.log.Info().Str("address", upd.Address).Msg("Removing Redis check")
 						check.StopPolling()
 						delete(c.checks, upd.Address)
 						c.backends.Remove(upd.Address)
@@ -532,13 +530,17 @@ func (c *RedisCheck) updateStatus() {
 
 	updateMeta("status", newStatus, func(e *zerolog.Event) { e.Str("status", newStatus.AsString()) })
 	updateMeta("role", newRole, func(e *zerolog.Event) { e.Str("role", newRole.AsString()) })
-	updateMeta("readonly", newReadonly, func(e *zerolog.Event) { e.Bool("readonly", newReadonly.Type() == cty.Bool && !newReadonly.IsNull() && newReadonly.True()) })
+	updateMeta("readonly", newReadonly, func(e *zerolog.Event) {
+		e.Bool("readonly", newReadonly.Type() == cty.Bool && !newReadonly.IsNull() && newReadonly.True())
+	})
 	updateMeta("connected_slaves", newSlaves, func(e *zerolog.Event) {
 		s, _ := newSlaves.AsBigFloat().Int64()
 		e.Int64("connected_slaves", s)
 	})
 	updateMeta("master_link_status", newMasterLinkStatus, func(e *zerolog.Event) { e.Str("master_link_status", newMasterLinkStatus.AsString()) })
-	updateMeta("master_sync_in_progress", newMasterSyncInProgress, func(e *zerolog.Event) { e.Bool("master_sync_in_progress", newMasterSyncInProgress.Type() == cty.Bool && !newMasterSyncInProgress.IsNull() && newMasterSyncInProgress.True()) })
+	updateMeta("master_sync_in_progress", newMasterSyncInProgress, func(e *zerolog.Event) {
+		e.Bool("master_sync_in_progress", newMasterSyncInProgress.Type() == cty.Bool && !newMasterSyncInProgress.IsNull() && newMasterSyncInProgress.True())
+	})
 
 	// Notify parent checker if any metadata changed
 	if changed {

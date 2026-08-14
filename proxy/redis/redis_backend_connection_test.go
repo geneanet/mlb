@@ -6,6 +6,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 func TestRedisBackendConnection(t *testing.T) {
@@ -65,7 +67,7 @@ func TestRedisBackendConnection(t *testing.T) {
 		resetTimeout:       2 * time.Second,
 		bufferSize:         1024,
 		beMetricsCache:     make(map[string]*Metrics),
-		backends:           backend.NewRegistry(),
+		backends:           backend.NewRegistry(zerolog.Nop(), false),
 	}
 	pool := NewRedisBackendConnectionPool(p)
 	be := &backend.Backend{Address: ln.Addr().String()}

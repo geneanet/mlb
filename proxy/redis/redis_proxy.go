@@ -65,20 +65,21 @@ type Metrics struct {
 
 // RedisProxyConfig defines the HCL configuration for the Redis proxy.
 type RedisProxyConfig struct {
-	ID                    string   `hcl:"id,label"`
-	Source                string   `hcl:"source"`
-	Addresses             []string `hcl:"addresses,optional"`
-	ConnectTimeout        string   `hcl:"connect_timeout,optional"`
-	CloseTimeout          string   `hcl:"close_timeout,optional"`
-	BackendWaitTimeout    string   `hcl:"backend_wait_timeout,optional"`
-	BackendTCPKeepAlive   string   `hcl:"backend_tcp_keepalive,optional"`
-	BufferSize            int      `hcl:"buffer_size,optional"`
-	Preconnect            int      `hcl:"preconnect,optional"`
-	IdleTimeout           string   `hcl:"idle_timeout,optional"`
-	IdleCleanupPeriod     string   `hcl:"idle_cleanup_period,optional"`
-	Healthcheck           bool     `hcl:"healthcheck,optional"`
-	HealthcheckTimeout    string   `hcl:"healthcheck_timeout,optional"`
-	ResetTimeout          string   `hcl:"reset_timeout,optional"`
+	ID                  string   `hcl:"id,label"`
+	Source              string   `hcl:"source"`
+	Addresses           []string `hcl:"addresses,optional"`
+	ConnectTimeout      string   `hcl:"connect_timeout,optional"`
+	CloseTimeout        string   `hcl:"close_timeout,optional"`
+	BackendWaitTimeout  string   `hcl:"backend_wait_timeout,optional"`
+	BackendTCPKeepAlive string   `hcl:"backend_tcp_keepalive,optional"`
+	BufferSize          int      `hcl:"buffer_size,optional"`
+	Preconnect          int      `hcl:"preconnect,optional"`
+	IdleTimeout         string   `hcl:"idle_timeout,optional"`
+	IdleCleanupPeriod   string   `hcl:"idle_cleanup_period,optional"`
+	Healthcheck         bool     `hcl:"healthcheck,optional"`
+	HealthcheckTimeout  string   `hcl:"healthcheck_timeout,optional"`
+	ResetTimeout        string   `hcl:"reset_timeout,optional"`
+	LogBackendUpdates   bool     `hcl:"log_backend_updates,optional"`
 }
 
 // validateRedisProxyConfig validates the Redis proxy configuration.
@@ -149,8 +150,8 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (
 		wg:                       wg,
 		backendUpdatesChan:       make(chan backend.BackendUpdate, 100),
 		backendUpdatesChanClosed: make(chan struct{}),
-		backends:                 backend.NewRegistry(),
 		beMetricsCache:           make(map[string]*Metrics),
+		backends:                 backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
 	}
 
 	var err error

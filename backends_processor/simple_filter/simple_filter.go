@@ -40,12 +40,13 @@ type SimpleFilter struct {
 
 // SimpleFilterConfig represents the HCL configuration for the simple_filter processor.
 type SimpleFilterConfig struct {
-	ID        string         `hcl:"id,label"`
-	Source    string         `hcl:"source"`
-	Condition hcl.Expression `hcl:"condition"`           // Boolean expression evaluated for each backend
-	SortBy    hcl.Expression `hcl:"sort_by,optional"`    // Optional expression to sort by (evaluated per backend)
-	SortOrder *string        `hcl:"sort_order,optional"` // "asc" (default) or "desc"
-	Limit     *int           `hcl:"limit,optional"`      // Optional limit on the number of backends
+	ID                string         `hcl:"id,label"`
+	Source            string         `hcl:"source"`
+	Condition         hcl.Expression `hcl:"condition"`           // Boolean expression evaluated for each backend
+	SortBy            hcl.Expression `hcl:"sort_by,optional"`    // Optional expression to sort by (evaluated per backend)
+	SortOrder         *string        `hcl:"sort_order,optional"` // "asc" (default) or "desc"
+	Limit             *int           `hcl:"limit,optional"`      // Optional limit on the number of backends
+	LogBackendUpdates bool           `hcl:"log_backend_updates,optional"`
 }
 
 func validateSimpleFilterConfig(tc *module.Config) hcl.Diagnostics {
@@ -77,7 +78,6 @@ func newSimpleFilter(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 
 	f := &SimpleFilter{
 		id:          config.ID,
-		backends:    backend.NewRegistry(),
 		allMatched:  make(map[string]*backend.Backend),
 		log:         log.With().Str("id", config.ID).Logger(),
 		updChan:     make(chan backend.BackendUpdate, 100),
@@ -88,6 +88,7 @@ func newSimpleFilter(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 		sortOrder:   sortOrder,
 		limit:       limit,
 		evalCtx:     tc.Ctx,
+		backends:    backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
 	}
 
 	ctx, cancel := context.WithCancel(ctx)

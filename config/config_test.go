@@ -3,7 +3,6 @@ package config_test
 
 import (
 	"io"
-	"mlb/config"
 	_ "mlb/backends_inventory/consul"
 	_ "mlb/backends_inventory/static"
 	_ "mlb/backends_processor/consul_kv"
@@ -11,6 +10,7 @@ import (
 	_ "mlb/backends_processor/redis"
 	_ "mlb/backends_processor/simple_filter"
 	_ "mlb/balancer/wrr"
+	"mlb/config"
 	_ "mlb/proxy/memcache"
 	_ "mlb/proxy/redis"
 	_ "mlb/proxy/tcp"

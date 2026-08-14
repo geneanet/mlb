@@ -46,10 +46,11 @@ type WLCBalancer struct {
 
 // WLCBalancerConfig defines the HCL configuration for the WLC balancer.
 type WLCBalancerConfig struct {
-	ID      string
-	Source  string         `hcl:"source"`
-	Weight  hcl.Expression `hcl:"weight"`
-	Timeout string         `hcl:"timeout,optional"`
+	ID                string
+	Source            string         `hcl:"source"`
+	Weight            hcl.Expression `hcl:"weight"`
+	Timeout           string         `hcl:"timeout,optional"`
+	LogBackendUpdates bool           `hcl:"log_backend_updates,optional"`
 }
 
 // validateWLCBalancerConfig validates the WLC balancer configuration.
@@ -81,13 +82,13 @@ func newWLCBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 
 	b := &WLCBalancer{
 		id:          config.ID,
-		backends:    backend.NewRegistry(),
 		stats:       make(map[string]*backendStats),
 		log:         log.With().Str("id", config.ID).Logger(),
 		updChan:     make(chan backend.BackendUpdate, 100),
 		updChanStop: make(chan struct{}),
 		source:      config.Source,
 		evalCtx:     tc.Ctx,
+		backends:    backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
 	}
 
 	var err error
@@ -126,7 +127,6 @@ func newWLCBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 					}
 
 					if upd.Kind == backend.UpdBackendAdded {
-						b.log.Info().Str("address", upd.Address).Int64("weight", weight).Msg("Adding backend to WLC balancer")
 						clone := upd.Backend.Clone()
 						clone.Ctx, clone.Cancel = context.WithCancel(b.ctx)
 						b.backends.Add(clone)
@@ -144,7 +144,6 @@ func newWLCBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 					b.backends.Get(upd.Address).Meta.Set("wlc", "weight", cty.NumberIntVal(weight))
 
 				case backend.UpdBackendRemoved:
-					b.log.Info().Str("address", upd.Address).Msg("Removing backend from WLC balancer")
 					if be := b.backends.Get(upd.Address); be != nil && be.Cancel != nil {
 						be.Cancel()
 					}

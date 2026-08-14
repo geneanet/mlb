@@ -17,6 +17,7 @@ balancer "wrr" "my_balancer" {
 - `source` (string, required): The ID of the backend provider (inventory or processor).
 - `weight` (HCL expression, required): An expression that evaluates to an integer representing the weight of the backend. Higher weights receive more traffic.
 - `timeout` (duration string, optional): If the balancer has no available backends, it will wait up to this duration for a backend to become available before failing. Default: `0s`.
+- `log_backend_updates` (boolean, optional): If true, logs an INFO message when a backend is added or removed.
 
 ## WLC (Weighted Least Connections) Balancer
 
@@ -33,4 +34,5 @@ balancer "wlc" "my_balancer" {
 - `source` (string, required): The ID of the backend provider.
 - `weight` (HCL expression, required): An expression that evaluates to an integer. The balancer selects the backend minimizing `active_connections / weight`.
 - `timeout` (duration string, optional): Duration to wait for a backend if none are available. Default: `0s`.
+- `log_backend_updates` (boolean, optional): If true, logs an INFO message when a backend is added or removed.
 

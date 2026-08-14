@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -66,7 +67,7 @@ func TestRedisProxyMultiplexing(t *testing.T) {
 	defer cancel()
 	wg := &sync.WaitGroup{}
 
-	reg := backend.NewRegistry()
+	reg := backend.NewRegistry(zerolog.Nop(), false)
 	reg.Add(&backend.Backend{Address: backendAddr})
 
 	p := &RedisProxy{

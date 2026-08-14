@@ -14,6 +14,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog"
 )
 
 func TestRedisCheckerConfig(t *testing.T) {
@@ -153,7 +154,7 @@ backends_processor "redis" "test" {
 }
 
 func TestRedisChecker_ModuleMethods(t *testing.T) {
-	registry := backend.NewRegistry()
+	registry := backend.NewRegistry(zerolog.Nop(), false)
 	c := &RedisChecker{
 		id:       "test-id",
 		source:   "test-source",

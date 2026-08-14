@@ -21,7 +21,7 @@ func TestMemcacheQuery_Reply(t *testing.T) {
 
 	close(stopChan)
 	// Fill the buffer so sending blocks and it must pick the stopChan
-	respChan <- MemcacheResponse{} 
+	respChan <- MemcacheResponse{}
 	err = q.Reply([]byte("test"))
 	if err == nil || err.Error() != "response channel is closed" {
 		t.Fatalf("Expected error response channel is closed, got: %v", err)

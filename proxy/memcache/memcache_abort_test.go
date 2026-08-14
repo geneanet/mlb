@@ -22,20 +22,20 @@ func TestMemcacheBackendConnection_AbortInflightQueries_WithPending(t *testing.T
 	defer cancel()
 
 	proxy := &MemcacheProxy{
-		id:                        "test-proxy",
-		log:                       zerolog.Nop(),
-		ctx:                       ctx,
-		connectTimeout:            time.Second,
+		id:                       "test-proxy",
+		log:                      zerolog.Nop(),
+		ctx:                      ctx,
+		connectTimeout:           time.Second,
 		backendInputQueueSize:    10,
-		backendInflightQueueSize:  10,
-		beMetricsCache:            make(map[string]*Metrics),
+		backendInflightQueueSize: 10,
+		beMetricsCache:           make(map[string]*Metrics),
 	}
 
 	pool := NewMemcacheBackendConnectionPool(proxy)
 	proxy.backendConnectionPool = pool
 
 	b := &backend.Backend{Address: l.Addr().String()}
-	
+
 	// Accept connection to avoid dial error
 	go func() {
 		conn, _ := l.Accept()

@@ -11,6 +11,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/rs/zerolog"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -32,7 +33,7 @@ func TestWLCBalancer_LeastConnections(t *testing.T) {
 	}
 	balancer := mod.(*WLCBalancer)
 
-	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry()}
+	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 	provider.ProvideUpdates(balancer)
 
 	beA := &backend.Backend{Address: "A", Meta: backend.NewEmptyMetaMap(0)}
@@ -67,7 +68,7 @@ func TestWLCBalancer_LeastConnections(t *testing.T) {
 	// Now both have 1 connection.
 	// If we release rel1, addr1 has 0 and addr2 has 1.
 	rel1()
-	
+
 	res3, rel3 := balancer.GetBackend(false)
 	if res3 == nil {
 		t.Fatal("Expected a backend")
@@ -104,7 +105,7 @@ func TestWLCBalancer_WeightedLeastConnections(t *testing.T) {
 	}
 	balancer := mod.(*WLCBalancer)
 
-	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry()}
+	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 	provider.ProvideUpdates(balancer)
 
 	// A: weight 2, B: weight 1
@@ -123,19 +124,19 @@ func TestWLCBalancer_WeightedLeastConnections(t *testing.T) {
 	// Both 0 conn.
 	// Pick A (usually first in alphabetical if weights tie, or just one of them)
 	_, rel1 := balancer.GetBackend(false)
-	
+
 	// If we pick A, A has 1 conn, weight 2 -> ratio 0.5
 	// B has 0 conn, weight 1 -> ratio 0
 	// WLC should pick B next.
 	_, rel2 := balancer.GetBackend(false)
-	
+
 	// Now A has 1/2, B has 1/1.
 	// WLC should pick A next because 1/2 < 1/1.
 	res3, rel3 := balancer.GetBackend(false)
 	if res3 == nil || res3.Address != "A" {
 		t.Errorf("Expected A, got %v (A: 1/2, B: 1/1)", res3)
 	}
-	
+
 	rel1()
 	rel2()
 	rel3()
@@ -166,7 +167,7 @@ func TestWLCBalancer_ZeroWeightExclusion(t *testing.T) {
 	}
 	balancer := mod.(*WLCBalancer)
 
-	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry()}
+	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 	provider.ProvideUpdates(balancer)
 
 	// A: weight 1, B: weight 0, C: weight -1
@@ -241,7 +242,7 @@ func TestWLCBalancer_WaitBackend(t *testing.T) {
 	}
 	balancer := mod.(*WLCBalancer)
 
-	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry()}
+	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 	provider.ProvideUpdates(balancer)
 
 	backendChan := make(chan *backend.Backend)
@@ -291,7 +292,7 @@ balancer "wlc" "test" {
 	}
 	balancer := mod.(*WLCBalancer)
 
-	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry()}
+	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("src1", provider)
 
@@ -299,4 +300,3 @@ balancer "wlc" "test" {
 		t.Fatalf("Bind failed: %v", err)
 	}
 }
-

@@ -17,6 +17,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/rs/zerolog"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -191,7 +192,7 @@ func TestMySQL(t *testing.T) {
 
 	mysqlChecker.GetBackendList()
 
-	dp := &testutil.DummyProvider{ID: "test", Backends: backend.NewRegistry()}
+	dp := &testutil.DummyProvider{ID: "test", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("test", dp)
 	_ = mysqlChecker.Bind(modules)
@@ -311,7 +312,6 @@ func TestMySQL_Coverage(t *testing.T) {
 	}
 	mysqlChecker := mod.(*MySQLChecker)
 
-
 	// 2. Add an item directly to cover loop execution in GetBackendList, ProvideUpdates, and stopChecks
 	b := &backend.Backend{Address: "127.0.0.1:3307", Meta: backend.NewEmptyMetaMap(0)}
 	statusChan := make(chan *backend.Backend, 100)
@@ -361,8 +361,8 @@ func TestMySQL_Coverage(t *testing.T) {
 	// Hit Reset update == true in fetchStatus
 	check.dsn = "ok"
 	check.db, _ = sql.Open("mysql_mock", "ok")
-	check.ticker.ApplyBackoff() // Force it to backoff state
-	_, _, _, _ = check.fetchStatus()         // Should succeed and call Reset() -> true
+	check.ticker.ApplyBackoff()      // Force it to backoff state
+	_, _, _, _ = check.fetchStatus() // Should succeed and call Reset() -> true
 
 	// Hit Reset update == false in fetchStatus
 	_, _, _, _ = check.fetchStatus()

@@ -47,13 +47,14 @@ type ConsulKV struct {
 
 // ConsulKVConfig defines the HCL configuration for the Consul KV processor.
 type ConsulKVConfig struct {
-	ID            string                `hcl:"id,label"`
-	Source        string                `hcl:"source"`
-	URL           string                `hcl:"url"`
-	Period        string                `hcl:"period,optional"`
-	MaxPeriod     string                `hcl:"max_period,optional"`
-	BackoffFactor float64               `hcl:"backoff_factor,optional"`
-	Values        []ConsulKVValueConfig `hcl:"value,block"`
+	ID                string                `hcl:"id,label"`
+	Source            string                `hcl:"source"`
+	URL               string                `hcl:"url"`
+	Period            string                `hcl:"period,optional"`
+	MaxPeriod         string                `hcl:"max_period,optional"`
+	BackoffFactor     float64               `hcl:"backoff_factor,optional"`
+	LogBackendUpdates bool                  `hcl:"log_backend_updates,optional"`
+	Values            []ConsulKVValueConfig `hcl:"value,block"`
 }
 
 // ConsulKVValueConfig defines a single Consul KV watch.
@@ -103,7 +104,7 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 		updChan:       make(chan backend.BackendUpdate, 100),
 		updChanStop:   make(chan struct{}),
 		source:        config.Source,
-		backends:      backend.NewRegistry(),
+		backends:      backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
 		defaultValues: make(map[string]cty.Value),
 		evalCtx:       tc.Ctx,
 		watchers:      make(map[string][]*consulKVWatcher),

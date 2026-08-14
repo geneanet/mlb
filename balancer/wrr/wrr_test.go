@@ -11,6 +11,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/rs/zerolog"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -96,7 +97,7 @@ func TestWRRBalancer_WaitBackend(t *testing.T) {
 	}
 	balancer := mod.(*WRRBalancer)
 
-	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry()}
+	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 	provider.ProvideUpdates(balancer)
 
 	backendChan := make(chan *backend.Backend)
@@ -155,7 +156,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 		t.Errorf("Expected 0 reg")
 	}
 
-	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry()}
+	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("src1", provider)
 	_ = balancer.Bind(modules)
@@ -338,7 +339,7 @@ func TestWRRBalancer_ContextCancellation(t *testing.T) {
 	}
 	balancer := mod.(*WRRBalancer)
 
-	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry()}
+	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 	provider.ProvideUpdates(balancer)
 
 	backend1 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
@@ -396,7 +397,7 @@ func TestWRRBalancer_SmoothDistribution(t *testing.T) {
 	}
 	balancer := mod.(*WRRBalancer)
 
-	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry()}
+	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 	provider.ProvideUpdates(balancer)
 
 	// Add 3 backends with weights: A=5, B=1, C=1

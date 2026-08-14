@@ -28,8 +28,9 @@ type BackendsInventoryStatic struct {
 
 // StaticBackendsInventoryConfig defines the HCL configuration for static backends.
 type StaticBackendsInventoryConfig struct {
-	ID    string   `hcl:"id,label"`
-	Hosts []string `hcl:"hosts"`
+	ID                string   `hcl:"id,label"`
+	Hosts             []string `hcl:"hosts"`
+	LogBackendUpdates bool     `hcl:"log_backend_updates,optional"`
 }
 
 // validateStaticBackendsInventoryConfig validates the static backends configuration.
@@ -54,8 +55,8 @@ func newStaticBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx conte
 
 	c := &BackendsInventoryStatic{
 		id:       config.ID,
-		backends: backend.NewRegistry(),
 		log:      log.With().Str("id", config.ID).Logger(),
+		backends: backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
 	}
 
 	for _, address := range config.Hosts {

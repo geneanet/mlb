@@ -48,10 +48,11 @@ type WRRBalancer struct {
 
 // WRRBalancerConfig defines the HCL configuration for the WRR balancer.
 type WRRBalancerConfig struct {
-	ID      string
-	Source  string         `hcl:"source"`
-	Weight  hcl.Expression `hcl:"weight"`
-	Timeout string         `hcl:"timeout,optional"`
+	ID                string
+	Source            string         `hcl:"source"`
+	Weight            hcl.Expression `hcl:"weight"`
+	Timeout           string         `hcl:"timeout,optional"`
+	LogBackendUpdates bool           `hcl:"log_backend_updates,optional"`
 }
 
 // validateWRRBalancerConfig validates the WRR balancer configuration.
@@ -83,12 +84,12 @@ func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 
 	b := &WRRBalancer{
 		id:          config.ID,
-		backends:    backend.NewRegistry(),
 		log:         log.With().Str("id", config.ID).Logger(),
 		updChan:     make(chan backend.BackendUpdate, 100),
 		updChanStop: make(chan struct{}),
 		source:      config.Source,
 		evalCtx:     tc.Ctx,
+		backends:    backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
 	}
 
 	b.state.Store(&swrrState{sequence: []string{}, length: 0})
@@ -131,7 +132,6 @@ func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 					}
 
 					if upd.Kind == backend.UpdBackendAdded {
-						b.log.Info().Str("address", upd.Address).Int("weight", weight).Msg("Adding backend to WRR balancer")
 						clone := upd.Backend.Clone()
 						clone.Ctx, clone.Cancel = context.WithCancel(b.ctx)
 						b.backends.Add(clone)
@@ -144,7 +144,6 @@ func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 					weights[upd.Address] = weight
 
 				case backend.UpdBackendRemoved:
-					b.log.Info().Str("address", upd.Address).Msg("Removing backend from WRR balancer")
 					if be := b.backends.Get(upd.Address); be != nil && be.Cancel != nil {
 						be.Cancel()
 					}

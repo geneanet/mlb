@@ -74,20 +74,20 @@ func TestMemcacheStressPipelining(t *testing.T) {
 	defer cancel()
 
 	p := &MemcacheProxy{
-		id:                        "stress-test",
-		log:                       zerolog.Nop(),
-		connectTimeout:            time.Second,
-		closeTimeout:              time.Second,
-		ctx:                       ctx,
-		cancel:                    cancel,
-		backends:                  backend.NewRegistry(),
-		ring:                      newMemcacheHashRing(),
-		backendMinConnections:     4,
-		backendMaxConnections:     4,
+		id:                       "stress-test",
+		log:                      zerolog.Nop(),
+		connectTimeout:           time.Second,
+		closeTimeout:             time.Second,
+		ctx:                      ctx,
+		cancel:                   cancel,
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
+		ring:                     newMemcacheHashRing(),
+		backendMinConnections:    4,
+		backendMaxConnections:    4,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		bufferSize:                4096,
-		clientQueueSize:           128,
+		bufferSize:               4096,
+		clientQueueSize:          128,
 		beMetricsCache:           make(map[string]*Metrics),
 		fieldsPool: &sync.Pool{
 			New: func() any {
@@ -136,21 +136,21 @@ func TestMemcacheStressPipelining(t *testing.T) {
 			defer client.Close()
 
 			reader := bufio.NewReader(client)
-			
+
 			// Send commands in batches to test pipelining
 			batchSize := 20
 			for b := 0; b < requestsPerClient/batchSize; b++ {
 				for j := 0; b*batchSize+j < requestsPerClient && j < batchSize; j++ {
 					// Alternate between SET and GET
-					if j % 2 == 0 {
+					if j%2 == 0 {
 						_, _ = fmt.Fprintf(client, "set k%d_%d 0 0 2\r\nhi\r\n", clientID, b*batchSize+j)
 					} else {
 						_, _ = fmt.Fprintf(client, "get k%d_%d\r\n", clientID, b*batchSize+j)
 					}
 				}
-				
+
 				for j := 0; b*batchSize+j < requestsPerClient && j < batchSize; j++ {
-					if j % 2 == 0 {
+					if j%2 == 0 {
 						// Expect STORED\r\n
 						resp := make([]byte, 8)
 						_, err := io.ReadFull(reader, resp)

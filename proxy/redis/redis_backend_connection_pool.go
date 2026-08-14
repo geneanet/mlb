@@ -32,7 +32,7 @@ func NewRedisBackendConnectionPool(proxy *RedisProxy) *RedisBackendConnectionPoo
 	if period == 0 {
 		period = 10 * time.Second
 	}
-	
+
 	// Start the idle connection cleanup routine.
 	// It periodically scans the pool and closes connections that haven't been used
 	// for more than the configured idleTimeout.

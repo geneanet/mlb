@@ -11,13 +11,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
+)
+
+import (
 	"mlb/backend"
 	"mlb/metrics"
 	"mlb/module"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -311,7 +314,7 @@ func TestMemcacheProxyScatterGather(t *testing.T) {
 		backendMaxConnections:    2,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		backends:                 backend.NewRegistry(),
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
 		ring:                     newMemcacheHashRing(),
 		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
 		beMetricsCache:           make(map[string]*Metrics),
@@ -403,7 +406,7 @@ func TestMemcacheProxyEmptyBackends(t *testing.T) {
 		backendMaxConnections:    2,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		backends:                 backend.NewRegistry(),
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
 		ring:                     newMemcacheHashRing(),
 		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
 		beMetricsCache:           make(map[string]*Metrics),
@@ -535,7 +538,7 @@ func TestMemcacheProxyProtocol(t *testing.T) {
 		backendMaxConnections:    2,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		backends:                 backend.NewRegistry(),
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
 		ring:                     newMemcacheHashRing(),
 		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
 		beMetricsCache:           make(map[string]*Metrics),
@@ -693,7 +696,7 @@ func TestMemcacheProxy_ForwardSingle_Errors(t *testing.T) {
 	proxy := &MemcacheProxy{
 		id:                       "test_errors",
 		log:                      log.Logger,
-		backends:                 backend.NewRegistry(),
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
 		ring:                     newMemcacheHashRing(),
 		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
 		ctx:                      ctx,
@@ -793,7 +796,7 @@ func TestMemcachePipelining(t *testing.T) {
 		wg:                       wg,
 		ctx:                      ctx,
 		cancel:                   cancel,
-		backends:                 backend.NewRegistry(),
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
 		ring:                     newMemcacheHashRing(),
 		backendMinConnections:    1,
 		backendMaxConnections:    1,
@@ -893,7 +896,7 @@ func TestMemcacheProxyMetaProtocol(t *testing.T) {
 		backendMaxConnections:    1,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		backends:                 backend.NewRegistry(),
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
 		ring:                     newMemcacheHashRing(),
 		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
 		beMetricsCache:           make(map[string]*Metrics),
@@ -1011,7 +1014,7 @@ func TestMemcacheProxyMetaProtocolExpanded(t *testing.T) {
 		backendMinConnections:    1,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		backends:                 backend.NewRegistry(),
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
 		ring:                     newMemcacheHashRing(),
 		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
 		beMetricsCache:           make(map[string]*Metrics),
@@ -1112,7 +1115,7 @@ func TestMemcacheProxyFlushOnConnectFunctional(t *testing.T) {
 		flushBackendWhenAdded:    true,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		backends:                 backend.NewRegistry(),
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
 		ring:                     newMemcacheHashRing(),
 		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
 		backendUpdatesChanClosed: make(chan struct{}),
@@ -1202,7 +1205,7 @@ func TestMemcacheProxyRandomization(t *testing.T) {
 		backendMaxConnections:    2,
 		backendInputQueueSize:    1024,
 		backendInflightQueueSize: 512,
-		backends:                 backend.NewRegistry(),
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
 		ring:                     newMemcacheHashRing(),
 		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
 		beMetricsCache:           make(map[string]*Metrics),
@@ -1338,7 +1341,7 @@ func TestMemcachePhantomResponse(t *testing.T) {
 		closeTimeout:             time.Second,
 		ctx:                      ctx,
 		cancel:                   cancel,
-		backends:                 backend.NewRegistry(),
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
 		ring:                     newMemcacheHashRing(),
 		backendMinConnections:    1,
 		backendMaxConnections:    1,

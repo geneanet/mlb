@@ -8,6 +8,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/rs/zerolog"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -140,7 +141,7 @@ func TestBackend_ResolveExpression(t *testing.T) {
 // TestRegistry_BasicOperations tests standard map-like operations for Registry.
 // It covers adding, getting, existence checking, and removing backends.
 func TestRegistry_BasicOperations(t *testing.T) {
-	bm := NewRegistry()
+	bm := NewRegistry(zerolog.Nop(), false)
 	if len(bm.GetList()) != 0 {
 		t.Errorf("expected empty map to have size 0, got %d", len(bm.GetList()))
 	}
@@ -187,7 +188,7 @@ func TestRegistry_BasicOperations(t *testing.T) {
 // TestRegistry_Lists tests the retrieval of backend lists from Registry.
 // It verifies that GetList returns all backends and GetSortedList returns them sorted by address.
 func TestRegistry_Lists(t *testing.T) {
-	bm := NewRegistry()
+	bm := NewRegistry(zerolog.Nop(), false)
 	b1 := &Backend{Address: "10.0.0.2", Meta: NewEmptyMetaMap(0)}
 	b2 := &Backend{Address: "10.0.0.1", Meta: NewEmptyMetaMap(0)}
 
@@ -213,7 +214,7 @@ func TestRegistry_Lists(t *testing.T) {
 // TestRegistry_Update tests the conditional update of backends in the map.
 // it verifies that existing backends' metadata is merged and new backends are added.
 func TestRegistry_Update(t *testing.T) {
-	bm := NewRegistry()
+	bm := NewRegistry(zerolog.Nop(), false)
 
 	m1 := NewEmptyMetaMap(0)
 	m1.Set("b1", "k1", cty.StringVal("v1"))
@@ -257,7 +258,7 @@ func (s *testSubscriber) ReceiveUpdate(u BackendUpdate) {
 
 // TestRegistry_PublishSubscribe tests the Observer pattern implementation in Registry.
 func TestRegistry_PublishSubscribe(t *testing.T) {
-	reg := NewRegistry()
+	reg := NewRegistry(zerolog.Nop(), false)
 	b1 := &Backend{Address: "10.0.0.1", Meta: NewEmptyMetaMap(0)}
 	reg.Add(b1)
 
@@ -294,7 +295,7 @@ func TestRegistry_PublishSubscribe(t *testing.T) {
 
 // TestRegistry_Wait tests the blocking behavior of Wait method in Registry.
 func TestRegistry_Wait(t *testing.T) {
-	reg := NewRegistry()
+	reg := NewRegistry(zerolog.Nop(), false)
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 

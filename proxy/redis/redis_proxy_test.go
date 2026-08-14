@@ -26,7 +26,7 @@ func TestRedisProxyConfig(t *testing.T) {
 		tc := &module.Config{
 			Config: f.Body,
 		}
-		
+
 		config := parseRedisProxyConfig(tc)
 		if config.Preconnect != 5 {
 			t.Errorf("expected 5, got %d", config.Preconnect)
@@ -49,7 +49,7 @@ func TestRedisProxyConfig(t *testing.T) {
 		tc := &module.Config{
 			Config: f.Body,
 		}
-		
+
 		diags := validateRedisProxyConfig(tc)
 		if diags.HasErrors() {
 			t.Error("expected no errors")
@@ -66,7 +66,7 @@ func TestRedisProxyConfig(t *testing.T) {
 		tc := &module.Config{
 			Config: f.Body,
 		}
-		
+
 		diags := validateRedisProxyConfig(tc)
 		if !diags.HasErrors() {
 			t.Error("expected errors")
@@ -95,7 +95,7 @@ func TestNewRedisProxy(t *testing.T) {
 	if p == nil {
 		t.Error("expected p to be not nil")
 	}
-	
+
 	rp := p.(*RedisProxy)
 	if rp.bufferSize != 16384 {
 		t.Errorf("expected 16384, got %d", rp.bufferSize)

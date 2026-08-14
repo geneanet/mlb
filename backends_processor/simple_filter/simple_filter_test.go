@@ -11,6 +11,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/rs/zerolog"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -45,7 +46,7 @@ backends_processor "simple_filter" "test" {
 	}
 
 	// Create a dummy provider to feed updates
-	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry()}
+	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 
 	// Create a subscriber
 	sub := &testutil.DummySubscriber{Wg: sync.WaitGroup{}}
@@ -135,7 +136,7 @@ backends_processor "simple_filter" "test" {
 	filterMod := mod.(*SimpleFilter)
 
 	// Add an item directly to bypass wait issues, or via provider
-	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry()}
+	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("foo", dp)
 	_ = filterMod.Bind(modules)
@@ -182,7 +183,7 @@ backends_processor "simple_filter" "test_meta" {
 	}
 	filterMod := mod.(*SimpleFilter)
 
-	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry()}
+	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 
 	sub := &testutil.DummySubscriber{Wg: sync.WaitGroup{}}
 	filterMod.ProvideUpdates(sub)
@@ -342,7 +343,7 @@ backends_processor "simple_filter" "test" {
 	}
 	filterMod := mod.(*SimpleFilter)
 
-	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry()}
+	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 	sub := &testutil.DummySubscriber{Wg: sync.WaitGroup{}}
 	filterMod.ProvideUpdates(sub)
 
@@ -457,12 +458,12 @@ backends_processor "simple_filter" "test3" {
 		ctxBG, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		mod, err := module.New(cfg, wg, ctxBG, "backends_processor")
-	if err != nil {
-		t.Fatalf("Unexpected error: %s", err)
-	}
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
 		filterMod := mod.(*SimpleFilter)
-		dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry()}
-		
+		dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry(zerolog.Nop(), false)}
+
 		modules := make(module.ModulesRegistry)
 		modules.AddModule("foo", dp)
 		_ = filterMod.Bind(modules)

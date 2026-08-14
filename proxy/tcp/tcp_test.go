@@ -45,7 +45,6 @@ func (m *mockBackendProvider) setReturnNil(v bool) {
 	m.returnNil = v
 }
 
-
 func (m *mockBackendProvider) Bind(modules module.ModulesRegistry) {
 	// No operation needed for this mock
 }
@@ -114,7 +113,7 @@ func TestTCPProxyFactory(t *testing.T) {
 		Type:     "tcp",
 		Name:     "test_proxy",
 		Config:   file.Body,
-		Ctx:    &hcl.EvalContext{},
+		Ctx:      &hcl.EvalContext{},
 	}
 
 	vDiags := validateTCPProxyConfig(tc)
@@ -804,7 +803,6 @@ type customBackendProvider struct {
 func (c *customBackendProvider) GetBackend(wait bool) (*backend.Backend, func()) {
 	return c.be, func() {}
 }
-
 
 func (c *customBackendProvider) Bind(modules module.ModulesRegistry) {}
 
