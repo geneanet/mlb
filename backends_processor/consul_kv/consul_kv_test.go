@@ -162,7 +162,7 @@ backends_processor "consul_kv" "test" {
 	}
 
 	// Test Update backend (should recreate watchers)
-	sub.Wg.Add(1)
+	sub.Wg.Add(2)
 	b1Updated := b1Mod.Clone()
 	// Add some other metadata to verify it's updated
 	b1Updated.Meta.Set("other", "foo", cty.StringVal("bar"))
