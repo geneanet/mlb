@@ -28,11 +28,16 @@ func NewRedisBackendConnectionPool(proxy *RedisProxy) *RedisBackendConnectionPoo
 		pool:  make([]*RedisBackendConnection, 0),
 	}
 
+	period := proxy.idleCleanupPeriod
+	if period == 0 {
+		period = 10 * time.Second
+	}
+	
 	// Start the idle connection cleanup routine.
 	// It periodically scans the pool and closes connections that haven't been used
 	// for more than the configured idleTimeout.
 	go func() {
-		ticker := time.NewTicker(10 * time.Second)
+		ticker := time.NewTicker(period)
 		defer ticker.Stop()
 		for {
 			select {

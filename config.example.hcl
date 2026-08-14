@@ -140,6 +140,7 @@ proxy "redis" "redis" {
   // backend_input_queue_size = 1024
   // preconnect = 0
   // idle_timeout = "5m"
+  // idle_cleanup_period = "10s"
   // healthcheck = false
   // healthcheck_timeout = "1s"
 }
