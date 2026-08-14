@@ -43,8 +43,6 @@ type RedisProxy struct {
 	backends                 *backend.Registry
 	bufferSize               int
 	backendConnectionPool    *RedisBackendConnectionPool
-	clientQueueSize          int
-	backendInputQueueSize    int
 	preconnect               int
 	idleTimeout              time.Duration
 	idleCleanupPeriod        time.Duration
@@ -74,8 +72,6 @@ type RedisProxyConfig struct {
 	BackendWaitTimeout    string   `hcl:"backend_wait_timeout,optional"`
 	BackendTCPKeepAlive   string   `hcl:"backend_tcp_keepalive,optional"`
 	BufferSize            int      `hcl:"buffer_size,optional"`
-	ClientQueueSize       int      `hcl:"client_queue_size,optional"`
-	BackendInputQueueSize int      `hcl:"backend_input_queue_size,optional"`
 	Preconnect            int      `hcl:"preconnect,optional"`
 	IdleTimeout           string   `hcl:"idle_timeout,optional"`
 	IdleCleanupPeriod     string   `hcl:"idle_cleanup_period,optional"`
@@ -107,10 +103,10 @@ func parseRedisProxyConfig(tc *module.Config) *RedisProxyConfig {
 	}
 	config.ID = tc.FullID()
 	if config.ConnectTimeout == "" {
-		config.ConnectTimeout = "0s"
+		config.ConnectTimeout = "5s"
 	}
 	if config.CloseTimeout == "" {
-		config.CloseTimeout = "0s"
+		config.CloseTimeout = "30s"
 	}
 	if config.BackendWaitTimeout == "" {
 		config.BackendWaitTimeout = "0s"
@@ -120,12 +116,6 @@ func parseRedisProxyConfig(tc *module.Config) *RedisProxyConfig {
 	}
 	if config.BufferSize == 0 {
 		config.BufferSize = 16384
-	}
-	if config.ClientQueueSize == 0 {
-		config.ClientQueueSize = 64
-	}
-	if config.BackendInputQueueSize == 0 {
-		config.BackendInputQueueSize = 1024
 	}
 	if config.IdleTimeout == "" {
 		config.IdleTimeout = "5m"
@@ -148,8 +138,6 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (
 		log:                      log.With().Str("id", config.ID).Logger(),
 		bufferSize:               config.BufferSize,
 		source:                   config.Source,
-		clientQueueSize:          config.ClientQueueSize,
-		backendInputQueueSize:    config.BackendInputQueueSize,
 		preconnect:               config.Preconnect,
 		healthcheck:              config.Healthcheck,
 		wg:                       wg,

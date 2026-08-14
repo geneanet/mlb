@@ -131,13 +131,11 @@ proxy "tcp" "mysql_main_ro" {
 proxy "redis" "redis" {
   source = balancer.wrr.redis_master
   addresses = [":6379"]
-  // connect_timeout = "0s"
-  // close_timeout = "0s"
+  // connect_timeout = "5s"
+  // close_timeout = "30s"
   // backend_wait_timeout = "0s"
   // backend_tcp_keepalive = "5s"
   // buffer_size = 16384
-  // client_queue_size = 64
-  // backend_input_queue_size = 1024
   // preconnect = 0
   // idle_timeout = "5m"
   // idle_cleanup_period = "10s"

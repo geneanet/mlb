@@ -50,8 +50,8 @@ proxy "redis" "my_redis_proxy" {
 
 - `source` (string, required): The ID of the backend provider (inventory or processor).
 - `addresses` (list of strings, required): List of TCP addresses to listen on (e.g., `[":6379"]`).
-- `connect_timeout` (duration string, optional): Timeout for establishing a new connection to a backend. Default: `0s` (OS default).
-- `close_timeout` (duration string, optional): Grace period for existing connections to finish after a shutdown signal. Default: `0s`.
+- `connect_timeout` (duration string, optional): Timeout for establishing a new connection to a backend. Default: `5s`.
+- `close_timeout` (duration string, optional): Grace period for existing connections to finish after a shutdown signal. Default: `30s`.
 - `backend_wait_timeout` (duration string, optional): How long to wait for a backend to become available if the balancer is empty before returning an error to the client. Default: `0s`.
 - `buffer_size` (number, optional): Size of the read/write buffers for network I/O. Default: `16384`.
 - `preconnect` (number, optional): The number of connections to establish to backends at startup. Default: `0`.
