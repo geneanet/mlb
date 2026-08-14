@@ -31,6 +31,7 @@ The `system` block configures system-level settings and resource limits.
 
 ```hcl
 system {
+  pid_file = "/var/run/mlb.pid"
   rlimit {
     nofile = 65536
   }
@@ -38,8 +39,9 @@ system {
 }
 ```
 
+- `pid_file` (string, optional): Path to a file where MLB will write its process ID.
 - `rlimit` (block, optional): Configures resource limits.
-    - `nofile` (number, optional): Sets the maximum number of open file descriptors (`RLIMIT_NOFILE`).
+    - `nofile` (number, optional): Sets the maximum number of open file descriptors (`RLIMIT_NOFILE`). Defaults to the system's current limit.
 - `gomaxprocs` (number, optional): Sets the `GOMAXPROCS` value, which limits the number of operating system threads that can execute user-level Go code simultaneously. Defaults to the number of logical CPUs.
 
 ## HCL Expressions & Functions

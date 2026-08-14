@@ -96,6 +96,9 @@ backends_processor "consul_kv" "weights" {
 
 - `source` (string, required): The ID of the backend provider.
 - `url` (string, required): Consul URL.
+- `period` (duration string, optional): The polling period for Consul updates. Default: `500ms`.
+- `max_period` (duration string, optional): The maximum polling period when backoff is applied due to errors. Default: `2s`.
+- `backoff_factor` (number, optional): The factor by which the polling period increases on error. Default: `1.5`.
 - `log_backend_updates` (boolean, optional): If true, logs an INFO message when a backend is added or removed. Default: `false`.
 - `value` (block, required): Defines a KV watch.
     - `id` (label): The name of the metadata key.
@@ -129,7 +132,7 @@ backends_processor "simple_filter" "mysql_slaves" {
 - `condition` (HCL expression, required): A boolean expression that must evaluate to `true` for a backend to be included.
 - `sort_by` (HCL expression, optional): An expression used to sort the backends.
 - `sort_order` (string, optional): `asc` (default) or `desc`.
-- `limit` (number, optional): Maximum number of backends to return after sorting.
+- `limit` (number, optional): Maximum number of backends to return after sorting. Default: `0` (no limit).
 - `log_backend_updates` (boolean, optional): If true, logs an INFO message when a backend is added or removed. Default: `false`.
 
 ## Metadata Summary
