@@ -32,7 +32,7 @@ func TestLoadConfig(t *testing.T) {
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
-	go io.Copy(io.Discard, r)
+	go func() { _, _ = io.Copy(io.Discard, r) }()
 	defer func() {
 		os.Stdout = oldStdout
 		_ = w.Close()

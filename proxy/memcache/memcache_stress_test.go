@@ -43,7 +43,7 @@ func TestMemcacheStressPipelining(t *testing.T) {
 						// set <key> <flags> <exptime> <bytes> [noreply]\r\n
 						fields := bytes.Fields([]byte(line))
 						if len(fields) < 5 {
-							c.Write([]byte("ERROR\r\n"))
+							_, _ = c.Write([]byte("ERROR\r\n"))
 							continue
 						}
 						// bytes is fields[4]
@@ -54,15 +54,15 @@ func TestMemcacheStressPipelining(t *testing.T) {
 							}
 						}
 						payload := make([]byte, size+2)
-						io.ReadFull(reader, payload)
-						c.Write([]byte("STORED\r\n"))
+						_, _ = io.ReadFull(reader, payload)
+						_, _ = c.Write([]byte("STORED\r\n"))
 					} else if bytes.HasPrefix([]byte(line), []byte("get ")) {
 						// Reply END\r\n (empty get for simplicity, or we could echo)
-						c.Write([]byte("END\r\n"))
+						_, _ = c.Write([]byte("END\r\n"))
 					} else if bytes.HasPrefix([]byte(line), []byte("delete ")) {
-						c.Write([]byte("DELETED\r\n"))
+						_, _ = c.Write([]byte("DELETED\r\n"))
 					} else {
-						c.Write([]byte("OK\r\n"))
+						_, _ = c.Write([]byte("OK\r\n"))
 					}
 				}
 			}(conn)
@@ -143,9 +143,9 @@ func TestMemcacheStressPipelining(t *testing.T) {
 				for j := 0; b*batchSize+j < requestsPerClient && j < batchSize; j++ {
 					// Alternate between SET and GET
 					if j % 2 == 0 {
-						fmt.Fprintf(client, "set k%d_%d 0 0 2\r\nhi\r\n", clientID, b*batchSize+j)
+						_, _ = fmt.Fprintf(client, "set k%d_%d 0 0 2\r\nhi\r\n", clientID, b*batchSize+j)
 					} else {
-						fmt.Fprintf(client, "get k%d_%d\r\n", clientID, b*batchSize+j)
+						_, _ = fmt.Fprintf(client, "get k%d_%d\r\n", clientID, b*batchSize+j)
 					}
 				}
 				

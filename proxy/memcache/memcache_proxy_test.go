@@ -238,7 +238,9 @@ func TestMemcacheProxyBindAndListen(t *testing.T) {
 		"mock": mockProvider,
 	}
 
-	p.Bind(modules)
+	if err := p.Bind(modules); err != nil {
+		t.Fatalf("Bind failed: %v", err)
+	}
 
 	if len(mockProvider.subs) != 1 {
 		t.Errorf("Expected 1 subscriber, got %d", len(mockProvider.subs))
@@ -366,7 +368,7 @@ func TestMemcacheProxyScatterGather(t *testing.T) {
 	defer client.Close()
 
 	// Send scatter gather
-	client.Write([]byte("get key1 key2\r\n"))
+	_, _ = client.Write([]byte("get key1 key2\r\n"))
 
 	reader := bufio.NewReader(client)
 	var resp []byte
@@ -433,12 +435,12 @@ func TestMemcacheProxyEmptyBackends(t *testing.T) {
 	}
 	defer client.Close()
 
-	client.SetDeadline(time.Now().Add(1 * time.Second))
-	client.Write([]byte("set key1 0 0 2\r\nv1\r\n"))
+	_ = client.SetDeadline(time.Now().Add(1 * time.Second))
+	_, _ = client.Write([]byte("set key1 0 0 2\r\nv1\r\n"))
 
 	reader := bufio.NewReader(client)
 	respBytes := make([]byte, len("SERVER_ERROR no backend available\r\n"))
-	io.ReadFull(reader, respBytes)
+	_, _ = io.ReadFull(reader, respBytes)
 	if string(respBytes) != "SERVER_ERROR no backend available\r\n" {
 		t.Fatalf("Expected SERVER_ERROR no backend available, got %s", string(respBytes))
 	}
@@ -466,7 +468,6 @@ func dummyMemcacheServer(l net.Listener, val string) {
 				}
 
 				cmd := string(fields[0])
-
 				switch cmd {
 				case "set", "add", "replace":
 					if len(fields) >= 5 {
@@ -477,9 +478,9 @@ func dummyMemcacheServer(l net.Listener, val string) {
 							}
 						}
 						buf := make([]byte, size+2)
-						io.ReadFull(reader, buf)
+						_, _ = io.ReadFull(reader, buf)
 					}
-					c.Write([]byte("STORED\r\n"))
+					_, _ = c.Write([]byte("STORED\r\n"))
 				case "ms":
 					if len(fields) >= 3 {
 						size := 0
@@ -489,20 +490,20 @@ func dummyMemcacheServer(l net.Listener, val string) {
 							}
 						}
 						buf := make([]byte, size+2)
-						io.ReadFull(reader, buf)
+						_, _ = io.ReadFull(reader, buf)
 					}
-					c.Write([]byte("HD\r\n"))
+					_, _ = c.Write([]byte("HD\r\n"))
 				case "mg":
-					c.Write([]byte("VA 2\r\nv1\r\n"))
+					_, _ = c.Write([]byte("VA 2\r\nv1\r\n"))
 				case "get":
 					for _, k := range fields[1:] {
-						fmt.Fprintf(c, "VALUE %s 0 %d\r\n%s\r\n", string(k), len(val), val)
+						_, _ = fmt.Fprintf(c, "VALUE %s 0 %d\r\n%s\r\n", string(k), len(val), val)
 					}
-					c.Write([]byte("END\r\n"))
+					_, _ = c.Write([]byte("END\r\n"))
 				case "quit":
 					return
 				default:
-					c.Write([]byte("STORED\r\n"))
+					_, _ = c.Write([]byte("STORED\r\n"))
 				}
 			}
 		}(conn)
@@ -612,8 +613,8 @@ func TestMemcacheProxyProtocol(t *testing.T) {
 
 	reader := bufio.NewReader(client)
 	for i, tt := range tests {
-		client.SetDeadline(time.Now().Add(1 * time.Second))
-		client.Write([]byte(tt.req))
+		_ = client.SetDeadline(time.Now().Add(1 * time.Second))
+		_, _ = client.Write([]byte(tt.req))
 		if tt.resp != "" {
 			respBytes := make([]byte, len(tt.resp))
 			_, err := io.ReadFull(reader, respBytes)
@@ -678,7 +679,7 @@ func TestMemcacheProxy_HandleConnection_GracefulShutdown(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Try to read from client, should be closed
-	client.SetDeadline(time.Now().Add(100 * time.Millisecond))
+	_ = client.SetDeadline(time.Now().Add(100 * time.Millisecond))
 	_, err = client.Read(make([]byte, 1))
 	if err == nil {
 		t.Error("Expected client connection to be closed after grace period")
@@ -762,17 +763,17 @@ func TestMemcachePipelining(t *testing.T) {
 					// Artificial delay
 					time.Sleep(10 * time.Millisecond)
 					if line == "get k1\r\n" {
-						c.Write([]byte("VALUE k1 0 2\r\nv1\r\nEND\r\n"))
+						_, _ = c.Write([]byte("VALUE k1 0 2\r\nv1\r\nEND\r\n"))
 					} else if line == "get k2\r\n" {
-						c.Write([]byte("VALUE k2 0 2\r\nv2\r\nEND\r\n"))
+						_, _ = c.Write([]byte("VALUE k2 0 2\r\nv2\r\nEND\r\n"))
 					} else if bytes.HasPrefix([]byte(line), []byte("set ")) {
 						// Read payload: v2\r\n (6 bytes for "v2\r\n")
 						// ponytail: simplistic for test
 						p := make([]byte, 4)
-						io.ReadFull(reader, p)
-						c.Write([]byte("STORED\r\n"))
+						_, _ = io.ReadFull(reader, p)
+						_, _ = c.Write([]byte("STORED\r\n"))
 					} else {
-						c.Write([]byte("STORED\r\n"))
+						_, _ = c.Write([]byte("STORED\r\n"))
 					}
 				}
 			}(conn)
@@ -843,7 +844,7 @@ func TestMemcachePipelining(t *testing.T) {
 	}
 
 	for _, req := range requests {
-		client.Write([]byte(req))
+		_, _ = client.Write([]byte(req))
 	}
 
 	// Read responses
@@ -856,7 +857,7 @@ func TestMemcachePipelining(t *testing.T) {
 
 	reader := bufio.NewReader(client)
 	for i, expected := range expectedResponses {
-		client.SetDeadline(time.Now().Add(2 * time.Second))
+		_ = client.SetDeadline(time.Now().Add(2 * time.Second))
 		resp := make([]byte, len(expected))
 		_, err := io.ReadFull(reader, resp)
 		if err != nil {
@@ -929,16 +930,16 @@ func TestMemcacheProxyMetaProtocol(t *testing.T) {
 	reader := bufio.NewReader(client)
 
 	// Test mg
-	client.Write([]byte("mg key1 v\r\n"))
+	_, _ = client.Write([]byte("mg key1 v\r\n"))
 	resp, _ := reader.ReadBytes('\n')
 	if string(resp) != "VA 2\r\n" {
 		t.Errorf("Expected VA 2\\r\\n, got %q", string(resp))
 	}
 	payload := make([]byte, 4) // v1\r\n
-	io.ReadFull(reader, payload)
+	_, _ = io.ReadFull(reader, payload)
 
 	// Test ms
-	client.Write([]byte("ms key1 2\r\nhi\r\n"))
+	_, _ = client.Write([]byte("ms key1 2\r\nhi\r\n"))
 	resp, _ = reader.ReadBytes('\n')
 	if string(resp) != "HD\r\n" {
 		t.Errorf("Expected HD\\r\\n, got %q", string(resp))
@@ -971,21 +972,21 @@ func TestMemcacheProxyMetaProtocolExpanded(t *testing.T) {
 					cmd := string(fields[0])
 					switch cmd {
 					case "md":
-						c.Write([]byte("HD\r\n"))
+						_, _ = c.Write([]byte("HD\r\n"))
 					case "ma":
-						c.Write([]byte("HD\r\n"))
+						_, _ = c.Write([]byte("HD\r\n"))
 					case "me":
-						c.Write([]byte("EN\r\n"))
+						_, _ = c.Write([]byte("EN\r\n"))
 					case "mn":
-						c.Write([]byte("HD\r\n"))
+						_, _ = c.Write([]byte("HD\r\n"))
 					case "ms":
 						size := 0
-						fmt.Sscanf(string(fields[2]), "%d", &size)
+						_, _ = fmt.Sscanf(string(fields[2]), "%d", &size)
 						payload := make([]byte, size+2)
-						io.ReadFull(r, payload)
-						c.Write([]byte("HD\r\n"))
+						_, _ = io.ReadFull(r, payload)
+						_, _ = c.Write([]byte("HD\r\n"))
 					case "mg":
-						c.Write([]byte("VA 2\r\nok\r\n"))
+						_, _ = c.Write([]byte("VA 2\r\nok\r\n"))
 					}
 				}
 			}(conn)
@@ -1061,10 +1062,10 @@ func TestMemcacheProxyMetaProtocolExpanded(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		client.Write([]byte(tt.req))
+		_, _ = client.Write([]byte(tt.req))
 		if tt.resp != "" {
 			resp := make([]byte, len(tt.resp))
-			io.ReadFull(reader, resp)
+			_, _ = io.ReadFull(reader, resp)
 			if string(resp) != tt.resp {
 				t.Errorf("For %q, expected %q, got %q", tt.req, tt.resp, string(resp))
 			}
@@ -1089,7 +1090,7 @@ func TestMemcacheProxyFlushOnConnectFunctional(t *testing.T) {
 		reader := bufio.NewReader(conn)
 		line, _ := reader.ReadString('\n')
 		if line == "flush_all\r\n" {
-			conn.Write([]byte("OK\r\n"))
+			_, _ = conn.Write([]byte("OK\r\n"))
 			flushReceived <- true
 		}
 	}()
@@ -1172,7 +1173,7 @@ func TestMemcacheProxyRandomization(t *testing.T) {
 						mu.Lock()
 						counts[name]++
 						mu.Unlock()
-						c.Write([]byte("END\r\n"))
+						_, _ = c.Write([]byte("END\r\n"))
 					} else if string(line) == "quit" {
 						return
 					}
@@ -1270,8 +1271,8 @@ func TestMemcacheProxyRandomization(t *testing.T) {
 			t.Fatalf("Iteration %d: expected END\r\n, got %q", i, string(resp))
 		}
 	}
-	client.Write([]byte("quit\r\n"))
-	client.Close()
+	_, _ = client.Write([]byte("quit\r\n"))
+	_ = client.Close()
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -1319,9 +1320,9 @@ func TestMemcachePhantomResponse(t *testing.T) {
 			case "get phantom\r\n":
 				close(phantomRespReady)
 				<-phantomRespSend
-				conn.Write([]byte("VALUE phantom 0 7\r\nphantom\r\nEND\r\n"))
+				_, _ = conn.Write([]byte("VALUE phantom 0 7\r\nphantom\r\nEND\r\n"))
 			case "get real\r\n":
-				conn.Write([]byte("VALUE real 0 4\r\nreal\r\nEND\r\n"))
+				_, _ = conn.Write([]byte("VALUE real 0 4\r\nreal\r\nEND\r\n"))
 			}
 		}
 	}()
@@ -1389,7 +1390,7 @@ func TestMemcachePhantomResponse(t *testing.T) {
 	}
 	defer c2.Close()
 
-	c2.Write([]byte("get real\r\n"))
+	_, _ = c2.Write([]byte("get real\r\n"))
 
 	// Release the real response from backend
 	close(phantomRespSend)

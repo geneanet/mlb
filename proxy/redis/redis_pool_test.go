@@ -35,7 +35,7 @@ func TestPool_GetPut(t *testing.T) {
 						return
 					}
 					if string(buf[:n]) == "PING\r\n" {
-						c.Write([]byte("+PONG\r\n"))
+						_, _ = c.Write([]byte("+PONG\r\n"))
 					}
 				}
 			}(conn)
@@ -197,9 +197,9 @@ func TestConnection_HealthcheckFail(t *testing.T) {
 		conn, _ := ln.Accept()
 		// Send wrong response
 		buf := make([]byte, 1024)
-		conn.Read(buf)
-		conn.Write([]byte("+ERROR\r\n"))
-		conn.Close()
+		_, _ = conn.Read(buf)
+		_, _ = conn.Write([]byte("+ERROR\r\n"))
+		_ = conn.Close()
 	}()
 
 	proxy := &RedisProxy{
@@ -248,7 +248,7 @@ func TestConnection_ResetAndRelease(t *testing.T) {
 			return
 		}
 		if string(msg) == "*1\r\n$5\r\nRESET\r\n" {
-			conn.Write([]byte("+RESET\r\n"))
+			_, _ = conn.Write([]byte("+RESET\r\n"))
 		}
 		ReleaseBuffer(msg)
 
@@ -264,7 +264,7 @@ func TestConnection_ResetAndRelease(t *testing.T) {
 				idx++
 			}
 			if idx < len(smsg) {
-				conn.Write([]byte(smsg[idx:]))
+				_, _ = conn.Write([]byte(smsg[idx:]))
 			}
 		}
 		ReleaseBuffer(msg)

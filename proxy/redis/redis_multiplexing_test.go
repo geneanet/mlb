@@ -41,20 +41,19 @@ func TestRedisProxyMultiplexing(t *testing.T) {
 					smsg := string(msg)
 					switch smsg {
 					case "*1\r\n$4\r\nPING\r\n", "PING\r\n":
-						c.Write([]byte("+PONG\r\n"))
+						_, _ = c.Write([]byte("+PONG\r\n"))
 					case "*1\r\n$5\r\nRESET\r\n":
-						c.Write([]byte("+OK\r\n"))
+						_, _ = c.Write([]byte("+OK\r\n"))
 					case "*2\r\n$4\r\nECHO\r\n$2\r\nHI\r\n":
-						c.Write([]byte("$2\r\nHI\r\n"))
+						_, _ = c.Write([]byte("$2\r\nHI\r\n"))
 					case "*2\r\n$9\r\nSUBSCRIBE\r\n$2\r\nch\r\n":
 						// RESP2 subscribe response
-						c.Write([]byte("*3\r\n$9\r\nsubscribe\r\n$2\r\nch\r\n:1\r\n"))
+						_, _ = c.Write([]byte("*3\r\n$9\r\nsubscribe\r\n$2\r\nch\r\n:1\r\n"))
 						// Push a message after a short delay
 						time.Sleep(100 * time.Millisecond)
-						c.Write([]byte("*3\r\n$7\r\nmessage\r\n$2\r\nch\r\n$4\r\ndata\r\n"))
+						_, _ = c.Write([]byte("*3\r\n$7\r\nmessage\r\n$2\r\nch\r\n$4\r\ndata\r\n"))
 					default:
-						// fmt.Printf("Mock received unknown: %q\n", smsg)
-						c.Write([]byte("-ERR unknown\r\n"))
+						_, _ = c.Write([]byte("-ERR unknown\r\n"))
 					}
 					ReleaseBuffer(msg)
 				}
@@ -180,7 +179,7 @@ func TestRedisProxyMultiplexing(t *testing.T) {
 
 	// ponytail: ensure everything is cleaned up before finishing the test
 	cancel()
-	lnProxy.Close()
+	_ = lnProxy.Close()
 	wg.Wait()
 	p.connectionsWG.Wait()
 }

@@ -443,7 +443,7 @@ func TestConsulKV_WatcherCoverage(t *testing.T) {
 	ts2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount2.Add(1)
 		w.Header().Set("X-Consul-Index", "1")
-		w.Write([]byte(`[{"Key":"foo","Value":"YmFy"}]`))
+		_, _ = w.Write([]byte(`[{"Key":"foo","Value":"YmFy"}]`))
 	}))
 	defer ts2.Close()
 

@@ -488,7 +488,7 @@ func TestTCPProxy_TimeoutAndContextCancel(t *testing.T) {
 		t.Fatal("proxy did not stop within timeout after cancel")
 	}
 
-	conn.Close()
+	_ = conn.Close()
 }
 
 // panicConn is a custom net.Conn that injects errors to test the pipe panic handler.
@@ -793,7 +793,7 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 	// Wait for connection to be processed
 	time.Sleep(50 * time.Millisecond)
 
-	conn.Close()
+	_ = conn.Close()
 }
 
 type customBackendProvider struct {

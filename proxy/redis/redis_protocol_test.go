@@ -801,8 +801,8 @@ func TestRedisWriter_Release(t *testing.T) {
 	writer := NewRedisProtocolWriter(&buf1, 128)
 
 	data1 := "hello"
-	writer.Write([]byte(data1))
-	writer.Flush()
+	_, _ = writer.Write([]byte(data1))
+	_ = writer.Flush()
 
 	if buf1.String() != data1 {
 		t.Fatalf("writer failed: expected %s, got %s", data1, buf1.String())
@@ -822,8 +822,8 @@ func TestRedisWriter_Release(t *testing.T) {
 	}
 
 	data2 := "world"
-	writer2.Write([]byte(data2))
-	writer2.Flush()
+	_, _ = writer2.Write([]byte(data2))
+	_ = writer2.Flush()
 
 	if buf2.String() != data2 {
 		t.Fatalf("writer2 failed: expected %s, got %s", data2, buf2.String())
