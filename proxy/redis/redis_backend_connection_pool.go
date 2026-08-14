@@ -136,6 +136,13 @@ func (rbcp *RedisBackendConnectionPool) Put(rbc *RedisBackendConnection) {
 	if rbc.ctx.Err() != nil {
 		return
 	}
+	if !rbcp.proxy.backends.Has(rbc.backend.Address) {
+		rbcp.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Backend removed, discarding returned connection")
+		if rbc.cancel != nil {
+			rbc.cancel()
+		}
+		return
+	}
 	rbcp.mutex.Lock()
 	defer rbcp.mutex.Unlock()
 	rbcp.pool = append(rbcp.pool, rbc)

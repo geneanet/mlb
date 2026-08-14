@@ -271,6 +271,7 @@ func TestConnection_ResetAndRelease(t *testing.T) {
 		log:                log.Logger,
 		bufferSize:         4096,
 		healthcheckTimeout: time.Second,
+		backends:           backend.NewRegistry(),
 	}
 	proxy.ctx, proxy.cancel = context.WithCancel(context.Background())
 	defer proxy.cancel()
@@ -280,7 +281,9 @@ func TestConnection_ResetAndRelease(t *testing.T) {
 		ctx:   proxy.ctx,
 		pool:  make([]*RedisBackendConnection, 0),
 	}
-	rbc, err := NewRedisBackendConnection(pool, &backend.Backend{Address: addr})
+	be := &backend.Backend{Address: addr}
+	proxy.backends.Add(be)
+	rbc, err := NewRedisBackendConnection(pool, be)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

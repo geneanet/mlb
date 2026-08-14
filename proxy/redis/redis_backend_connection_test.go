@@ -64,9 +64,11 @@ func TestRedisBackendConnection(t *testing.T) {
 		healthcheckTimeout: time.Second,
 		bufferSize:         1024,
 		beMetricsCache:     make(map[string]*Metrics),
+		backends:           backend.NewRegistry(),
 	}
 	pool := NewRedisBackendConnectionPool(p)
 	be := &backend.Backend{Address: ln.Addr().String()}
+	p.backends.Add(be)
 
 	t.Run("Lifecycle and Healthcheck", func(t *testing.T) {
 		rbc, err := NewRedisBackendConnection(pool, be)

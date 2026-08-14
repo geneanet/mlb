@@ -38,8 +38,11 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 		rbc1 := &RedisBackendConnection{pool: pool, backend: &backend.Backend{Address: "1"}, lastUsed: time.Now(), ctx: ctx}
 		rbc2 := &RedisBackendConnection{pool: pool, backend: &backend.Backend{Address: "2"}, lastUsed: time.Now(), ctx: ctx}
 
-		pool.Put(rbc1)
+		p.backends.Add(rbc1.backend); p.backends.Add(rbc2.backend); pool.Put(rbc1)
 		pool.Put(rbc2)
+
+		p.backends.Remove("1")
+		p.backends.Remove("2")
 
 		got, err := pool.Get(ctx)
 		if err != nil {
@@ -66,7 +69,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 		}
 		rbc.ctx, rbc.cancel = context.WithCancel(ctx)
 		
-		pool.Put(rbc)
+		p.backends.Add(rbc.backend); pool.Put(rbc)
 		if len(pool.pool) != 1 {
 			t.Errorf("expected pool size 1, got %d", len(pool.pool))
 		}
@@ -75,6 +78,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 		if len(pool.pool) != 0 {
 			t.Errorf("expected pool size 0, got %d", len(pool.pool))
 		}
+		p.backends.Remove("127.0.0.1:6379")
 		if rbc.ctx.Err() == nil {
 			t.Error("expected connection to be cancelled")
 		}
@@ -88,7 +92,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 			backend: &backend.Backend{Address: "127.0.0.1:6379"},
 			ctx: ctx,
 		}
-		pool.Put(rbc)
+		p.backends.Add(rbc.backend); pool.Put(rbc)
 		
 		// Remove backend from registry
 		p.backends.Remove("127.0.0.1:6379")
