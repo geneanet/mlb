@@ -9,6 +9,7 @@ import (
 	"mlb/metrics"
 	"mlb/module"
 	"mlb/system"
+	"mlb/util"
 	"net"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/zclconf/go-cty/cty"
 )
 
 func init() {
@@ -60,19 +62,19 @@ type Metrics struct {
 
 // TCPProxyConfig defines the HCL configuration for the TCP proxy.
 type TCPProxyConfig struct {
-	ID                    string   `hcl:"id,label"`
-	Sources               []string `hcl:"sources,optional"`
-	Source                string   `hcl:"source,optional"`
-	BackupSource          string   `hcl:"backup_source,optional"`
-	Addresses             []string `hcl:"addresses,optional"`
-	ConnectTimeout        string   `hcl:"connect_timeout,optional"`
-	ClientTimeout         string   `hcl:"client_timeout,optional"`
-	ServerTimeout         string   `hcl:"server_timeout,optional"`
-	CloseTimeout          string   `hcl:"close_timeout,optional"`
-	TimeoutMargin         string   `hcl:"timeout_margin,optional"`
-	BufferSize            int      `hcl:"buffer_size,optional"`
-	CloseOnBackendRemoval bool     `hcl:"close_on_backend_removal,optional"`
-	BackendTCPKeepAlive   string   `hcl:"backend_tcp_keepalive,optional"`
+	ID                    string    `hcl:"id,label"`
+	Sources               []string  `hcl:"sources,optional"`
+	Source                string    `hcl:"source,optional"`
+	BackupSource          string    `hcl:"backup_source,optional"`
+	Addresses             []string  `hcl:"addresses,optional"`
+	ConnectTimeout        string    `hcl:"connect_timeout,optional"`
+	ClientTimeout         string    `hcl:"client_timeout,optional"`
+	ServerTimeout         string    `hcl:"server_timeout,optional"`
+	CloseTimeout          string    `hcl:"close_timeout,optional"`
+	TimeoutMargin         string    `hcl:"timeout_margin,optional"`
+	BufferSize            cty.Value `hcl:"buffer_size,optional"`
+	CloseOnBackendRemoval bool      `hcl:"close_on_backend_removal,optional"`
+	BackendTCPKeepAlive   string    `hcl:"backend_tcp_keepalive,optional"`
 }
 
 // validateTCPProxyConfig validates the TCP proxy configuration.
@@ -94,6 +96,7 @@ func validateTCPProxyConfig(tc *module.Config) hcl.Diagnostics {
 	config.CheckDuration(&diags, configBody.CloseTimeout, "close_timeout")
 	config.CheckDuration(&diags, configBody.TimeoutMargin, "timeout_margin")
 	config.CheckDuration(&diags, configBody.BackendTCPKeepAlive, "backend_tcp_keepalive")
+	config.CheckByteSize(&diags, configBody.BufferSize, "buffer_size")
 
 	return diags
 }
@@ -132,9 +135,6 @@ func parseTCPProxyConfig(tc *module.Config) *TCPProxyConfig {
 	if config.TimeoutMargin == "" {
 		config.TimeoutMargin = "1s"
 	}
-	if config.BufferSize == 0 {
-		config.BufferSize = 32768
-	}
 	return config
 }
 
@@ -145,7 +145,6 @@ func newTCPProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 		id:                    config.ID,
 		addresses:             config.Addresses,
 		log:                   log.With().Str("id", config.ID).Logger(),
-		bufferSize:            config.BufferSize,
 		sources:               config.Sources,
 		wg:                    wg,
 		beMetricsCache:        make(map[string]*Metrics),
@@ -154,6 +153,11 @@ func newTCPProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 	}
 
 	var err error
+
+	p.bufferSize, _ = util.FromCtyByteSize(config.BufferSize)
+	if p.bufferSize == 0 {
+		p.bufferSize = 32768
+	}
 
 	p.connectTimeout, err = time.ParseDuration(config.ConnectTimeout)
 	if err != nil {

@@ -135,7 +135,7 @@ proxy "tcp" "mysql_main_ro" {
   // server_timeout = "0s"
   // timeout_margin = "1s"
   // backend_tcp_keepalive = "5s"
-  // buffer_size = 16384
+  // buffer_size = "16kb"
   // close_on_backend_removal = false
 }
 
@@ -146,8 +146,8 @@ proxy "redis" "redis" {
   // close_timeout = "30s"
   // backend_wait_timeout = "0s"
   // backend_tcp_keepalive = "5s"
-  // buffer_size = 16384
-  // max_reused_buffer_size = 65536
+  // buffer_size = "16kb"
+  // max_reused_buffer_size = "64kb"
   // preconnect = 0
   // idle_timeout = "5m"
   // idle_cleanup_period = "10s"
@@ -162,7 +162,7 @@ proxy "memcache" "memcache" {
   addresses = [":11211"]
   // connect_timeout = "0s"
   // close_timeout = "0s"
-  // buffer_size = 16384
+  // buffer_size = "16kb"
   // client_queue_size = 64
   // backend_input_queue_size = 1024
   // backend_inflight_queue_size = 512

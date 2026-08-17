@@ -20,6 +20,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/zclconf/go-cty/cty"
 )
 
 func init() {
@@ -28,21 +29,21 @@ func init() {
 
 // MemcacheProxyConfig defines the HCL configuration for the Memcache proxy.
 type MemcacheProxyConfig struct {
-	ID                       string   `hcl:"id,label"`
-	Source                   string   `hcl:"source"`
-	Addresses                []string `hcl:"addresses,optional"`
-	ConnectTimeout           string   `hcl:"connect_timeout,optional"`
-	CloseTimeout             string   `hcl:"close_timeout,optional"`
-	BufferSize               int      `hcl:"buffer_size,optional"`
-	ClientQueueSize          int      `hcl:"client_queue_size,optional"`
-	BackendInputQueueSize    int      `hcl:"backend_input_queue_size,optional"`
-	BackendInflightQueueSize int      `hcl:"backend_inflight_queue_size,optional"`
-	BackendMinConnections    int      `hcl:"backend_min_connections,optional"`
-	BackendMaxConnections    int      `hcl:"backend_max_connections,optional"`
-	BackendTCPKeepAlive      string   `hcl:"backend_tcp_keepalive,optional"`
-	MaxFieldsPerCommand      int      `hcl:"max_fields_per_command,optional"`
-	FlushBackendWhenAdded    bool     `hcl:"flush_backend_when_added,optional"`
-	LogBackendUpdates        bool     `hcl:"log_backend_updates,optional"`
+	ID                       string    `hcl:"id,label"`
+	Source                   string    `hcl:"source"`
+	Addresses                []string  `hcl:"addresses,optional"`
+	ConnectTimeout           string    `hcl:"connect_timeout,optional"`
+	CloseTimeout             string    `hcl:"close_timeout,optional"`
+	BufferSize               cty.Value `hcl:"buffer_size,optional"`
+	ClientQueueSize          int       `hcl:"client_queue_size,optional"`
+	BackendInputQueueSize    int       `hcl:"backend_input_queue_size,optional"`
+	BackendInflightQueueSize int       `hcl:"backend_inflight_queue_size,optional"`
+	BackendMinConnections    int       `hcl:"backend_min_connections,optional"`
+	BackendMaxConnections    int       `hcl:"backend_max_connections,optional"`
+	BackendTCPKeepAlive      string    `hcl:"backend_tcp_keepalive,optional"`
+	MaxFieldsPerCommand      int       `hcl:"max_fields_per_command,optional"`
+	FlushBackendWhenAdded    bool      `hcl:"flush_backend_when_added,optional"`
+	LogBackendUpdates        bool      `hcl:"log_backend_updates,optional"`
 }
 
 // MemcacheProxy implements a Memcache-compatible proxy with consistent hashing support.
@@ -99,6 +100,7 @@ func validateMemcacheProxyConfig(tc *module.Config) hcl.Diagnostics {
 	config.CheckDuration(&diags, configBody.ConnectTimeout, "connect_timeout")
 	config.CheckDuration(&diags, configBody.CloseTimeout, "close_timeout")
 	config.CheckDuration(&diags, configBody.BackendTCPKeepAlive, "backend_tcp_keepalive")
+	config.CheckByteSize(&diags, configBody.BufferSize, "buffer_size")
 	if configBody.BackendMinConnections > 0 && configBody.BackendMaxConnections > 0 && configBody.BackendMaxConnections < configBody.BackendMinConnections {
 		diags = append(diags, &hcl.Diagnostic{
 			Severity: hcl.DiagError,
@@ -125,9 +127,7 @@ func parseMemcacheProxyConfig(tc *module.Config) *MemcacheProxyConfig {
 	if config.BackendTCPKeepAlive == "" {
 		config.BackendTCPKeepAlive = "5s"
 	}
-	if config.BufferSize == 0 {
-		config.BufferSize = 16384
-	}
+
 	if config.ClientQueueSize == 0 {
 		config.ClientQueueSize = 64
 	}
@@ -159,7 +159,6 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 		id:                       config.ID,
 		source:                   config.Source,
 		addresses:                config.Addresses,
-		bufferSize:               config.BufferSize,
 		clientQueueSize:          config.ClientQueueSize,
 		backendInputQueueSize:    config.BackendInputQueueSize,
 		backendInflightQueueSize: config.BackendInflightQueueSize,
@@ -183,6 +182,10 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 	}
 
 	var err error
+	p.bufferSize, _ = util.FromCtyByteSize(config.BufferSize)
+	if p.bufferSize == 0 {
+		p.bufferSize = 16384
+	}
 	p.connectTimeout, err = time.ParseDuration(config.ConnectTimeout)
 	if err != nil {
 		return nil, err
@@ -654,9 +657,9 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 func (p *MemcacheProxy) forwardSingle(q MemcacheQuery, key []byte) {
 	var b *backend.Backend
 	if key != nil {
-	        b = p.ring.getBackend(key)
+		b = p.ring.getBackend(key)
 	} else {
-	        b = p.backends.GetRandom()
+		b = p.backends.GetRandom()
 	}
 
 	if b == nil {

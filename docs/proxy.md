@@ -28,7 +28,7 @@ proxy "tcp" "my_tcp_proxy" {
 - `server_timeout` (duration string, optional): Idle timeout for the backend connection. Default: `0s`.
 - `close_timeout` (duration string, optional): Grace period for closing connections during shutdown. Default: `0s`.
 - `timeout_margin` (duration string, optional): A small margin added to deadlines to prevent race conditions between client and server timeouts. Default: `1s`.
-- `buffer_size` (number, optional): Proxy buffer size in bytes. Default: `32768`.
+- `buffer_size` (number or string, optional): Proxy buffer size in bytes. Supports human-readable suffixes like `kb`, `mb`, `gb` (e.g., `"16kb"`). Default: `32768`.
 - `close_on_backend_removal` (boolean, optional): If `true`, client connections are closed if the backend they are connected to is removed from the balancer. Default: `false`.
 - `backend_tcp_keepalive` (duration string, optional): Timeout for sending TCP keepalive probes to backend connections. Set to `0s` to disable. Default: `5s`.
 
@@ -53,8 +53,8 @@ proxy "redis" "my_redis_proxy" {
 - `connect_timeout` (duration string, optional): Timeout for establishing a new connection to a backend. Default: `5s`.
 - `close_timeout` (duration string, optional): Grace period for existing connections to finish after a shutdown signal. Default: `30s`.
 - `backend_wait_timeout` (duration string, optional): How long to wait for a backend to become available if the balancer is empty before returning an error to the client. Default: `0s`.
-- `buffer_size` (number, optional): Size of the read/write buffers for network I/O. Default: `16384`.
-- `max_reused_buffer_size` (number, optional): Maximum capacity of a buffer that can be returned to the pool for reuse. Buffers larger than this will be dropped to save memory. Default: `65536`.
+- `buffer_size` (number or string, optional): Size of the read/write buffers for network I/O. Supports human-readable suffixes like `kb`, `mb`, `gb` (e.g., `"16kb"`). Default: `16384`.
+- `max_reused_buffer_size` (number or string, optional): Maximum capacity of a buffer that can be returned to the pool for reuse. Buffers larger than this will be dropped to save memory. Supports human-readable suffixes. Default: `65536`.
 - `preconnect` (number, optional): The number of connections to establish to backends at startup. Default: `0`.
 - `idle_timeout` (duration string, optional): How long an unused connection remains in the pool before being closed. Default: `5m`.
 - `idle_cleanup_period` (duration string, optional): The interval at which the proxy checks for and closes idle backend connections that have exceeded the `idle_timeout`. Default: `10s`.
@@ -84,7 +84,7 @@ proxy "memcache" "my_memcache_proxy" {
 - `addresses` (list of strings, required): List of TCP addresses to listen on (e.g., `[":11211"]`).
 - `connect_timeout` (duration string, optional): Timeout for establishing a new connection to a backend. Default: `0s`.
 - `close_timeout` (duration string, optional): Grace period for closing connections during shutdown. Default: `0s`.
-- `buffer_size` (number, optional): Size of the read/write buffers for network I/O. Default: `16384`.
+- `buffer_size` (number or string, optional): Size of the read/write buffers for network I/O. Supports human-readable suffixes like `kb`, `mb`, `gb` (e.g., `"16kb"`). Default: `16384`.
 - `client_queue_size` (number, optional): The maximum number of pipelined requests allowed per client connection. Default: `64`.
 - `backend_input_queue_size` (number, optional): Size of the internal buffer for requests waiting to be sent to a backend connection. Default: `1024`.
 - `backend_inflight_queue_size` (number, optional): Size of the internal buffer for tracking requests that are currently being processed by a backend. Default: `512`.

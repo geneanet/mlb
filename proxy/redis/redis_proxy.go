@@ -9,6 +9,7 @@ import (
 	"mlb/metrics"
 	"mlb/module"
 	"mlb/system"
+	"mlb/util"
 	"net"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/zclconf/go-cty/cty"
 )
 
 func init() {
@@ -66,22 +68,22 @@ type Metrics struct {
 
 // RedisProxyConfig defines the HCL configuration for the Redis proxy.
 type RedisProxyConfig struct {
-	ID                  string   `hcl:"id,label"`
-	Source              string   `hcl:"source"`
-	Addresses           []string `hcl:"addresses,optional"`
-	ConnectTimeout      string   `hcl:"connect_timeout,optional"`
-	CloseTimeout        string   `hcl:"close_timeout,optional"`
-	BackendWaitTimeout  string   `hcl:"backend_wait_timeout,optional"`
-	BackendTCPKeepAlive string   `hcl:"backend_tcp_keepalive,optional"`
-	BufferSize          int      `hcl:"buffer_size,optional"`
-	MaxReusedBufferSize int      `hcl:"max_reused_buffer_size,optional"`
-	Preconnect          int      `hcl:"preconnect,optional"`
-	IdleTimeout         string   `hcl:"idle_timeout,optional"`
-	IdleCleanupPeriod   string   `hcl:"idle_cleanup_period,optional"`
-	Healthcheck         bool     `hcl:"healthcheck,optional"`
-	HealthcheckTimeout  string   `hcl:"healthcheck_timeout,optional"`
-	ResetTimeout        string   `hcl:"reset_timeout,optional"`
-	LogBackendUpdates   bool     `hcl:"log_backend_updates,optional"`
+	ID                  string    `hcl:"id,label"`
+	Source              string    `hcl:"source"`
+	Addresses           []string  `hcl:"addresses,optional"`
+	ConnectTimeout      string    `hcl:"connect_timeout,optional"`
+	CloseTimeout        string    `hcl:"close_timeout,optional"`
+	BackendWaitTimeout  string    `hcl:"backend_wait_timeout,optional"`
+	BackendTCPKeepAlive string    `hcl:"backend_tcp_keepalive,optional"`
+	BufferSize          cty.Value `hcl:"buffer_size,optional"`
+	MaxReusedBufferSize cty.Value `hcl:"max_reused_buffer_size,optional"`
+	Preconnect          int       `hcl:"preconnect,optional"`
+	IdleTimeout         string    `hcl:"idle_timeout,optional"`
+	IdleCleanupPeriod   string    `hcl:"idle_cleanup_period,optional"`
+	Healthcheck         bool      `hcl:"healthcheck,optional"`
+	HealthcheckTimeout  string    `hcl:"healthcheck_timeout,optional"`
+	ResetTimeout        string    `hcl:"reset_timeout,optional"`
+	LogBackendUpdates   bool      `hcl:"log_backend_updates,optional"`
 }
 
 // validateRedisProxyConfig validates the Redis proxy configuration.
@@ -97,8 +99,13 @@ func validateRedisProxyConfig(tc *module.Config) hcl.Diagnostics {
 	config.CheckDuration(&diags, configBody.IdleCleanupPeriod, "idle_cleanup_period")
 	config.CheckDuration(&diags, configBody.HealthcheckTimeout, "healthcheck_timeout")
 	config.CheckDuration(&diags, configBody.ResetTimeout, "reset_timeout")
+	config.CheckByteSize(&diags, configBody.BufferSize, "buffer_size")
+	config.CheckByteSize(&diags, configBody.MaxReusedBufferSize, "max_reused_buffer_size")
 
-	if configBody.MaxReusedBufferSize != 0 && configBody.BufferSize != 0 && configBody.MaxReusedBufferSize < configBody.BufferSize {
+	bs, _ := util.FromCtyByteSize(configBody.BufferSize)
+	mbs, _ := util.FromCtyByteSize(configBody.MaxReusedBufferSize)
+
+	if mbs != 0 && bs != 0 && mbs < bs {
 		diags = append(diags, &hcl.Diagnostic{
 			Severity: hcl.DiagError,
 			Summary:  "Invalid max_reused_buffer_size",
@@ -128,18 +135,20 @@ func parseRedisProxyConfig(tc *module.Config) *RedisProxyConfig {
 	if config.BackendTCPKeepAlive == "" {
 		config.BackendTCPKeepAlive = "5s"
 	}
-	if config.BufferSize == 0 {
-		config.BufferSize = 16384
-	}
-	BufferSize = config.BufferSize
 
-	if config.MaxReusedBufferSize == 0 {
-		config.MaxReusedBufferSize = 65536
+	BufferSize, _ := util.FromCtyByteSize(config.BufferSize)
+	if BufferSize == 0 {
+		BufferSize = 16384
 	}
-	if config.MaxReusedBufferSize < config.BufferSize {
-		config.MaxReusedBufferSize = config.BufferSize
+
+	MaxReusedBufferSize, _ := util.FromCtyByteSize(config.MaxReusedBufferSize)
+	if MaxReusedBufferSize == 0 {
+		MaxReusedBufferSize = 65536
 	}
-	MaxReusedBufferSize = config.MaxReusedBufferSize
+	if MaxReusedBufferSize < BufferSize {
+		MaxReusedBufferSize = BufferSize
+	}
+
 	if config.IdleTimeout == "" {
 		config.IdleTimeout = "5m"
 	}
@@ -162,7 +171,7 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (
 		id:                       config.ID,
 		addresses:                config.Addresses,
 		log:                      log.With().Str("id", config.ID).Logger(),
-		bufferSize:               config.BufferSize,
+		bufferSize:               BufferSize,
 		source:                   config.Source,
 		preconnect:               config.Preconnect,
 		healthcheck:              config.Healthcheck,
