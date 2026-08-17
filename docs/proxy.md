@@ -54,6 +54,7 @@ proxy "redis" "my_redis_proxy" {
 - `close_timeout` (duration string, optional): Grace period for existing connections to finish after a shutdown signal. Default: `30s`.
 - `backend_wait_timeout` (duration string, optional): How long to wait for a backend to become available if the balancer is empty before returning an error to the client. Default: `0s`.
 - `buffer_size` (number, optional): Size of the read/write buffers for network I/O. Default: `16384`.
+- `max_reused_buffer_size` (number, optional): Maximum capacity of a buffer that can be returned to the pool for reuse. Buffers larger than this will be dropped to save memory. Default: `65536`.
 - `preconnect` (number, optional): The number of connections to establish to backends at startup. Default: `0`.
 - `idle_timeout` (duration string, optional): How long an unused connection remains in the pool before being closed. Default: `5m`.
 - `idle_cleanup_period` (duration string, optional): The interval at which the proxy checks for and closes idle backend connections that have exceeded the `idle_timeout`. Default: `10s`.

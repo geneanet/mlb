@@ -738,9 +738,14 @@ func TestBufferPool_Reuse(t *testing.T) {
 
 	ReleaseBuffer(knownBuf)
 
-	ptr := bufferPool.Get().(*[]byte)
+	v := bufferPool.Get()
+	if v == nil {
+		// sync.Pool is allowed to return nil if it was cleared by GC or hasn't been populated
+		return
+	}
+	ptr := v.(*[]byte)
 	if ptr == nil {
-		t.Fatal("bufferPool.Get() returned nil")
+		t.Fatal("bufferPool.Get() returned a nil pointer")
 	}
 }
 

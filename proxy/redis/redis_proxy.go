@@ -74,6 +74,7 @@ type RedisProxyConfig struct {
 	BackendWaitTimeout  string   `hcl:"backend_wait_timeout,optional"`
 	BackendTCPKeepAlive string   `hcl:"backend_tcp_keepalive,optional"`
 	BufferSize          int      `hcl:"buffer_size,optional"`
+	MaxReusedBufferSize int      `hcl:"max_reused_buffer_size,optional"`
 	Preconnect          int      `hcl:"preconnect,optional"`
 	IdleTimeout         string   `hcl:"idle_timeout,optional"`
 	IdleCleanupPeriod   string   `hcl:"idle_cleanup_period,optional"`
@@ -96,6 +97,14 @@ func validateRedisProxyConfig(tc *module.Config) hcl.Diagnostics {
 	config.CheckDuration(&diags, configBody.IdleCleanupPeriod, "idle_cleanup_period")
 	config.CheckDuration(&diags, configBody.HealthcheckTimeout, "healthcheck_timeout")
 	config.CheckDuration(&diags, configBody.ResetTimeout, "reset_timeout")
+
+	if configBody.MaxReusedBufferSize != 0 && configBody.BufferSize != 0 && configBody.MaxReusedBufferSize < configBody.BufferSize {
+		diags = append(diags, &hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "Invalid max_reused_buffer_size",
+			Detail:   "max_reused_buffer_size must be greater than or equal to buffer_size",
+		})
+	}
 
 	return diags
 }
@@ -122,6 +131,15 @@ func parseRedisProxyConfig(tc *module.Config) *RedisProxyConfig {
 	if config.BufferSize == 0 {
 		config.BufferSize = 16384
 	}
+	BufferSize = config.BufferSize
+
+	if config.MaxReusedBufferSize == 0 {
+		config.MaxReusedBufferSize = 65536
+	}
+	if config.MaxReusedBufferSize < config.BufferSize {
+		config.MaxReusedBufferSize = config.BufferSize
+	}
+	MaxReusedBufferSize = config.MaxReusedBufferSize
 	if config.IdleTimeout == "" {
 		config.IdleTimeout = "5m"
 	}
