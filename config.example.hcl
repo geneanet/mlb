@@ -7,6 +7,8 @@ system {
     nofile = 65536
   }
   // gomaxprocs = 4
+  // systemd_notify_ready = true
+  // systemd_notify_reloading = true
 }
 
 backends_inventory "consul" "mysql" {

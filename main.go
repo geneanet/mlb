@@ -158,7 +158,11 @@ func main() {
 	}
 
 	// Signal that the new process is ready when all modules are ready
-	go signalReadiness(ctx, ml, upg)
+	systemdNotifyReady := true
+	if conf.System != nil {
+		systemdNotifyReady = conf.System.SystemdNotifyReady
+	}
+	go signalReadiness(ctx, ml, upg, systemdNotifyReady)
 
 	// Termination signals
 	chanSignals := make(chan os.Signal, 1)
@@ -177,12 +181,17 @@ func main() {
 
 					// Notify systemd that a reload is initiating.
 					// For Type=notify-reload, systemd expects RELOADING=1 and MONOTONIC_USEC.
-					var ts unix.Timespec
-					_ = unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts)
-					_, _ = daemon.SdNotify(false, fmt.Sprintf("%s\nMONOTONIC_USEC=%d", daemon.SdNotifyReloading, ts.Nano()/1000))
+					if conf.System != nil && conf.System.SystemdNotifyReloading {
+						var ts unix.Timespec
+						_ = unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts)
+						_, _ = daemon.SdNotify(false, fmt.Sprintf("%s\nMONOTONIC_USEC=%d", daemon.SdNotifyReloading, ts.Nano()/1000))
+					}
 
 					if err := upg.Upgrade(); err != nil {
 						log.Error().Err(err).Msg("Upgrade failed")
+						if conf.System != nil && conf.System.SystemdNotifyReloading {
+							_, _ = daemon.SdNotify(false, fmt.Sprintf("%s\nSTATUS=Upgrade failed: %v", daemon.SdNotifyReady, err))
+						}
 					}
 				}
 			case <-upg.Exit():
@@ -201,7 +210,7 @@ type upgrader interface {
 	Ready() error
 }
 
-func signalReadiness(ctx context.Context, ml module.ModulesRegistry, upg upgrader) {
+func signalReadiness(ctx context.Context, ml module.ModulesRegistry, upg upgrader, systemdNotifyReady bool) {
 	allModules := make([]any, 0, len(ml))
 	for _, m := range ml {
 		allModules = append(allModules, m)
@@ -224,6 +233,8 @@ func signalReadiness(ctx context.Context, ml module.ModulesRegistry, upg upgrade
 	// Notify systemd that we are ready and communicate the new MAINPID.
 	// This is crucial for systemd to track the correct process after a tableflip upgrade
 	// and avoid killing the new process.
-	_, _ = daemon.SdNotify(false, daemon.SdNotifyReady)
-	_, _ = daemon.SdNotify(false, fmt.Sprintf("MAINPID=%d", os.Getpid()))
+	if systemdNotifyReady {
+		_, _ = daemon.SdNotify(false, daemon.SdNotifyReady)
+		_, _ = daemon.SdNotify(false, fmt.Sprintf("MAINPID=%d", os.Getpid()))
+	}
 }

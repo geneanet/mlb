@@ -11,9 +11,11 @@ import (
 
 // SystemConfig defines the HCL configuration for system-level settings.
 type SystemConfig struct {
-	RLimit     *RLimitConfig `hcl:"rlimit,block"`
-	GoMaxProcs int           `hcl:"gomaxprocs,optional"`
-	PIDFile    string        `hcl:"pid_file,optional"`
+	RLimit                 *RLimitConfig `hcl:"rlimit,block"`
+	GoMaxProcs             int           `hcl:"gomaxprocs,optional"`
+	PIDFile                string        `hcl:"pid_file,optional"`
+	SystemdNotifyReady     bool          `hcl:"systemd_notify_ready,optional"`
+	SystemdNotifyReloading bool          `hcl:"systemd_notify_reloading,optional"`
 }
 
 // RLimitConfig defines the HCL configuration for resource limits.
@@ -23,7 +25,10 @@ type RLimitConfig struct {
 
 // DecodeConfigBlock decodes an HCL block into a SystemConfig.
 func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*SystemConfig, hcl.Diagnostics) {
-	c := &SystemConfig{}
+	c := &SystemConfig{
+		SystemdNotifyReady:     true,
+		SystemdNotifyReloading: true,
+	}
 	diag := gohcl.DecodeBody(block.Body, ctx, c)
 	return c, diag
 }

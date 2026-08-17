@@ -42,7 +42,7 @@ func TestSignalReadiness(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			signalReadiness(ctx, ml, upg)
+			signalReadiness(ctx, ml, upg, false)
 			close(done)
 		}()
 
@@ -76,7 +76,7 @@ func TestSignalReadiness(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			signalReadiness(ctx, ml, upg)
+			signalReadiness(ctx, ml, upg, false)
 			close(done)
 		}()
 
@@ -100,7 +100,7 @@ func TestSignalReadiness(t *testing.T) {
 		upg := &mockUpgrader{errToReturn: errors.New("upg ready err")}
 
 		// Should not panic or block
-		signalReadiness(ctx, ml, upg)
+		signalReadiness(ctx, ml, upg, false)
 
 		if !upg.readyCalled {
 			t.Error("Expected upg.Ready() to be called")

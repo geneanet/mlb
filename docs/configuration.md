@@ -36,6 +36,8 @@ system {
     nofile = 65536
   }
   gomaxprocs = 4
+  systemd_notify_ready = true
+  systemd_notify_reloading = true
 }
 ```
 
@@ -43,6 +45,8 @@ system {
 - `rlimit` (block, optional): Configures resource limits.
     - `nofile` (number, optional): Sets the maximum number of open file descriptors (`RLIMIT_NOFILE`). Defaults to the system's current limit.
 - `gomaxprocs` (number, optional): Sets the `GOMAXPROCS` value, which limits the number of operating system threads that can execute user-level Go code simultaneously. Defaults to the number of logical CPUs.
+- `systemd_notify_ready` (boolean, optional): If `true`, MLB will send `SdNotifyReady` to systemd and update the `MAINPID` when it completes initialization. Defaults to `true`.
+- `systemd_notify_reloading` (boolean, optional): If `true`, MLB will send `SdNotifyReloading` to systemd when it receives a `SIGHUP` signal to reload configuration. Defaults to `true`.
 
 ## HCL Expressions & Functions
 
