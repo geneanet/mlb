@@ -1,16 +1,16 @@
 package redis
 
 import (
-	"bytes"
-	"context"
-	"crypto/rand"
-	"encoding/hex"
-	"fmt"
-	"net"
-	"sync"
-	"time"
+        "bytes"
+        "context"
+        "fmt"
+        "net"
+        "strconv"
+        "sync"
+        "sync/atomic"
+        "time"
 
-	"mlb/backend"
+        "mlb/backend"
 )
 
 //--------------------------
@@ -29,7 +29,8 @@ type RedisBackendConnection struct {
 	failureErr  error              // The error that caused the connection to fail, if any
 	failureOnce sync.Once          // Ensures we only process failure once
 	lastUsed    time.Time          // Timestamp of when it was last returned to the pool
-}
+	resetCount  uint64             // Counter used to generate unique ECHO markers without allocation
+	}
 
 // fail marks the connection as failed, cancels its context, and logs the error.
 func (rbc *RedisBackendConnection) fail(err error) {
@@ -119,31 +120,30 @@ func (rbc *RedisBackendConnection) ResetAndRelease() {
 		return
 	}
 
-	// Generate a unique token to synchronize the connection state.
-	token := make([]byte, 8)
-	if _, err := rand.Read(token); err != nil {
-		rbc.fail(fmt.Errorf("failed to generate reset token: %w", err))
-		return
-	}
-	hexToken := hex.EncodeToString(token)
+	// Generate a unique token to synchronize the connection state without allocation.
+	count := atomic.AddUint64(&rbc.resetCount, 1)
+	var tokenBuf [64]byte // Stack buffer for token and RESP encoding
+	token := append(tokenBuf[:0], "MLB_RESET_FLAG_"...)
+	token = strconv.AppendUint(token, count, 10)
 
 	// Send RESET and ECHO <token> commands to ensure the connection is in a clean state.
 	// We use ECHO as a marker to know when the RESET command has been fully processed.
-	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Str("token", hexToken).Msg("Sending RESET and ECHO to backend connection")
+	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Bytes("token", token).Msg("Sending RESET and ECHO to backend connection")
 
-	// Construct the pipelined command:
+	// Construct the pipelined command using a stack buffer to avoid allocations.
 	// RESET: *1\r\n$5\r\nRESET\r\n
-	// ECHO:  *2\r\n$4\r\nECHO\r\n$16\r\n<hexToken>\r\n
-	var buf bytes.Buffer
-	buf.WriteString("*1\r\n$5\r\nRESET\r\n")
-	buf.WriteString("*2\r\n$4\r\nECHO\r\n$16\r\n")
-	buf.WriteString(hexToken)
-	buf.WriteString("\r\n")
+	// ECHO:  *2\r\n$4\r\nECHO\r\n$<token_len>\r\n<token>\r\n
+	var cmdBuf [128]byte
+	cmd := append(cmdBuf[:0], "*1\r\n$5\r\nRESET\r\n*2\r\n$4\r\nECHO\r\n$"...)
+	cmd = strconv.AppendInt(cmd, int64(len(token)), 10)
+	cmd = append(cmd, "\r\n"...)
+	cmd = append(cmd, token...)
+	cmd = append(cmd, "\r\n"...)
 
-	_, err := rbc.conn.Write(buf.Bytes())
+	_, err := rbc.conn.Write(cmd)
 	if err != nil {
-		rbc.fail(fmt.Errorf("failed to send RESET/ECHO: %w", err))
-		return
+	        rbc.fail(fmt.Errorf("failed to send RESET/ECHO: %w", err))
+	        return
 	}
 
 	// Drain responses from the backend until we receive the ECHO confirmation.
@@ -155,7 +155,13 @@ func (rbc *RedisBackendConnection) ResetAndRelease() {
 	_ = rbc.conn.SetDeadline(time.Now().Add(rbc.pool.proxy.resetTimeout))
 	defer func() { _ = rbc.conn.SetDeadline(time.Time{}) }()
 
-	expectedResponse := []byte("$16\r\n" + hexToken + "\r\n")
+	// Pre-calculate expected ECHO response to avoid allocations in the loop
+	var expectBuf [64]byte
+	expectedResponse := append(expectBuf[:0], '$')
+	expectedResponse = strconv.AppendInt(expectedResponse, int64(len(token)), 10)
+	expectedResponse = append(expectedResponse, "\r\n"...)
+	expectedResponse = append(expectedResponse, token...)
+	expectedResponse = append(expectedResponse, "\r\n"...)
 
 	for {
 		item, err := reader.ReadMessage(false)

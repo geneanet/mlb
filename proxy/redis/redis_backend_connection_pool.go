@@ -59,23 +59,29 @@ func (rbcp *RedisBackendConnectionPool) cleanupIdle() {
 
 	now := time.Now()
 	closedCount := 0
-	newPool := make([]*RedisBackendConnection, 0, len(rbcp.pool))
+	filtered := rbcp.pool[:0]
+
 	for _, rbc := range rbcp.pool {
-		if now.Sub(rbc.lastUsed) > rbcp.proxy.idleTimeout {
-			closedCount++
-			rbcp.proxy.log.Debug().
-				Str("peer", rbc.backend.Address).
-				Dur("idle_time", now.Sub(rbc.lastUsed)).
-				Int("pool_size", len(rbcp.pool)-closedCount).
-				Msg("Closing idle backend connection")
-			if rbc.cancel != nil {
-				rbc.cancel() // This triggers the cleanup routine in NewRedisBackendConnection
-			}
-		} else {
-			newPool = append(newPool, rbc)
-		}
+	        if now.Sub(rbc.lastUsed) > rbcp.proxy.idleTimeout {
+	                closedCount++
+	                rbcp.proxy.log.Debug().
+	                        Str("peer", rbc.backend.Address).
+	                        Dur("idle_time", now.Sub(rbc.lastUsed)).
+	                        Int("pool_size", len(rbcp.pool)-closedCount).
+	                        Msg("Closing idle backend connection")
+	                if rbc.cancel != nil {
+	                        rbc.cancel() // This triggers the cleanup routine in NewRedisBackendConnection
+	                }
+	        } else {
+	                filtered = append(filtered, rbc)
+	        }
 	}
-	rbcp.pool = newPool
+
+	// Clear remaining elements to prevent memory leaks
+	for i := len(filtered); i < len(rbcp.pool); i++ {
+	        rbcp.pool[i] = nil
+	}
+	rbcp.pool = filtered
 }
 
 // Get retrieves an available connection from the pool. If the pool is empty, it attempts
@@ -165,18 +171,23 @@ func (rbcp *RedisBackendConnectionPool) Update() {
 	rbcp.proxy.log.Debug().Int("pool_size", len(rbcp.pool)).Msg("Updating backend connection pool")
 
 	// Remove connections that belong to backends no longer in the registry.
-	newPool := make([]*RedisBackendConnection, 0, len(rbcp.pool))
+	filtered := rbcp.pool[:0]
 	for _, rbc := range rbcp.pool {
-		if rbcp.proxy.backends.Has(rbc.backend.Address) {
-			newPool = append(newPool, rbc)
-		} else {
-			rbcp.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Closing connection to removed backend")
-			if rbc.cancel != nil {
-				rbc.cancel()
-			}
-		}
+	        if rbcp.proxy.backends.Has(rbc.backend.Address) {
+	                filtered = append(filtered, rbc)
+	        } else {
+	                rbcp.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Closing connection to removed backend")
+	                if rbc.cancel != nil {
+	                        rbc.cancel()
+	                }
+	        }
 	}
-	rbcp.pool = newPool
+
+	// Clear remaining elements to prevent memory leaks
+	for i := len(filtered); i < len(rbcp.pool); i++ {
+	        rbcp.pool[i] = nil
+	}
+	rbcp.pool = filtered
 	currentCount := len(rbcp.pool)
 	rbcp.mutex.Unlock()
 
