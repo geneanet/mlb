@@ -1,16 +1,16 @@
 package redis
 
 import (
-        "bytes"
-        "context"
-        "fmt"
-        "net"
-        "strconv"
-        "sync"
-        "sync/atomic"
-        "time"
+	"bytes"
+	"context"
+	"fmt"
+	"net"
+	"strconv"
+	"sync"
+	"sync/atomic"
+	"time"
 
-        "mlb/backend"
+	"mlb/backend"
 )
 
 //--------------------------
@@ -30,7 +30,7 @@ type RedisBackendConnection struct {
 	failureOnce sync.Once          // Ensures we only process failure once
 	lastUsed    time.Time          // Timestamp of when it was last returned to the pool
 	resetCount  uint64             // Counter used to generate unique ECHO markers without allocation
-	}
+}
 
 // fail marks the connection as failed, cancels its context, and logs the error.
 func (rbc *RedisBackendConnection) fail(err error) {
@@ -142,8 +142,8 @@ func (rbc *RedisBackendConnection) ResetAndRelease() {
 
 	_, err := rbc.conn.Write(cmd)
 	if err != nil {
-	        rbc.fail(fmt.Errorf("failed to send RESET/ECHO: %w", err))
-	        return
+		rbc.fail(fmt.Errorf("failed to send RESET/ECHO: %w", err))
+		return
 	}
 
 	// Drain responses from the backend until we receive the ECHO confirmation.

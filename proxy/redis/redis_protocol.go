@@ -63,9 +63,9 @@ func (pw *RedisProtocolWriter) Release() {
 // It uses an internal bufio.Reader for efficiency and maintains an accumulation buffer
 // to return complete protocol messages.
 type RedisProtocolReader struct {
-	br     *bufio.Reader
-	buffer []byte  // Accumulation buffer for the current message
-	stack  []int   // Reusable stack for parsing nested structures
+	br       *bufio.Reader
+	buffer   []byte  // Accumulation buffer for the current message
+	stack    []int   // Reusable stack for parsing nested structures
 	stackBuf [16]int // Fixed buffer for the stack to avoid allocations for common nesting levels
 }
 

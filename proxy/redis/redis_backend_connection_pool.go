@@ -61,24 +61,24 @@ func (rbcp *RedisBackendConnectionPool) cleanupIdle() {
 	filtered := rbcp.pool[:0]
 
 	for _, rbc := range rbcp.pool {
-	        if now.Sub(rbc.lastUsed) > rbcp.proxy.idleTimeout {
-	                closedCount++
-	                rbcp.proxy.log.Debug().
-	                        Str("peer", rbc.backend.Address).
-	                        Dur("idle_time", now.Sub(rbc.lastUsed)).
-	                        Int("pool_size", len(rbcp.pool)-closedCount).
-	                        Msg("Closing idle backend connection")
-	                if rbc.cancel != nil {
-	                        rbc.cancel() // This triggers the cleanup routine in NewRedisBackendConnection
-	                }
-	        } else {
-	                filtered = append(filtered, rbc)
-	        }
+		if now.Sub(rbc.lastUsed) > rbcp.proxy.idleTimeout {
+			closedCount++
+			rbcp.proxy.log.Debug().
+				Str("peer", rbc.backend.Address).
+				Dur("idle_time", now.Sub(rbc.lastUsed)).
+				Int("pool_size", len(rbcp.pool)-closedCount).
+				Msg("Closing idle backend connection")
+			if rbc.cancel != nil {
+				rbc.cancel() // This triggers the cleanup routine in NewRedisBackendConnection
+			}
+		} else {
+			filtered = append(filtered, rbc)
+		}
 	}
 
 	// Clear remaining elements to prevent memory leaks
 	for i := len(filtered); i < len(rbcp.pool); i++ {
-	        rbcp.pool[i] = nil
+		rbcp.pool[i] = nil
 	}
 	rbcp.pool = filtered
 }
@@ -99,25 +99,25 @@ func (rbcp *RedisBackendConnectionPool) Get(ctx context.Context) (*RedisBackendC
 		rbcp.mutex.Unlock()
 
 		if rbc == nil {
-		        // Pool is empty, attempt to find a backend and dial a new connection.
-		        backend := rbcp.proxy.backends.GetRandom()
+			// Pool is empty, attempt to find a backend and dial a new connection.
+			backend := rbcp.proxy.backends.GetRandom()
 
-		        // If no backends are available, we might wait a bit for the registry to be populated
-		        // (e.g., during startup or service discovery updates).
-		        if backend == nil && rbcp.proxy.backendWaitTimeout > 0 {
-		                rbcp.proxy.log.Debug().Dur("timeout", rbcp.proxy.backendWaitTimeout).Msg("Waiting for backends to become available")
-		                waitCtx, cancel := context.WithTimeout(ctx, rbcp.proxy.backendWaitTimeout)
-		                _ = rbcp.proxy.backends.Wait(waitCtx)
-		                cancel()
-		                backend = rbcp.proxy.backends.GetRandom()
-		        }
+			// If no backends are available, we might wait a bit for the registry to be populated
+			// (e.g., during startup or service discovery updates).
+			if backend == nil && rbcp.proxy.backendWaitTimeout > 0 {
+				rbcp.proxy.log.Debug().Dur("timeout", rbcp.proxy.backendWaitTimeout).Msg("Waiting for backends to become available")
+				waitCtx, cancel := context.WithTimeout(ctx, rbcp.proxy.backendWaitTimeout)
+				_ = rbcp.proxy.backends.Wait(waitCtx)
+				cancel()
+				backend = rbcp.proxy.backends.GetRandom()
+			}
 
-		        if backend == nil {
-		                return nil, fmt.Errorf("no backends available to create new connection")
-		        }
+			if backend == nil {
+				return nil, fmt.Errorf("no backends available to create new connection")
+			}
 
-		        rbcp.proxy.log.Debug().Str("peer", backend.Address).Msg("Creating new backend connection (pool empty)")
-		        return NewRedisBackendConnection(rbcp, backend)
+			rbcp.proxy.log.Debug().Str("peer", backend.Address).Msg("Creating new backend connection (pool empty)")
+			return NewRedisBackendConnection(rbcp, backend)
 		}
 
 		// Validation: check if the connection was cancelled while sitting in the pool.
@@ -170,19 +170,19 @@ func (rbcp *RedisBackendConnectionPool) Update() {
 	// Remove connections that belong to backends no longer in the registry.
 	filtered := rbcp.pool[:0]
 	for _, rbc := range rbcp.pool {
-	        if rbcp.proxy.backends.Has(rbc.backend.Address) {
-	                filtered = append(filtered, rbc)
-	        } else {
-	                rbcp.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Closing connection to removed backend")
-	                if rbc.cancel != nil {
-	                        rbc.cancel()
-	                }
-	        }
+		if rbcp.proxy.backends.Has(rbc.backend.Address) {
+			filtered = append(filtered, rbc)
+		} else {
+			rbcp.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Closing connection to removed backend")
+			if rbc.cancel != nil {
+				rbc.cancel()
+			}
+		}
 	}
 
 	// Clear remaining elements to prevent memory leaks
 	for i := len(filtered); i < len(rbcp.pool); i++ {
-	        rbcp.pool[i] = nil
+		rbcp.pool[i] = nil
 	}
 	rbcp.pool = filtered
 	currentCount := len(rbcp.pool)
@@ -190,23 +190,23 @@ func (rbcp *RedisBackendConnectionPool) Update() {
 
 	// Preconnect: open new connections if we are below the 'preconnect' threshold.
 	if rbcp.proxy.preconnect > currentCount {
-	        rbcp.proxy.log.Debug().Int("current", currentCount).Int("target", rbcp.proxy.preconnect).Msg("Preconnecting to backends")
+		rbcp.proxy.log.Debug().Int("current", currentCount).Int("target", rbcp.proxy.preconnect).Msg("Preconnecting to backends")
 
-	        for i := 0; i < rbcp.proxy.preconnect-currentCount; i++ {
-	                // Re-check count inside the loop to avoid over-connecting if other goroutines are active.
-	                rbcp.mutex.Lock()
-	                current := len(rbcp.pool)
-	                rbcp.mutex.Unlock()
-	                if current >= rbcp.proxy.preconnect {
-	                        break
-	                }
+		for i := 0; i < rbcp.proxy.preconnect-currentCount; i++ {
+			// Re-check count inside the loop to avoid over-connecting if other goroutines are active.
+			rbcp.mutex.Lock()
+			current := len(rbcp.pool)
+			rbcp.mutex.Unlock()
+			if current >= rbcp.proxy.preconnect {
+				break
+			}
 
-	                backend := rbcp.proxy.backends.GetRandom()
-	                if backend == nil {
-	                        rbcp.proxy.log.Debug().Msg("No backends available for preconnect")
-	                        break
-	                }
-	                rbcp.proxy.log.Debug().Str("peer", backend.Address).Msg("Preconnecting to backend")
+			backend := rbcp.proxy.backends.GetRandom()
+			if backend == nil {
+				rbcp.proxy.log.Debug().Msg("No backends available for preconnect")
+				break
+			}
+			rbcp.proxy.log.Debug().Str("peer", backend.Address).Msg("Preconnecting to backend")
 			rbc, err := NewRedisBackendConnection(rbcp, backend)
 			if err == nil {
 				rbcp.Put(rbc)
