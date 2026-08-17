@@ -4,7 +4,6 @@ import (
 	"context"
 	"maps"
 	"slices"
-	"sort"
 	"sync"
 
 	"github.com/hashicorp/hcl/v2"
@@ -166,13 +165,18 @@ func (r *Registry) GetList() BackendsList {
 	return slices.Collect(maps.Values(r.backends))
 }
 
-// GetSortedList returns a slice containing all current backends sorted by address.
-func (r *Registry) GetSortedList() BackendsList {
-	backends := r.GetList()
-	sort.Slice(backends, func(i, j int) bool {
-		return backends[i].Address < backends[j].Address
-	})
-	return backends
+// GetRandom returns a random backend from the registry, or nil if empty.
+// It leverages Go's map iteration randomization to avoid allocations.
+func (r *Registry) GetRandom() *Backend {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.backends) == 0 {
+		return nil
+	}
+	for _, b := range r.backends {
+		return b
+	}
+	return nil
 }
 
 // Add adds a backend to the registry.

@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"math/rand"
 	"mlb/backend"
 	"mlb/config"
 	"mlb/metrics"
@@ -655,13 +654,9 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 func (p *MemcacheProxy) forwardSingle(q MemcacheQuery, key []byte) {
 	var b *backend.Backend
 	if key != nil {
-		b = p.ring.getBackend(key)
+	        b = p.ring.getBackend(key)
 	} else {
-		lst := p.backends.GetList()
-		if len(lst) > 0 {
-			// random selection for commands without a key
-			b = lst[rand.Intn(len(lst))]
-		}
+	        b = p.backends.GetRandom()
 	}
 
 	if b == nil {

@@ -189,7 +189,7 @@ func TestRedisProxy_BindAndReceiveUpdate(t *testing.T) {
 		Backend: be,
 	})
 	testutil.Eventually(t, func() bool {
-		list := rp.backends.GetSortedList()
+		list := rp.backends.GetList()
 		if len(list) == 0 {
 			return false
 		}
@@ -197,7 +197,7 @@ func TestRedisProxy_BindAndReceiveUpdate(t *testing.T) {
 		return ok && val.AsString() == "bar"
 	}, 1*time.Second, 10*time.Millisecond)
 
-	val, ok := rp.backends.GetSortedList()[0].Meta.Get("default", "foo")
+	val, ok := rp.backends.GetList()[0].Meta.Get("default", "foo")
 	if !ok {
 		t.Error("expected meta value to be present")
 	}

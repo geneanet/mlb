@@ -195,19 +195,10 @@ func TestRegistry_Lists(t *testing.T) {
 	bm.Add(b1)
 	bm.Add(b2)
 
-	// Verify unordered list length
+	// Verify list length
 	list := bm.GetList()
 	if len(list) != 2 {
 		t.Errorf("expected list to have 2 items, got %d", len(list))
-	}
-
-	// Verify sorted list order
-	sorted := bm.GetSortedList()
-	if len(sorted) != 2 {
-		t.Errorf("expected sorted list to have 2 items, got %d", len(sorted))
-	}
-	if sorted[0].Address != "10.0.0.1" || sorted[1].Address != "10.0.0.2" {
-		t.Errorf("expected sorted list to be sorted by address")
 	}
 }
 
