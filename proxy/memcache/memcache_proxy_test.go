@@ -236,7 +236,9 @@ func TestMemcacheProxyBindAndListen(t *testing.T) {
 	}
 	p := mod.(*MemcacheProxy)
 
-	mockProvider := &mockUpdateProvider{}
+	mockProvider := &mockUpdateProvider{
+		readyChan: make(chan struct{}),
+	}
 	modules := module.ModulesRegistry{
 		"mock": mockProvider,
 	}
@@ -249,6 +251,17 @@ func TestMemcacheProxyBindAndListen(t *testing.T) {
 		t.Errorf("Expected 1 subscriber, got %d", len(mockProvider.subs))
 	}
 
+	// Signal readiness from mock provider
+	close(mockProvider.readyChan)
+
+	// Test Ready functionality
+	select {
+	case <-p.Ready():
+		// OK
+	case <-time.After(100 * time.Millisecond):
+		t.Errorf("Timeout waiting for proxy readiness")
+	}
+
 	// Verify listener started
 	time.Sleep(50 * time.Millisecond)
 	cancel()
@@ -257,11 +270,19 @@ func TestMemcacheProxyBindAndListen(t *testing.T) {
 
 // Dummy provider to simulate backend updates
 type mockUpdateProvider struct {
-	subs []backend.BackendUpdateSubscriber
+	subs      []backend.BackendUpdateSubscriber
+	readyChan chan struct{}
 }
 
 func (m *mockUpdateProvider) ProvideUpdates(sub backend.BackendUpdateSubscriber) {
 	m.subs = append(m.subs, sub)
+}
+
+func (m *mockUpdateProvider) Ready() <-chan struct{} {
+	if m.readyChan == nil {
+		m.readyChan = make(chan struct{})
+	}
+	return m.readyChan
 }
 
 func TestMemcacheHashRing(t *testing.T) {
@@ -324,6 +345,7 @@ func TestMemcacheProxyScatterGather(t *testing.T) {
 				return &f
 			},
 		},
+		readyChan: make(chan struct{}),
 	}
 	proxy.backendConnectionPool = NewMemcacheBackendConnectionPool(proxy)
 
@@ -416,6 +438,7 @@ func TestMemcacheProxyEmptyBackends(t *testing.T) {
 				return &f
 			},
 		},
+		readyChan: make(chan struct{}),
 	}
 	proxy.backendConnectionPool = NewMemcacheBackendConnectionPool(proxy)
 
@@ -548,6 +571,7 @@ func TestMemcacheProxyProtocol(t *testing.T) {
 				return &f
 			},
 		},
+		readyChan: make(chan struct{}),
 	}
 	proxy.backendConnectionPool = NewMemcacheBackendConnectionPool(proxy)
 
@@ -654,6 +678,7 @@ func TestMemcacheProxy_HandleConnection_GracefulShutdown(t *testing.T) {
 				return &f
 			},
 		},
+		readyChan: make(chan struct{}),
 	}
 
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
@@ -712,6 +737,7 @@ func TestMemcacheProxy_ForwardSingle_Errors(t *testing.T) {
 				return &f
 			},
 		},
+		readyChan: make(chan struct{}),
 	}
 	proxy.backendConnectionPool = NewMemcacheBackendConnectionPool(proxy)
 
@@ -811,6 +837,7 @@ func TestMemcachePipelining(t *testing.T) {
 				return &f
 			},
 		},
+		readyChan: make(chan struct{}),
 	}
 	p.backends.Add(&backend.Backend{Address: backendAddr})
 	p.ring.update(p.backends.GetList())
@@ -906,6 +933,7 @@ func TestMemcacheProxyMetaProtocol(t *testing.T) {
 				return &f
 			},
 		},
+		readyChan: make(chan struct{}),
 	}
 	proxy.backendConnectionPool = NewMemcacheBackendConnectionPool(proxy)
 	proxy.backends.Add(b1)
@@ -1024,6 +1052,7 @@ func TestMemcacheProxyMetaProtocolExpanded(t *testing.T) {
 				return &f
 			},
 		},
+		readyChan: make(chan struct{}),
 	}
 	proxy.backendConnectionPool = NewMemcacheBackendConnectionPool(proxy)
 	proxy.backends.Add(b1)
@@ -1120,6 +1149,7 @@ func TestMemcacheProxyFlushOnConnectFunctional(t *testing.T) {
 		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
 		backendUpdatesChanClosed: make(chan struct{}),
 		beMetricsCache:           make(map[string]*Metrics),
+		readyChan:                make(chan struct{}),
 	}
 
 	go func() {
@@ -1215,6 +1245,7 @@ func TestMemcacheProxyRandomization(t *testing.T) {
 				return &f
 			},
 		},
+		readyChan: make(chan struct{}),
 	}
 	proxy.backendConnectionPool = NewMemcacheBackendConnectionPool(proxy)
 
@@ -1356,6 +1387,7 @@ func TestMemcachePhantomResponse(t *testing.T) {
 				return &f
 			},
 		},
+		readyChan: make(chan struct{}),
 	}
 	p.backends.Add(&backend.Backend{Address: backendAddr})
 	p.ring.update(p.backends.GetList())

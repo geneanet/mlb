@@ -121,6 +121,40 @@ func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext, category string) 
 	return tc, diags
 }
 
+// ReadyReporter is an optional interface for modules that can report when they are ready.
+type ReadyReporter interface {
+	Ready() <-chan struct{}
+}
+
+// WaitReady blocks until all provided modules that implement ReadyReporter are ready,
+// or the context is cancelled.
+func WaitReady(ctx context.Context, modules ...any) {
+	var wg sync.WaitGroup
+	for _, m := range modules {
+		if r, ok := m.(ReadyReporter); ok {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				select {
+				case <-r.Ready():
+				case <-ctx.Done():
+				}
+			}()
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+}
+
 // Binder is an optional interface for modules that need to be cross-linked
 // with other modules after they have all been instantiated.
 type Binder interface {

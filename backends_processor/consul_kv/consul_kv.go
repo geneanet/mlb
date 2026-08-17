@@ -28,21 +28,24 @@ func init() {
 
 // ConsulKV implements a backend processor that fetches metadata from Consul KV.
 type ConsulKV struct {
-	id            string
-	url           string
-	defaultPeriod time.Duration
-	maxPeriod     time.Duration
-	backoffFactor float64
-	backends      *backend.Registry
-	defaultValues map[string]cty.Value
-	ctx           context.Context
-	cancel        context.CancelFunc
-	log           zerolog.Logger
-	updChan       chan backend.BackendUpdate
-	updChanStop   chan struct{}
-	source        string
-	evalCtx       *hcl.EvalContext
-	watchers      map[string][]*consulKVWatcher
+	id              string
+	url             string
+	defaultPeriod   time.Duration
+	maxPeriod       time.Duration
+	backoffFactor   float64
+	backends        *backend.Registry
+	defaultValues   map[string]cty.Value
+	ctx             context.Context
+	cancel          context.CancelFunc
+	log             zerolog.Logger
+	updChan         chan backend.BackendUpdate
+	updChanStop     chan struct{}
+	source          string
+	evalCtx         *hcl.EvalContext
+	watchers        map[string][]*consulKVWatcher
+	initialWatchers map[string]bool
+	initialChecked  map[string]bool
+	upstreamReady   bool
 }
 
 // ConsulKVConfig defines the HCL configuration for the Consul KV processor.
@@ -97,17 +100,19 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 	config := parseConsulKVConfig(tc)
 
 	c := &ConsulKV{
-		id:            config.ID,
-		url:           config.URL,
-		backoffFactor: config.BackoffFactor,
-		log:           log.With().Str("id", config.ID).Logger(),
-		updChan:       make(chan backend.BackendUpdate, 100),
-		updChanStop:   make(chan struct{}),
-		source:        config.Source,
-		backends:      backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
-		defaultValues: make(map[string]cty.Value),
-		evalCtx:       tc.Ctx,
-		watchers:      make(map[string][]*consulKVWatcher),
+		id:              config.ID,
+		url:             config.URL,
+		backoffFactor:   config.BackoffFactor,
+		log:             log.With().Str("id", config.ID).Logger(),
+		updChan:         make(chan backend.BackendUpdate, 100),
+		updChanStop:     make(chan struct{}),
+		source:          config.Source,
+		backends:        backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
+		defaultValues:   make(map[string]cty.Value),
+		evalCtx:         tc.Ctx,
+		watchers:        make(map[string][]*consulKVWatcher),
+		initialWatchers: make(map[string]bool),
+		initialChecked:  make(map[string]bool),
 	}
 
 	var err error
@@ -139,6 +144,21 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 
 		watcherChan := make(chan *consulKVWatcherMessage)
 
+		// checkReadiness checks if the processor can signal its readiness.
+		// It requires the upstream source to be ready AND all watchers initially
+		// started to have completed their first fetch.
+		checkReadiness := func() {
+			if !c.upstreamReady {
+				return
+			}
+			for key := range c.initialWatchers {
+				if !c.initialChecked[key] {
+					return
+				}
+			}
+			c.backends.MarkReady()
+		}
+
 	mainloop:
 		for {
 			select {
@@ -146,12 +166,16 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 				// Update metadata
 				msg.backend.Meta.Set("consul_kv", msg.id, cty.StringVal(msg.value))
 
+				// Mark this specific watcher as having its first fetch completed
+				c.initialChecked[msg.backend.Address+":"+msg.id] = true
+
 				// Send the update
 				c.backends.Publish(backend.BackendUpdate{
 					Kind:    backend.UpdBackendModified,
 					Address: msg.backend.Address,
 					Backend: msg.backend,
 				})
+				checkReadiness()
 			case upd := <-c.updChan: // Backends changed
 				switch upd.Kind {
 				case backend.UpdBackendAdded, backend.UpdBackendModified:
@@ -170,6 +194,8 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 					if _, ok := c.watchers[upd.Address]; ok {
 						for _, w := range c.watchers[upd.Address] {
 							w.cancel()
+							delete(c.initialWatchers, upd.Address+":"+w.id)
+							delete(c.initialChecked, upd.Address+":"+w.id)
 						}
 						delete(c.watchers, upd.Address)
 					}
@@ -184,6 +210,10 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 						if known {
 							if _, ok := c.watchers[upd.Address]; !ok {
 								c.watchers[upd.Address] = []*consulKVWatcher{}
+							}
+							// Track watchers started before the source is ready as "initial"
+							if !c.upstreamReady && upd.Kind == backend.UpdBackendAdded {
+								c.initialWatchers[upd.Address+":"+v.ID] = true
 							}
 							w := newConsulKVWatcher(c.backends.Get(upd.Address), v.ID, c.url, consulKey, c.defaultPeriod, c.maxPeriod, c.backoffFactor, watcherChan, c.ctx, c.log)
 							c.watchers[upd.Address] = append(c.watchers[upd.Address], w)
@@ -203,6 +233,8 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 						if _, ok := c.watchers[upd.Address]; ok {
 							for _, w := range c.watchers[upd.Address] {
 								w.cancel()
+								delete(c.initialWatchers, upd.Address+":"+w.id)
+								delete(c.initialChecked, upd.Address+":"+w.id)
 							}
 							delete(c.watchers, upd.Address)
 						}
@@ -216,6 +248,9 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 							Address: upd.Address,
 						})
 					}
+				case backend.UpdReady:
+					c.upstreamReady = true
+					checkReadiness()
 				}
 			case <-c.ctx.Done(): // Context cancelled
 				break mainloop
@@ -229,6 +264,11 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 // ProvideUpdates registers a subscriber and sends initial updates for all currently matched backends.
 func (c *ConsulKV) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 	c.backends.ProvideUpdates(s)
+}
+
+// Ready returns a channel that is closed when the watcher is ready.
+func (c *ConsulKV) Ready() <-chan struct{} {
+	return c.backends.Ready()
 }
 
 // ReceiveUpdate implements the backend.BackendUpdateSubscriber interface.

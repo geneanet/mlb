@@ -29,6 +29,7 @@ func TestMemcacheBackendConnection_AbortInflightQueries_WithPending(t *testing.T
 		backendInputQueueSize:    10,
 		backendInflightQueueSize: 10,
 		beMetricsCache:           make(map[string]*Metrics),
+		readyChan:                make(chan struct{}),
 	}
 
 	pool := NewMemcacheBackendConnectionPool(proxy)

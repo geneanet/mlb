@@ -193,6 +193,7 @@ func newConsulBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx conte
 				}
 
 				old = services
+				c.backends.MarkReady()
 			}
 
 			select {
@@ -208,6 +209,11 @@ func newConsulBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx conte
 
 func (c *BackendsInventoryConsul) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 	c.backends.ProvideUpdates(s)
+}
+
+// Ready returns a channel that is closed when the inventory is ready.
+func (c *BackendsInventoryConsul) Ready() <-chan struct{} {
+	return c.backends.Ready()
 }
 
 func (c *BackendsInventoryConsul) fetch() (retServices consulServicesSlice, retError error) {

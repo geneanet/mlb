@@ -68,6 +68,7 @@ func TestGetFields(t *testing.T) {
 				return &f
 			},
 		},
+		readyChan: make(chan struct{}),
 	}
 	line := []byte("get key1 key2  key3\r\n")
 	fieldsPtr := p.getFields(line)
@@ -99,6 +100,7 @@ func TestReadMemcacheResponseFull(t *testing.T) {
 				return &f
 			},
 		},
+		readyChan: make(chan struct{}),
 	}
 	tests := []struct {
 		name     string

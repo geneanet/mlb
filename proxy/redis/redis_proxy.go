@@ -51,6 +51,7 @@ type RedisProxy struct {
 	resetTimeout             time.Duration
 	beMetricsCache           map[string]*Metrics
 	beMetricsMutex           sync.RWMutex
+	readyChan                chan struct{}
 }
 
 // Metrics holds Prometheus metrics for a specific backend or frontend.
@@ -152,6 +153,7 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (
 		backendUpdatesChanClosed: make(chan struct{}),
 		beMetricsCache:           make(map[string]*Metrics),
 		backends:                 backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
+		readyChan:                make(chan struct{}),
 	}
 
 	var err error
@@ -461,11 +463,25 @@ func (p *RedisProxy) Bind(modules module.ModulesRegistry) error {
 	}
 	m.ProvideUpdates(p)
 
-	// Listening to incoming connections only makes sense after backend providers are available
-	for _, v := range p.addresses {
-		if err := p.listen(v, p.wg); err != nil {
-			return err
+	go func() {
+		module.WaitReady(p.ctx, m)
+		select {
+		case <-p.ctx.Done():
+			return
+		default:
 		}
-	}
+		// Listening to incoming connections only makes sense after backend providers are available
+		for _, v := range p.addresses {
+			if err := p.listen(v, p.wg); err != nil {
+				p.log.Fatal().Err(err).Str("address", v).Msg("Failed to start listener")
+			}
+		}
+		close(p.readyChan)
+	}()
 	return nil
+}
+
+// Ready returns a channel that is closed when the proxy is ready.
+func (p *RedisProxy) Ready() <-chan struct{} {
+	return p.readyChan
 }

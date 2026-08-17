@@ -123,6 +123,8 @@ func newSimpleFilter(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 						delete(f.allMatched, upd.Address)
 						changed = true
 					}
+				case backend.UpdReady:
+					f.backends.MarkReady()
 				}
 
 				if changed {
@@ -137,13 +139,14 @@ func newSimpleFilter(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 	return f, nil
 }
 
-// ProvideUpdates registers a subscriber and sends initial updates for all currently matched backends.
+// ProvideUpdates registers a subscriber and sends initial updates for all currently matched backends in their sort order.
 func (f *SimpleFilter) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 	f.backends.Subscribe(s)
 
 	f.listMu.RLock()
 	list := make([]*backend.Backend, len(f.sortedList))
 	copy(list, f.sortedList)
+	isReady := f.backends.Ready()
 	f.listMu.RUnlock()
 
 	for _, b := range list {
@@ -153,6 +156,19 @@ func (f *SimpleFilter) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 			Backend: b,
 		})
 	}
+
+	select {
+	case <-isReady:
+		s.ReceiveUpdate(backend.BackendUpdate{
+			Kind: backend.UpdReady,
+		})
+	default:
+	}
+}
+
+// Ready returns a channel that is closed when the filter is ready.
+func (f *SimpleFilter) Ready() <-chan struct{} {
+	return f.backends.Ready()
 }
 
 // matchFilter evaluates the condition expression against a backend.

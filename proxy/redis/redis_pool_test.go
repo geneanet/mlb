@@ -53,6 +53,7 @@ func TestPool_GetPut(t *testing.T) {
 		resetTimeout:       2 * time.Second,
 		healthcheck:        true,
 		bufferSize:         4096,
+		readyChan:          make(chan struct{}),
 	}
 	proxy.ctx, proxy.cancel = context.WithCancel(context.Background())
 	defer proxy.cancel()

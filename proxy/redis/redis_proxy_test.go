@@ -4,6 +4,7 @@ import (
 	"context"
 	"mlb/backend"
 	"mlb/module"
+	"mlb/testutil"
 	"sync"
 	"testing"
 	"time"
@@ -106,11 +107,19 @@ func TestNewRedisProxy(t *testing.T) {
 }
 
 type mockBackendProvider struct {
-	provided bool
+	provided  bool
+	readyChan chan struct{}
 }
 
 func (m *mockBackendProvider) ProvideUpdates(receiver backend.BackendUpdateSubscriber) {
 	m.provided = true
+}
+
+func (m *mockBackendProvider) Ready() <-chan struct{} {
+	if m.readyChan == nil {
+		m.readyChan = make(chan struct{})
+	}
+	return m.readyChan
 }
 
 func TestRedisProxy_BindAndReceiveUpdate(t *testing.T) {
@@ -136,7 +145,7 @@ func TestRedisProxy_BindAndReceiveUpdate(t *testing.T) {
 	}
 	rp := p.(*RedisProxy)
 
-	mockProvider := &mockBackendProvider{}
+	mockProvider := &mockBackendProvider{readyChan: make(chan struct{})}
 	registry := make(module.ModulesRegistry)
 	registry.AddModule("backends_inventory.static.test", mockProvider)
 
@@ -148,6 +157,15 @@ func TestRedisProxy_BindAndReceiveUpdate(t *testing.T) {
 		t.Error("expected mockProvider.provided to be true")
 	}
 
+	// Signal readiness
+	close(mockProvider.readyChan)
+	select {
+	case <-rp.Ready():
+		// OK
+	case <-time.After(1 * time.Second):
+		t.Errorf("timeout waiting for redis proxy readiness")
+	}
+
 	// Test ReceiveUpdate
 	be := &backend.Backend{Address: "127.0.0.1:6379", Meta: backend.NewEmptyMetaMap(0)}
 	rp.ReceiveUpdate(backend.BackendUpdate{
@@ -155,8 +173,11 @@ func TestRedisProxy_BindAndReceiveUpdate(t *testing.T) {
 		Backend: be,
 	})
 
-	// Wait a bit for the async update to process
-	time.Sleep(10 * time.Millisecond)
+	// Wait for the async update to process
+	testutil.Eventually(t, func() bool {
+		return rp.backends.Has(be.Address)
+	}, 1*time.Second, 10*time.Millisecond)
+
 	if !rp.backends.Has(be.Address) {
 		t.Errorf("expected backend %s to be present", be.Address)
 	}
@@ -167,7 +188,15 @@ func TestRedisProxy_BindAndReceiveUpdate(t *testing.T) {
 		Kind:    backend.UpdBackendModified,
 		Backend: be,
 	})
-	time.Sleep(10 * time.Millisecond)
+	testutil.Eventually(t, func() bool {
+		list := rp.backends.GetSortedList()
+		if len(list) == 0 {
+			return false
+		}
+		val, ok := list[0].Meta.Get("default", "foo")
+		return ok && val.AsString() == "bar"
+	}, 1*time.Second, 10*time.Millisecond)
+
 	val, ok := rp.backends.GetSortedList()[0].Meta.Get("default", "foo")
 	if !ok {
 		t.Error("expected meta value to be present")
@@ -181,7 +210,10 @@ func TestRedisProxy_BindAndReceiveUpdate(t *testing.T) {
 		Kind:    backend.UpdBackendRemoved,
 		Address: be.Address,
 	})
-	time.Sleep(10 * time.Millisecond)
+	testutil.Eventually(t, func() bool {
+		return !rp.backends.Has(be.Address)
+	}, 1*time.Second, 10*time.Millisecond)
+
 	if rp.backends.Has(be.Address) {
 		t.Errorf("expected backend %s to be removed", be.Address)
 	}

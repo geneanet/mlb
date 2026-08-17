@@ -56,6 +56,17 @@ backends_processor "simple_filter" "test" {
 	modules.AddModule("foo", dp)
 	_ = filterMod.Bind(modules)
 
+	// Test Ready functionality: should be ready after dp is ready
+	sub.Wg.Add(1) // Expect UpdReady
+	dp.Backends.MarkReady()
+	select {
+	case <-filterMod.Ready():
+		// OK
+	case <-time.After(100 * time.Millisecond):
+		t.Errorf("Timeout waiting for filter readiness")
+	}
+	waitSub(t, sub, "Ready update")
+
 	// Wait for goroutines to settle
 	time.Sleep(2 * time.Millisecond)
 

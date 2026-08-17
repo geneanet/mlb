@@ -48,6 +48,9 @@ type RedisChecker struct {
 	connectTimeout     time.Duration
 	readTimeout        time.Duration
 	writeTimeout       time.Duration
+	initialBackends    map[string]bool
+	initialChecked     map[string]bool
+	upstreamReady      bool
 }
 
 // RedisCheckerConfig defines the HCL configuration schema for the Redis backend processor.
@@ -140,6 +143,8 @@ func newRedisChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 		updChanStop:        make(chan struct{}),
 		source:             config.Source,
 		backends:           backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
+		initialBackends:    make(map[string]bool),
+		initialChecked:     make(map[string]bool),
 	}
 
 	var err error
@@ -199,19 +204,41 @@ func newRedisChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 
 		statusChan := make(chan *backend.Backend)
 
+		// checkReadiness checks if the processor can signal its readiness.
+		// It requires the upstream source to be ready AND all backends initially
+		// received to have completed at least one health check.
+		checkReadiness := func() {
+			if !c.upstreamReady {
+				return
+			}
+			for addr := range c.initialBackends {
+				if !c.initialChecked[addr] {
+					return
+				}
+			}
+			c.backends.MarkReady()
+		}
+
 		for {
 			select {
 			case b := <-statusChan:
+				// Mark this backend as having its first check completed
+				c.initialChecked[b.Address] = true
 				c.backends.Publish(backend.BackendUpdate{
 					Kind:    backend.UpdBackendModified,
 					Address: b.Address,
 					Backend: b,
 				})
+				checkReadiness()
 
 			case upd := <-c.updChan:
 				c.checksMtex.Lock()
 				switch upd.Kind {
 				case backend.UpdBackendAdded, backend.UpdBackendModified:
+					// Track backends added before the source is ready as "initial"
+					if !c.upstreamReady && upd.Kind == backend.UpdBackendAdded {
+						c.initialBackends[upd.Address] = true
+					}
 					if check, ok := c.checks[upd.Address]; ok {
 						c.backends.Update(upd.Backend, "redis")
 						c.backends.Publish(backend.BackendUpdate{
@@ -249,6 +276,8 @@ func newRedisChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 						}
 					}
 				case backend.UpdBackendRemoved:
+					delete(c.initialBackends, upd.Address)
+					delete(c.initialChecked, upd.Address)
 					if check, ok := c.checks[upd.Address]; ok {
 						check.StopPolling()
 						delete(c.checks, upd.Address)
@@ -258,6 +287,9 @@ func newRedisChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 							Address: upd.Address,
 						})
 					}
+				case backend.UpdReady:
+					c.upstreamReady = true
+					checkReadiness()
 				}
 				c.checksMtex.Unlock()
 
@@ -282,6 +314,11 @@ func (c *RedisChecker) stopChecks() {
 // ProvideUpdates implements backend.BackendUpdateProvider.
 func (c *RedisChecker) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 	c.backends.ProvideUpdates(s)
+}
+
+// Ready returns a channel that is closed when the checker is ready.
+func (c *RedisChecker) Ready() <-chan struct{} {
+	return c.backends.Ready()
 }
 
 // ReceiveUpdate implements backend.BackendUpdateSubscriber.

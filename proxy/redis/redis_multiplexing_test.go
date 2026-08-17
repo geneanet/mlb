@@ -85,6 +85,7 @@ func TestRedisProxyMultiplexing(t *testing.T) {
 		resetTimeout:        2 * time.Second,
 		backendTCPKeepAlive: time.Second,
 		beMetricsCache:      make(map[string]*Metrics),
+		readyChan:           make(chan struct{}),
 	}
 	p.backendConnectionPool = NewRedisBackendConnectionPool(p)
 

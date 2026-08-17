@@ -149,6 +149,8 @@ func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 					}
 					b.backends.Remove(upd.Address)
 					delete(weights, upd.Address)
+				case backend.UpdReady:
+					b.backends.MarkReady()
 				}
 
 				// Re-calculate SWRR sequence
@@ -238,6 +240,11 @@ func (b *WRRBalancer) ReceiveUpdate(upd backend.BackendUpdate) {
 	case b.updChan <- upd:
 	case <-b.updChanStop:
 	}
+}
+
+// Ready returns a channel that is closed when the balancer is ready.
+func (b *WRRBalancer) Ready() <-chan struct{} {
+	return b.backends.Ready()
 }
 
 // GetBackendList returns the current list of backends in the balancer.

@@ -157,19 +157,8 @@ func main() {
 		}
 	}
 
-	// Signal that the new process is ready after a small delay to ensure modules are all started
-	go func() {
-		time.Sleep(5 * time.Second)
-		if err := upg.Ready(); err != nil {
-			log.Error().Err(err).Msg("Failed to signal readiness to tableflip")
-		}
-
-		// Notify systemd that we are ready and communicate the new MAINPID.
-		// This is crucial for systemd to track the correct process after a tableflip upgrade
-		// and avoid killing the new process.
-		_, _ = daemon.SdNotify(false, daemon.SdNotifyReady)
-		_, _ = daemon.SdNotify(false, fmt.Sprintf("MAINPID=%d", os.Getpid()))
-	}()
+	// Signal that the new process is ready when all modules are ready
+	go signalReadiness(ctx, ml, upg)
 
 	// Termination signals
 	chanSignals := make(chan os.Signal, 1)
@@ -205,4 +194,36 @@ func main() {
 	}()
 
 	wg.Wait()
+}
+
+// upgrader is an interface for tableflip.Upgrader to allow mocking in tests.
+type upgrader interface {
+	Ready() error
+}
+
+func signalReadiness(ctx context.Context, ml module.ModulesRegistry, upg upgrader) {
+	allModules := make([]any, 0, len(ml))
+	for _, m := range ml {
+		allModules = append(allModules, m)
+	}
+	module.WaitReady(ctx, allModules...)
+
+	select {
+	case <-ctx.Done():
+		return
+	default:
+		log.Info().Msg("All modules ready, signaling readiness")
+	}
+
+	if upg != nil {
+		if err := upg.Ready(); err != nil {
+			log.Error().Err(err).Msg("Failed to signal readiness to tableflip")
+		}
+	}
+
+	// Notify systemd that we are ready and communicate the new MAINPID.
+	// This is crucial for systemd to track the correct process after a tableflip upgrade
+	// and avoid killing the new process.
+	_, _ = daemon.SdNotify(false, daemon.SdNotifyReady)
+	_, _ = daemon.SdNotify(false, fmt.Sprintf("MAINPID=%d", os.Getpid()))
 }

@@ -7,7 +7,8 @@ import (
 	"mlb/misc"
 	"mlb/module"
 	"mlb/testutil"
-	"os"
+	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -80,10 +81,51 @@ type mockSubscriber struct{}
 func (s *mockSubscriber) ReceiveUpdate(upd backend.BackendUpdate) {}
 
 func TestRedisChecker_Integration(t *testing.T) {
-	redisAddr := os.Getenv("REDIS_ADDR")
-	if redisAddr == "" {
-		t.Skip("REDIS_ADDR not set")
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
 	}
+	defer ln.Close()
+	redisAddr := ln.Addr().String()
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				buf := make([]byte, 4096)
+				for {
+					n, err := c.Read(buf)
+					if err != nil {
+						return
+					}
+					smsg := string(buf[:n])
+					upcmd := strings.ToUpper(smsg)
+					// Handle pipelined initialization
+					if strings.Contains(upcmd, "HELLO") {
+						_, _ = c.Write([]byte("-ERR unknown command 'hello'\r\n"))
+					}
+					// Respond to each CLIENT command found in the message
+					for i := 0; i < strings.Count(upcmd, "CLIENT"); i++ {
+						_, _ = c.Write([]byte("+OK\r\n"))
+					}
+					if strings.Contains(upcmd, "INFO") {
+						info := "# Replication\r\nrole:master\r\nconnected_slaves:0\r\n"
+						_, _ = fmt.Fprintf(c, "$%d\r\n%s\r\n", len(info), info)
+					}
+					if strings.Contains(upcmd, "ROLE") {
+						_, _ = c.Write([]byte("*3\r\n$6\r\nmaster\r\n:0\r\n*0\r\n"))
+					}
+					if strings.Contains(upcmd, "PING") {
+						_, _ = c.Write([]byte("+PONG\r\n"))
+					}
+				}
+			}(conn)
+		}
+	}()
 
 	src := `
 backends_processor "redis" "test" {
@@ -105,19 +147,46 @@ backends_processor "redis" "test" {
 	}
 	redisChecker := mod.(*RedisChecker)
 
+	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry(zerolog.Nop(), false)}
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("foo", dp)
+	_ = redisChecker.Bind(modules)
+
 	// Add backend
 	b := &backend.Backend{
 		Address: redisAddr,
 		Meta:    backend.NewEmptyMetaMap(0),
 	}
-	redisChecker.ReceiveUpdate(backend.BackendUpdate{
+
+	dp.Backends.MarkReady()
+	dp.SendUpdate(backend.BackendUpdate{
 		Kind:    backend.UpdBackendAdded,
 		Address: redisAddr,
 		Backend: b,
 	})
 
+	select {
+	case <-redisChecker.Ready():
+		// OK
+	case <-time.After(1 * time.Second):
+		t.Errorf("Timeout waiting for redis readiness")
+	}
+
 	// Wait for check
-	time.Sleep(200 * time.Millisecond)
+	testutil.Eventually(t, func() bool {
+		list := redisChecker.GetBackendList()
+		if len(list) != 1 {
+			return false
+		}
+		status, ok := list[0].Meta.Get("redis", "status")
+		if !ok || !status.IsKnown() {
+			return false
+		}
+		if status.IsNull() {
+			return false
+		}
+		return status.AsString() == "ok"
+	}, 2*time.Second, 50*time.Millisecond)
 
 	list := redisChecker.GetBackendList()
 	if len(list) != 1 {

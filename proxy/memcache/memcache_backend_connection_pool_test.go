@@ -39,6 +39,7 @@ func TestMemcacheBackendConnectionPool_Del(t *testing.T) {
 				return &f
 			},
 		},
+		readyChan: make(chan struct{}),
 	}
 	proxy.backends.Add(b1)
 
@@ -86,6 +87,7 @@ func TestMemcacheBackendConnectionPool_UpdateRemovesDeadBackends(t *testing.T) {
 				return &f
 			},
 		},
+		readyChan: make(chan struct{}),
 	}
 	proxy.backends.Add(b1)
 
@@ -134,6 +136,7 @@ func TestMemcacheMinMaxPoolGrowth(t *testing.T) {
 		cancel:                   cancel,
 		wg:                       wg,
 		beMetricsCache:           make(map[string]*Metrics),
+		readyChan:                make(chan struct{}),
 	}
 	proxy.backends.Add(b1)
 	pool := NewMemcacheBackendConnectionPool(proxy)
@@ -254,6 +257,7 @@ func TestMemcacheBackendConnectionPool_UpdateParallel(t *testing.T) {
 				return &f
 			},
 		},
+		readyChan: make(chan struct{}),
 	}
 	proxy.backends.Add(b1)
 	proxy.backends.Add(b2)
@@ -284,6 +288,7 @@ func TestMemcacheBackendConnectionPool_Get_SkipUnhealthy(t *testing.T) {
 		log:            zerolog.Nop(),
 		ctx:            ctx,
 		beMetricsCache: make(map[string]*Metrics),
+		readyChan:      make(chan struct{}),
 	}
 
 	pool := NewMemcacheBackendConnectionPool(p)
@@ -337,6 +342,7 @@ func TestMemcacheBackendConnectionPool_NotifyFailure(t *testing.T) {
 		ctx:            ctx,
 		beMetricsCache: make(map[string]*Metrics),
 		backends:       backend.NewRegistry(zerolog.Nop(), false),
+		readyChan:      make(chan struct{}),
 	}
 
 	pool := NewMemcacheBackendConnectionPool(p)

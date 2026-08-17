@@ -95,6 +95,7 @@ func TestMemcacheStressPipelining(t *testing.T) {
 				return &f
 			},
 		},
+		readyChan: make(chan struct{}),
 	}
 	p.backends.Add(&backend.Backend{Address: backendAddr})
 	p.ring.update(p.backends.GetList())

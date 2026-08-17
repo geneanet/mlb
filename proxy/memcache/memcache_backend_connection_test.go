@@ -47,6 +47,7 @@ func TestMemcacheBackendConnection_QueryAndAbort(t *testing.T) {
 				return &f
 			},
 		},
+		readyChan: make(chan struct{}),
 	}
 
 	pool := NewMemcacheBackendConnectionPool(proxy)
@@ -109,6 +110,7 @@ func TestMemcacheBackendConnection_ReadFull(t *testing.T) {
 				return &f
 			},
 		},
+		readyChan: make(chan struct{}),
 	}
 
 	pool := NewMemcacheBackendConnectionPool(proxy)

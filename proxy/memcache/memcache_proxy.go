@@ -80,6 +80,7 @@ type MemcacheProxy struct {
 	fieldsPool               *sync.Pool
 	beMetricsCache           map[string]*Metrics
 	beMetricsMutex           sync.RWMutex
+	readyChan                chan struct{}
 }
 
 // Metrics holds Prometheus metrics for a specific backend or frontend.
@@ -178,7 +179,8 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 				return &f
 			},
 		},
-		backends: backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
+		backends:  backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
+		readyChan: make(chan struct{}),
 	}
 
 	var err error
@@ -244,13 +246,27 @@ func (p *MemcacheProxy) Bind(modules module.ModulesRegistry) error {
 	}
 	m.ProvideUpdates(p)
 
-	// Listening to incoming connections only makes sense after backend providers are available
-	for _, v := range p.addresses {
-		if err := p.listen(v, p.wg); err != nil {
-			return err
+	go func() {
+		module.WaitReady(p.ctx, m)
+		select {
+		case <-p.ctx.Done():
+			return
+		default:
 		}
-	}
+		// Listening to incoming connections only makes sense after backend providers are available
+		for _, v := range p.addresses {
+			if err := p.listen(v, p.wg); err != nil {
+				p.log.Fatal().Err(err).Str("address", v).Msg("Failed to start listener")
+			}
+		}
+		close(p.readyChan)
+	}()
 	return nil
+}
+
+// Ready returns a channel that is closed when the proxy is ready.
+func (p *MemcacheProxy) Ready() <-chan struct{} {
+	return p.readyChan
 }
 
 // listen starts a TCP listener on the given address and accepts incoming connections.

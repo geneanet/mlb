@@ -290,6 +290,24 @@ balancer "wrr" "test" {
 	if _, ok := mod.(*WRRBalancer); !ok {
 		t.Errorf("Expected *WRRBalancer, got %T", mod)
 	}
+
+	balancer := mod.(*WRRBalancer)
+	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry(zerolog.Nop(), false)}
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("src1", provider)
+
+	if err := balancer.Bind(modules); err != nil {
+		t.Fatalf("Bind failed: %v", err)
+	}
+
+	// Test Ready functionality: should be ready after provider is ready
+	provider.Backends.MarkReady()
+	select {
+	case <-balancer.Ready():
+		// OK
+	case <-time.After(100 * time.Millisecond):
+		t.Errorf("Timeout waiting for WRR balancer readiness")
+	}
 }
 
 // TestWRRBalancer_ParseConfigError verifies that parseConfig handles HCL decoding errors.

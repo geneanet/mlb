@@ -46,6 +46,7 @@ type ProxyTCP struct {
 	beMetricsMutex        sync.RWMutex
 	closeOnBackendRemoval bool
 	backendTCPKeepAlive   time.Duration
+	readyChan             chan struct{}
 }
 
 // Metrics holds Prometheus metrics for a specific backend.
@@ -149,6 +150,7 @@ func newTCPProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 		wg:                    wg,
 		beMetricsCache:        make(map[string]*Metrics),
 		closeOnBackendRemoval: config.CloseOnBackendRemoval,
+		readyChan:             make(chan struct{}),
 	}
 
 	var err error
@@ -451,7 +453,13 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 }
 
 func (p *ProxyTCP) Bind(modules module.ModulesRegistry) error {
+	var sources []any
 	for _, source := range p.sources {
+		m, ok := modules[source]
+		if ok {
+			sources = append(sources, m)
+		}
+
 		provider, err := module.Get[backend.BackendProvider](modules, source)
 		if err != nil {
 			return err
@@ -459,11 +467,25 @@ func (p *ProxyTCP) Bind(modules module.ModulesRegistry) error {
 		p.backendProviders = append(p.backendProviders, provider)
 	}
 
-	// Listening to incoming connections only makes sense after backend providers are available
-	for _, v := range p.addresses {
-		if err := p.listen(v, p.wg); err != nil {
-			return err
+	go func() {
+		module.WaitReady(p.ctx, sources...)
+		select {
+		case <-p.ctx.Done():
+			return
+		default:
 		}
-	}
+		// Listening to incoming connections only makes sense after backend providers are available
+		for _, v := range p.addresses {
+			if err := p.listen(v, p.wg); err != nil {
+				p.log.Fatal().Err(err).Str("address", v).Msg("Failed to start listener")
+			}
+		}
+		close(p.readyChan)
+	}()
 	return nil
+}
+
+// Ready returns a channel that is closed when the proxy is ready.
+func (p *ProxyTCP) Ready() <-chan struct{} {
+	return p.readyChan
 }

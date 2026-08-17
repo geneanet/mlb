@@ -68,7 +68,14 @@ func newStaticBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx conte
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
 
+	c.backends.MarkReady()
+
 	return c, nil
+}
+
+// Ready returns a channel that is closed when the inventory is ready.
+func (c *BackendsInventoryStatic) Ready() <-chan struct{} {
+	return c.backends.Ready()
 }
 
 // ProvideUpdates registers a subscriber for backend updates.

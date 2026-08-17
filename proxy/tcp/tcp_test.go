@@ -279,6 +279,7 @@ func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 			New: func() any { return &bufferWrapper{buf: make([]byte, 32768)} },
 		},
 		beMetricsCache: make(map[string]*Metrics),
+		readyChan:      make(chan struct{}),
 	}
 
 	primaryProvider := &mockBackendProvider{id: "primary_backend", backendAddress: primaryBackend.Addr().String()}
@@ -380,6 +381,7 @@ func TestTCPProxy_NoBackendPanic(t *testing.T) {
 			New: func() any { return &bufferWrapper{buf: make([]byte, 32768)} },
 		},
 		beMetricsCache: make(map[string]*Metrics),
+		readyChan:      make(chan struct{}),
 	}
 
 	provider := &mockBackendProvider{id: "missing_backend", backendAddress: "", returnNil: true}
@@ -448,6 +450,7 @@ func TestTCPProxy_TimeoutAndContextCancel(t *testing.T) {
 			New: func() any { return &bufferWrapper{buf: make([]byte, 32768)} },
 		},
 		beMetricsCache: make(map[string]*Metrics),
+		readyChan:      make(chan struct{}),
 	}
 
 	provider := &mockBackendProvider{id: "test_backend", backendAddress: backend.Addr().String()}
@@ -541,6 +544,7 @@ func TestTCPProxy_PipeErrors(t *testing.T) {
 			New: func() any { return &bufferWrapper{buf: make([]byte, 32768)} },
 		},
 		beMetricsCache: make(map[string]*Metrics),
+		readyChan:      make(chan struct{}),
 	}
 
 	badConn := &panicConn{}
@@ -598,6 +602,7 @@ func TestTCPProxy_PipeClosedErr(t *testing.T) {
 			New: func() any { return &bufferWrapper{buf: make([]byte, 32768)} },
 		},
 		beMetricsCache: make(map[string]*Metrics),
+		readyChan:      make(chan struct{}),
 	}
 
 	badConn := &closedConn{}
@@ -765,6 +770,7 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 			New: func() any { return &bufferWrapper{buf: make([]byte, 32768)} },
 		},
 		beMetricsCache: make(map[string]*Metrics),
+		readyChan:      make(chan struct{}),
 	}
 
 	provider := &mockBackendProvider{id: "test_backend", backendAddress: backendAddr}
@@ -840,6 +846,7 @@ func TestTCPProxy_CloseOnBackendRemoval(t *testing.T) {
 			New: func() any { return &bufferWrapper{buf: make([]byte, 32768)} },
 		},
 		beMetricsCache: make(map[string]*Metrics),
+		readyChan:      make(chan struct{}),
 	}
 
 	beCtx, beCancel := context.WithCancel(context.Background())
@@ -910,4 +917,83 @@ func TestTCPProxyFactory_InvalidDurations(t *testing.T) {
 	if !vDiags.HasErrors() {
 		t.Error("expected diagnostics to have errors for invalid duration")
 	}
+}
+
+type mockReadyBackendProvider struct {
+	mockBackendProvider
+	readyChan chan struct{}
+}
+
+func (m *mockReadyBackendProvider) Ready() <-chan struct{} {
+	return m.readyChan
+}
+
+func (m *mockReadyBackendProvider) MarkReady() {
+	close(m.readyChan)
+}
+
+func TestTCPProxy_Readiness(t *testing.T) {
+	backend := startEchoServer(t)
+	defer func() { _ = backend.Close() }()
+
+	proxyAddr, err := getFreePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p := &ProxyTCP{
+		id:         "proxy.tcp.test_readiness",
+		addresses:  []string{proxyAddr},
+		log:        zerolog.Nop(),
+		bufferSize: 32768,
+		sources:    []string{"test_backend"},
+		wg:         wg,
+		ctx:        ctx,
+		cancel:     cancel,
+		bufferPool: sync.Pool{
+			New: func() any { return &bufferWrapper{buf: make([]byte, 32768)} },
+		},
+		beMetricsCache: make(map[string]*Metrics),
+		readyChan:      make(chan struct{}),
+	}
+
+	readyChan := make(chan struct{})
+	provider := &mockReadyBackendProvider{
+		mockBackendProvider: mockBackendProvider{id: "test_backend", backendAddress: backend.Addr().String()},
+		readyChan:           readyChan,
+	}
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("test_backend", provider)
+	_ = p.Bind(modules)
+
+	// Proxy should NOT be listening yet
+	conn, err := net.DialTimeout("tcp", proxyAddr, 50*time.Millisecond)
+	if err == nil {
+		_ = conn.Close()
+		t.Fatal("proxy should not be listening yet")
+	}
+
+	// Signal readiness
+	provider.MarkReady()
+
+	// Wait for proxy to be ready
+	select {
+	case <-p.Ready():
+	case <-time.After(1 * time.Second):
+		t.Fatal("timeout waiting for proxy readiness signal")
+	}
+
+	// Wait for proxy listener to start
+	testutil.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", proxyAddr, 10*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return true
+		}
+		return false
+	}, 1*time.Second, 10*time.Millisecond)
 }

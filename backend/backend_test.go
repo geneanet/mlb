@@ -367,3 +367,52 @@ func TestBackendsList_Addresses(t *testing.T) {
 		t.Errorf("expected %v, got %v", expected, addr)
 	}
 }
+
+// TestRegistry_Readiness tests the readiness signaling mechanism in Registry.
+func TestRegistry_Readiness(t *testing.T) {
+	reg := NewRegistry(zerolog.Nop(), false)
+	sub := &testSubscriber{}
+
+	// Test: Not ready by default
+	select {
+	case <-reg.Ready():
+		t.Errorf("expected registry NOT to be ready by default")
+	default:
+	}
+
+	// Test: MarkReady signals via channel and Publish
+	reg.ProvideUpdates(sub)
+	reg.MarkReady()
+
+	select {
+	case <-reg.Ready():
+		// OK
+	case <-time.After(100 * time.Millisecond):
+		t.Errorf("expected registry to be ready after MarkReady")
+	}
+
+	foundReady := false
+	for _, u := range sub.updates {
+		if u.Kind == UpdReady {
+			foundReady = true
+			break
+		}
+	}
+	if !foundReady {
+		t.Errorf("expected UpdReady update to be published")
+	}
+
+	// Test: ProvideUpdates for a late subscriber when already ready
+	sub2 := &testSubscriber{}
+	reg.ProvideUpdates(sub2)
+	foundReady = false
+	for _, u := range sub2.updates {
+		if u.Kind == UpdReady {
+			foundReady = true
+			break
+		}
+	}
+	if !foundReady {
+		t.Errorf("expected late subscriber to receive initial UpdReady")
+	}
+}

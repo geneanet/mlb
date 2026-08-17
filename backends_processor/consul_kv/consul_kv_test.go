@@ -123,6 +123,17 @@ backends_processor "consul_kv" "test" {
 	sub := &testutil.DummySubscriber{Wg: sync.WaitGroup{}}
 	consulMod.ProvideUpdates(sub)
 
+	// Test Ready functionality: should be ready after dp is ready
+	sub.Wg.Add(1)
+	dp.Backends.MarkReady()
+	select {
+	case <-consulMod.Ready():
+		// OK
+	case <-time.After(100 * time.Millisecond):
+		t.Errorf("Timeout waiting for consul_kv readiness")
+	}
+	waitSub(t, sub, "Ready update")
+
 	// Add a backend
 	b1 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
 

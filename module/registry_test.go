@@ -5,6 +5,7 @@ import (
 	"mlb/backend"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/hcl/v2"
 )
@@ -211,4 +212,59 @@ func TestModulesRegistryFilter(t *testing.T) {
 	if _, ok := providers["m3"]; !ok {
 		t.Errorf("Expected 'm3' to be in the filtered results")
 	}
+}
+
+type mockReadyReporter struct {
+	ready chan struct{}
+}
+
+func (m *mockReadyReporter) Ready() <-chan struct{} {
+	return m.ready
+}
+
+func TestWaitReady(t *testing.T) {
+	t.Run("AllReady", func(t *testing.T) {
+		r1 := &mockReadyReporter{ready: make(chan struct{})}
+		r2 := &mockReadyReporter{ready: make(chan struct{})}
+		r3 := &dummyModule{} // Not a ReadyReporter
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		done := make(chan struct{})
+		go func() {
+			WaitReady(ctx, r1, r2, r3)
+			close(done)
+		}()
+
+		close(r1.ready)
+		close(r2.ready)
+
+		select {
+		case <-done:
+			// OK
+		case <-ctx.Done():
+			t.Fatal("WaitReady timed out")
+		}
+	})
+
+	t.Run("ContextCancelled", func(t *testing.T) {
+		r1 := &mockReadyReporter{ready: make(chan struct{})}
+		ctx, cancel := context.WithCancel(context.Background())
+
+		done := make(chan struct{})
+		go func() {
+			WaitReady(ctx, r1)
+			close(done)
+		}()
+
+		cancel()
+
+		select {
+		case <-done:
+			// OK
+		case <-time.After(100 * time.Millisecond):
+			t.Fatal("WaitReady did not return after context cancellation")
+		}
+	})
 }

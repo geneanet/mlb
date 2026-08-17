@@ -299,4 +299,13 @@ balancer "wlc" "test" {
 	if err := balancer.Bind(modules); err != nil {
 		t.Fatalf("Bind failed: %v", err)
 	}
+
+	// Test Ready functionality: should be ready after provider is ready
+	provider.Backends.MarkReady()
+	select {
+	case <-balancer.Ready():
+		// OK
+	case <-time.After(100 * time.Millisecond):
+		t.Errorf("Timeout waiting for WLC balancer readiness")
+	}
 }

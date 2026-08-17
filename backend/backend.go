@@ -82,6 +82,8 @@ type Registry struct {
 	subscribers []BackendUpdateSubscriber
 	mu          sync.RWMutex
 	waitChan    chan struct{}
+	readyChan   chan struct{}
+	ready       bool
 	log         zerolog.Logger
 	logUpdates  bool
 }
@@ -91,9 +93,33 @@ func NewRegistry(log zerolog.Logger, logUpdates bool) *Registry {
 	return &Registry{
 		backends:   make(map[string]*Backend),
 		waitChan:   make(chan struct{}),
+		readyChan:  make(chan struct{}),
 		log:        log,
 		logUpdates: logUpdates,
 	}
+}
+
+// MarkReady marks the registry as ready and notifies all subscribers.
+func (r *Registry) MarkReady() {
+	r.mu.Lock()
+	if r.ready {
+		r.mu.Unlock()
+		return
+	}
+	r.ready = true
+	close(r.readyChan)
+	r.mu.Unlock()
+
+	r.log.Info().Msg("Module ready")
+
+	r.Publish(BackendUpdate{
+		Kind: UpdReady,
+	})
+}
+
+// Ready returns a channel that is closed when the registry is marked ready.
+func (r *Registry) Ready() <-chan struct{} {
+	return r.readyChan
 }
 
 // updateWaitState updates the wait channel state based on whether backends are present.
@@ -221,6 +247,7 @@ func (r *Registry) ProvideUpdates(s BackendUpdateSubscriber) {
 	r.mu.Lock()
 	r.subscribers = append(r.subscribers, s)
 	list := slices.Collect(maps.Values(r.backends))
+	isReady := r.ready
 	r.mu.Unlock()
 
 	for _, b := range list {
@@ -228,6 +255,12 @@ func (r *Registry) ProvideUpdates(s BackendUpdateSubscriber) {
 			Kind:    UpdBackendAdded,
 			Address: b.Address,
 			Backend: b,
+		})
+	}
+
+	if isReady {
+		s.ReceiveUpdate(BackendUpdate{
+			Kind: UpdReady,
 		})
 	}
 }
@@ -272,6 +305,8 @@ const (
 	UpdBackendModified
 	// UpdBackendRemoved indicates a backend was removed.
 	UpdBackendRemoved
+	// UpdReady indicates the backend source is ready.
+	UpdReady
 )
 
 // BackendUpdateProvider is the interface for components that provide backend updates.

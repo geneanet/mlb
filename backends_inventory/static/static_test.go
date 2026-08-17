@@ -40,6 +40,14 @@ backends_inventory "static" "test" {
 		t.Fatalf("Expected *BackendsInventoryStatic")
 	}
 
+	// Test Ready functionality
+	select {
+	case <-staticMod.Ready():
+		// OK
+	default:
+		t.Errorf("Expected inventory to be ready")
+	}
+
 	backends := staticMod.GetBackendList()
 	if len(backends) != 2 {
 		t.Errorf("Expected 2 backends, got %d", len(backends))
@@ -49,7 +57,7 @@ backends_inventory "static" "test" {
 	sub := &testutil.DummySubscriber{
 		Wg: sync.WaitGroup{},
 	}
-	sub.Wg.Add(2) // Expecting 2 updates (one for each static host)
+	sub.Wg.Add(3) // Expecting 3 updates (one for each static host + 1 for Ready)
 
 	staticMod.ProvideUpdates(sub)
 
@@ -66,15 +74,20 @@ backends_inventory "static" "test" {
 		t.Errorf("Timeout waiting for updates")
 	}
 
-	if len(sub.GetUpdates()) != 2 {
-		t.Errorf("Expected 2 updates, got %d", len(sub.GetUpdates()))
+	if len(sub.GetUpdates()) != 3 {
+		t.Errorf("Expected 3 updates, got %d", len(sub.GetUpdates()))
 	}
 
 	has8080 := false
 	has8081 := false
+	hasReady := false
 	for _, u := range sub.GetUpdates() {
+		if u.Kind == backend.UpdReady {
+			hasReady = true
+			continue
+		}
 		if u.Kind != backend.UpdBackendAdded {
-			t.Errorf("Expected UpdBackendAdded, got %v", u.Kind)
+			t.Errorf("Expected UpdBackendAdded or UpdReady, got %v", u.Kind)
 		}
 		switch u.Address {
 		case "127.0.0.1:8080":
@@ -84,8 +97,8 @@ backends_inventory "static" "test" {
 		}
 	}
 
-	if !has8080 || !has8081 {
-		t.Errorf("Missing expected addresses in updates")
+	if !has8080 || !has8081 || !hasReady {
+		t.Errorf("Missing expected addresses or ready state in updates")
 	}
 
 	// Test sendUpdate (even if it's currently unused in normal operation)

@@ -146,6 +146,14 @@ backends_inventory "consul" "test" {
 	sub := &consulDummySubscriber{}
 	consulMod.ProvideUpdates(sub)
 
+	// Test Ready functionality
+	select {
+	case <-consulMod.Ready():
+		// OK
+	case <-time.After(1 * time.Second):
+		t.Errorf("Timeout waiting for inventory readiness")
+	}
+
 	// Wait for all expected updates to be received
 	testutil.Eventually(t, func() bool {
 		sub.mu.Lock()

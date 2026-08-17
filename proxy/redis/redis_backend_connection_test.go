@@ -68,6 +68,7 @@ func TestRedisBackendConnection(t *testing.T) {
 		bufferSize:         1024,
 		beMetricsCache:     make(map[string]*Metrics),
 		backends:           backend.NewRegistry(zerolog.Nop(), false),
+		readyChan:          make(chan struct{}),
 	}
 	pool := NewRedisBackendConnectionPool(p)
 	be := &backend.Backend{Address: ln.Addr().String()}

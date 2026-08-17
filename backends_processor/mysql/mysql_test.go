@@ -197,9 +197,8 @@ func TestMySQL(t *testing.T) {
 	modules.AddModule("test", dp)
 	_ = mysqlChecker.Bind(modules)
 
-	subscriber := &mockSubscriber{}
-	mysqlChecker.ProvideUpdates(subscriber)
-
+	// Test Ready functionality: should be ready after dp is ready and first check is done
+	dp.Backends.MarkReady()
 	// Add backend
 	b := &backend.Backend{Address: "127.0.0.1:3306", Meta: backend.NewEmptyMetaMap(0)}
 	mysqlChecker.ReceiveUpdate(backend.BackendUpdate{
@@ -207,6 +206,16 @@ func TestMySQL(t *testing.T) {
 		Address: "127.0.0.1:3306",
 		Backend: b,
 	})
+
+	select {
+	case <-mysqlChecker.Ready():
+		// OK
+	case <-time.After(500 * time.Millisecond):
+		t.Errorf("Timeout waiting for mysql_checker readiness")
+	}
+
+	subscriber := &mockSubscriber{}
+	mysqlChecker.ProvideUpdates(subscriber)
 
 	testutil.Eventually(t, func() bool {
 		mysqlChecker.checksMtex.RLock()

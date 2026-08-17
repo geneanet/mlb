@@ -67,6 +67,9 @@ type MySQLChecker struct {
 	writeTimeout       time.Duration
 	connMaxLifetime    time.Duration
 	checkReplica       bool
+	initialBackends    map[string]bool
+	initialChecked     map[string]bool
+	upstreamReady      bool
 }
 
 // MySQLCheckerConfig defines the HCL configuration for the MySQL backend processor.
@@ -167,6 +170,8 @@ func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 		source:             config.Source,
 		backends:           backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
 		checkReplica:       config.CheckReplica,
+		initialBackends:    make(map[string]bool),
+		initialChecked:     make(map[string]bool),
 	}
 
 	var err error
@@ -218,19 +223,41 @@ func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 
 		statusChan := make(chan *backend.Backend)
 
+		// checkReadiness checks if the processor can signal its readiness.
+		// It requires the upstream source to be ready AND all backends initially
+		// received to have completed at least one health check.
+		checkReadiness := func() {
+			if !c.upstreamReady {
+				return
+			}
+			for addr := range c.initialBackends {
+				if !c.initialChecked[addr] {
+					return
+				}
+			}
+			c.backends.MarkReady()
+		}
+
 		for {
 			select {
 			case b := <-statusChan: // Backend status changed
+				// Mark this backend as having its first check completed
+				c.initialChecked[b.Address] = true
 				c.backends.Publish(backend.BackendUpdate{
 					Kind:    backend.UpdBackendModified,
 					Address: b.Address,
 					Backend: b,
 				})
+				checkReadiness()
 
 			case upd := <-c.updChan: // Backend changed
 				c.checksMtex.Lock()
 				switch upd.Kind {
 				case backend.UpdBackendAdded, backend.UpdBackendModified:
+					// Track backends added before the source is ready as "initial"
+					if !c.upstreamReady && upd.Kind == backend.UpdBackendAdded {
+						c.initialBackends[upd.Address] = true
+					}
 					if check, ok := c.checks[upd.Address]; ok { // Modified
 						// Update the existing backend in the registry with new data from inventory, while preserving the mysql bucket
 						c.backends.Update(upd.Backend, "mysql")
@@ -277,6 +304,8 @@ func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 						}
 					}
 				case backend.UpdBackendRemoved:
+					delete(c.initialBackends, upd.Address)
+					delete(c.initialChecked, upd.Address)
 					// Removed
 					if check, ok := c.checks[upd.Address]; ok {
 						check.StopPolling()
@@ -287,6 +316,9 @@ func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 							Address: upd.Address,
 						})
 					}
+				case backend.UpdReady:
+					c.upstreamReady = true
+					checkReadiness()
 				}
 				c.checksMtex.Unlock()
 
@@ -313,6 +345,11 @@ func (c *MySQLChecker) stopChecks() {
 // ProvideUpdates registers a subscriber and sends initial updates for all currently matched backends.
 func (c *MySQLChecker) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 	c.backends.ProvideUpdates(s)
+}
+
+// Ready returns a channel that is closed when the checker is ready.
+func (c *MySQLChecker) Ready() <-chan struct{} {
+	return c.backends.Ready()
 }
 
 // ReceiveUpdate implements the backend.BackendUpdateSubscriber interface.
