@@ -136,12 +136,12 @@ func parseRedisProxyConfig(tc *module.Config) *RedisProxyConfig {
 		config.BackendTCPKeepAlive = "5s"
 	}
 
-	BufferSize, _ := util.FromCtyByteSize(config.BufferSize)
+	BufferSize, _ = util.FromCtyByteSize(config.BufferSize)
 	if BufferSize == 0 {
 		BufferSize = 16384
 	}
 
-	MaxReusedBufferSize, _ := util.FromCtyByteSize(config.MaxReusedBufferSize)
+	MaxReusedBufferSize, _ = util.FromCtyByteSize(config.MaxReusedBufferSize)
 	if MaxReusedBufferSize == 0 {
 		MaxReusedBufferSize = 65536
 	}
