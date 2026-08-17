@@ -51,6 +51,7 @@ type RedisProxy struct {
 	healthcheck              bool
 	healthcheckTimeout       time.Duration
 	resetTimeout             time.Duration
+	closeOnBackendRemoval    bool
 	beMetricsCache           map[string]*Metrics
 	beMetricsMutex           sync.RWMutex
 	readyChan                chan struct{}
@@ -68,22 +69,23 @@ type Metrics struct {
 
 // RedisProxyConfig defines the HCL configuration for the Redis proxy.
 type RedisProxyConfig struct {
-	ID                  string    `hcl:"id,label"`
-	Source              string    `hcl:"source"`
-	Addresses           []string  `hcl:"addresses,optional"`
-	ConnectTimeout      string    `hcl:"connect_timeout,optional"`
-	CloseTimeout        string    `hcl:"close_timeout,optional"`
-	BackendWaitTimeout  string    `hcl:"backend_wait_timeout,optional"`
-	BackendTCPKeepAlive string    `hcl:"backend_tcp_keepalive,optional"`
-	BufferSize          cty.Value `hcl:"buffer_size,optional"`
-	MaxReusedBufferSize cty.Value `hcl:"max_reused_buffer_size,optional"`
-	Preconnect          int       `hcl:"preconnect,optional"`
-	IdleTimeout         string    `hcl:"idle_timeout,optional"`
-	IdleCleanupPeriod   string    `hcl:"idle_cleanup_period,optional"`
-	Healthcheck         bool      `hcl:"healthcheck,optional"`
-	HealthcheckTimeout  string    `hcl:"healthcheck_timeout,optional"`
-	ResetTimeout        string    `hcl:"reset_timeout,optional"`
-	LogBackendUpdates   bool      `hcl:"log_backend_updates,optional"`
+	ID                    string    `hcl:"id,label"`
+	Source                string    `hcl:"source"`
+	Addresses             []string  `hcl:"addresses,optional"`
+	ConnectTimeout        string    `hcl:"connect_timeout,optional"`
+	CloseTimeout          string    `hcl:"close_timeout,optional"`
+	BackendWaitTimeout    string    `hcl:"backend_wait_timeout,optional"`
+	BackendTCPKeepAlive   string    `hcl:"backend_tcp_keepalive,optional"`
+	BufferSize            cty.Value `hcl:"buffer_size,optional"`
+	MaxReusedBufferSize   cty.Value `hcl:"max_reused_buffer_size,optional"`
+	Preconnect            int       `hcl:"preconnect,optional"`
+	IdleTimeout           string    `hcl:"idle_timeout,optional"`
+	IdleCleanupPeriod     string    `hcl:"idle_cleanup_period,optional"`
+	Healthcheck           bool      `hcl:"healthcheck,optional"`
+	HealthcheckTimeout    string    `hcl:"healthcheck_timeout,optional"`
+	ResetTimeout          string    `hcl:"reset_timeout,optional"`
+	LogBackendUpdates     bool      `hcl:"log_backend_updates,optional"`
+	CloseOnBackendRemoval bool      `hcl:"close_on_backend_removal,optional"`
 }
 
 // validateRedisProxyConfig validates the Redis proxy configuration.
@@ -175,6 +177,7 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (
 		source:                   config.Source,
 		preconnect:               config.Preconnect,
 		healthcheck:              config.Healthcheck,
+		closeOnBackendRemoval:    config.CloseOnBackendRemoval,
 		wg:                       wg,
 		backendUpdatesChan:       make(chan backend.BackendUpdate, 100),
 		backendUpdatesChanClosed: make(chan struct{}),
@@ -237,11 +240,20 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (
 			select {
 			case upd := <-p.backendUpdatesChan: // Backend changed
 				switch upd.Kind {
-				case backend.UpdBackendAdded:
-					p.backends.Add(upd.Backend.Clone())
-				case backend.UpdBackendModified:
-					p.backends.Update(upd.Backend.Clone())
+				case backend.UpdBackendAdded, backend.UpdBackendModified:
+					clone := upd.Backend.Clone()
+					if clone.Ctx == nil {
+						clone.Ctx, clone.Cancel = context.WithCancel(p.ctx)
+					}
+					if upd.Kind == backend.UpdBackendAdded {
+						p.backends.Add(clone)
+					} else {
+						p.backends.Update(clone)
+					}
 				case backend.UpdBackendRemoved:
+					if be := p.backends.Get(upd.Address); be != nil && be.Cancel != nil {
+						be.Cancel()
+					}
 					p.backends.Remove(upd.Address)
 				}
 				go p.backendConnectionPool.Update()
@@ -436,11 +448,18 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	go p.pipe(connFront, backendConnection.conn, doneFrontBack, stopPipes, p.bufferSize, feMetrics, beMetrics)
 	go p.pipe(backendConnection.conn, connFront, doneBackFront, stopPipes, p.bufferSize, beMetrics, feMetrics)
 
-	// Wait for one pipe to end or the context to be cancelled
+	// Wait for one pipe to end, the context to be cancelled, or the backend to be removed
+	var backendCtxDone <-chan struct{}
+	if p.closeOnBackendRemoval && backendConnection.backend.Ctx != nil {
+		backendCtxDone = backendConnection.backend.Ctx.Done()
+	}
+
 	select {
 	case <-doneFrontBack:
 	case <-doneBackFront:
 	case <-done:
+	case <-backendCtxDone:
+		p.log.Debug().Stringer("peer", peerAddress).Msg("Backend removed, closing frontend connection")
 	}
 
 	// Safely stop pipes before returning the backend connection to the pool.

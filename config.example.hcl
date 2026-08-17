@@ -157,6 +157,7 @@ proxy "redis" "redis" {
   // healthcheck_timeout = "1s"
   // reset_timeout = "2s"
   // log_backend_updates = true
+  // close_on_backend_removal = false
 }
 
 proxy "memcache" "memcache" {

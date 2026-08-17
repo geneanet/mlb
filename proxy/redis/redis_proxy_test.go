@@ -2,14 +2,17 @@ package redis
 
 import (
 	"context"
+	"io"
 	"mlb/backend"
 	"mlb/module"
 	"mlb/testutil"
+	"net"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/hashicorp/hcl/v2/hclparse"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -218,3 +221,404 @@ func TestRedisProxy_BindAndReceiveUpdate(t *testing.T) {
 		t.Errorf("expected backend %s to be removed", be.Address)
 	}
 }
+
+// TestRedisProxy_CloseOnBackendRemoval verifies that active connections are closed when
+// the backend is removed from the balancer, if close_on_backend_removal is enabled.
+func TestRedisProxy_CloseOnBackendRemoval(t *testing.T) {
+	// 1. Setup Backend (Echo server is enough as we just need a TCP connection)
+	lnBackend, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lnBackend.Close()
+	go func() {
+		for {
+			conn, err := lnBackend.Accept()
+			if err != nil {
+				return
+			}
+			go io.Copy(conn, conn) // simple echo
+		}
+	}()
+
+	// 2. Setup Redis Proxy
+	hcl := `
+		source = "backends_inventory.static.test"
+		addresses = ["127.0.0.1:0"]
+		close_on_backend_removal = true
+	`
+	parser := hclparse.NewParser()
+	f, _ := parser.ParseHCL([]byte(hcl), "test.hcl")
+	tc := &module.Config{
+		Category: "proxy",
+		Type:     "redis",
+		Name:     "test",
+		Config:   f.Body,
+	}
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p, err := newRedisProxy(tc, wg, ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	rp := p.(*RedisProxy)
+
+	mockProvider := &mockBackendProvider{readyChan: make(chan struct{})}
+	registry := make(module.ModulesRegistry)
+	registry.AddModule("backends_inventory.static.test", mockProvider)
+
+	err = rp.Bind(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(mockProvider.readyChan)
+	<-rp.Ready()
+
+	// Manual Listener for proxy to easily get the address and control the loop
+	lnProxy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lnProxy.Close()
+	proxyAddr := lnProxy.Addr().String()
+
+	feMetrics := &Metrics{
+		processed: prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_processed"}),
+		active:    prometheus.NewGauge(prometheus.GaugeOpts{Name: "fe_active"}),
+		bytesIn:   prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_bytes_in"}),
+		bytesOut:  prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_bytes_out"}),
+		requests:  prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_requests"}),
+		cnxErrors: prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_cnx_errors"}),
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			conn, err := lnProxy.Accept()
+			if err != nil {
+				return
+			}
+			rp.connectionsWG.Add(1)
+			go rp.handleConnection(conn, feMetrics)
+		}
+	}()
+
+	// 3. Add backend
+	beCtx, beCancel := context.WithCancel(context.Background())
+	be := &backend.Backend{
+		Address: lnBackend.Addr().String(),
+		Meta:    backend.NewEmptyMetaMap(0),
+		Ctx:     beCtx,
+		Cancel:  beCancel,
+	}
+	rp.ReceiveUpdate(backend.BackendUpdate{
+		Kind:    backend.UpdBackendAdded,
+		Backend: be,
+	})
+
+	// Wait for backend to be available in pool
+	testutil.Eventually(t, func() bool {
+		return rp.backends.Has(be.Address)
+	}, 1*time.Second, 10*time.Millisecond)
+
+	// 4. Connect client
+	conn, err := net.Dial("tcp", proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	// Wait for the proxy to accept the connection and get a backend
+	time.Sleep(100 * time.Millisecond)
+
+	// 5. Trigger removal (which cancels beCtx)
+	beCancel()
+	rp.ReceiveUpdate(backend.BackendUpdate{
+		Kind:    backend.UpdBackendRemoved,
+		Address: be.Address,
+	})
+
+	// 6. Verify client connection is closed
+	done := make(chan struct{})
+	go func() {
+		buf := make([]byte, 1)
+		_, err := conn.Read(buf)
+		if err != nil {
+			close(done)
+		}
+	}()
+
+	select {
+	case <-done:
+		// Success
+	case <-time.After(2 * time.Second):
+		t.Error("expected client connection to be closed after backend removal")
+	}
+}
+
+func TestRedisProxy_NotCloseOnBackendRemoval(t *testing.T) {
+	// 1. Setup Backend
+	lnBackend, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lnBackend.Close()
+	go func() {
+		for {
+			conn, err := lnBackend.Accept()
+			if err != nil {
+				return
+			}
+			go io.Copy(conn, conn)
+		}
+	}()
+
+	// 2. Setup Redis Proxy (close_on_backend_removal = false)
+	hcl := `
+		source = "backends_inventory.static.test"
+		addresses = ["127.0.0.1:0"]
+		close_on_backend_removal = false
+	`
+	parser := hclparse.NewParser()
+	f, _ := parser.ParseHCL([]byte(hcl), "test.hcl")
+	tc := &module.Config{
+		Category: "proxy",
+		Type:     "redis",
+		Name:     "test",
+		Config:   f.Body,
+	}
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p, err := newRedisProxy(tc, wg, ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	rp := p.(*RedisProxy)
+
+	mockProvider := &mockBackendProvider{readyChan: make(chan struct{})}
+	registry := make(module.ModulesRegistry)
+	registry.AddModule("backends_inventory.static.test", mockProvider)
+
+	err = rp.Bind(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(mockProvider.readyChan)
+	<-rp.Ready()
+
+	lnProxy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lnProxy.Close()
+	proxyAddr := lnProxy.Addr().String()
+
+	feMetrics := &Metrics{
+		processed: prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_processed2"}),
+		active:    prometheus.NewGauge(prometheus.GaugeOpts{Name: "fe_active2"}),
+		bytesIn:   prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_bytes_in2"}),
+		bytesOut:  prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_bytes_out2"}),
+		requests:  prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_requests2"}),
+		cnxErrors: prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_cnx_errors2"}),
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			conn, err := lnProxy.Accept()
+			if err != nil {
+				return
+			}
+			rp.connectionsWG.Add(1)
+			go rp.handleConnection(conn, feMetrics)
+		}
+	}()
+
+	// 3. Add backend
+	beCtx, beCancel := context.WithCancel(context.Background())
+	be := &backend.Backend{
+		Address: lnBackend.Addr().String(),
+		Meta:    backend.NewEmptyMetaMap(0),
+		Ctx:     beCtx,
+		Cancel:  beCancel,
+	}
+	rp.ReceiveUpdate(backend.BackendUpdate{
+		Kind:    backend.UpdBackendAdded,
+		Backend: be,
+	})
+	testutil.Eventually(t, func() bool {
+		return rp.backends.Has(be.Address)
+	}, 1*time.Second, 10*time.Millisecond)
+
+	// 4. Connect client
+	conn, err := net.Dial("tcp", proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	time.Sleep(100 * time.Millisecond)
+
+	// 5. Trigger removal
+	beCancel()
+	rp.ReceiveUpdate(backend.BackendUpdate{
+		Kind:    backend.UpdBackendRemoved,
+		Address: be.Address,
+	})
+
+	// 6. Verify client connection is NOT closed
+	done := make(chan struct{})
+	go func() {
+		buf := make([]byte, 1)
+		_, err := conn.Read(buf)
+		if err != nil {
+			close(done)
+		}
+	}()
+
+	select {
+	case <-done:
+		t.Error("expected client connection to stay open after backend removal")
+	case <-time.After(500 * time.Millisecond):
+		// Success
+	}
+}
+
+func TestRedisProxy_CloseOnBackendRemoval_NoBalancer(t *testing.T) {
+	// 1. Setup Backend
+	lnBackend, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lnBackend.Close()
+	go func() {
+		for {
+			conn, err := lnBackend.Accept()
+			if err != nil {
+				return
+			}
+			go io.Copy(conn, conn)
+		}
+	}()
+
+	// 2. Setup Redis Proxy
+	hcl := `
+		source = "backends_inventory.static.test"
+		addresses = ["127.0.0.1:0"]
+		close_on_backend_removal = true
+	`
+	parser := hclparse.NewParser()
+	f, _ := parser.ParseHCL([]byte(hcl), "test.hcl")
+	tc := &module.Config{
+		Category: "proxy",
+		Type:     "redis",
+		Name:     "test",
+		Config:   f.Body,
+	}
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p, err := newRedisProxy(tc, wg, ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	rp := p.(*RedisProxy)
+
+	mockProvider := &mockBackendProvider{readyChan: make(chan struct{})}
+	registry := make(module.ModulesRegistry)
+	registry.AddModule("backends_inventory.static.test", mockProvider)
+
+	err = rp.Bind(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(mockProvider.readyChan)
+	<-rp.Ready()
+
+	lnProxy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lnProxy.Close()
+	proxyAddr := lnProxy.Addr().String()
+
+	feMetrics := &Metrics{
+		processed: prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_processed3"}),
+		active:    prometheus.NewGauge(prometheus.GaugeOpts{Name: "fe_active3"}),
+		bytesIn:   prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_bytes_in3"}),
+		bytesOut:  prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_bytes_out3"}),
+		requests:  prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_requests3"}),
+		cnxErrors: prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_cnx_errors3"}),
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			conn, err := lnProxy.Accept()
+			if err != nil {
+				return
+			}
+			rp.connectionsWG.Add(1)
+			go rp.handleConnection(conn, feMetrics)
+		}
+	}()
+
+	// 3. Add backend WITHOUT context
+	be := &backend.Backend{
+		Address: lnBackend.Addr().String(),
+		Meta:    backend.NewEmptyMetaMap(0),
+		// Ctx and Cancel are nil
+	}
+	rp.ReceiveUpdate(backend.BackendUpdate{
+		Kind:    backend.UpdBackendAdded,
+		Backend: be,
+	})
+	testutil.Eventually(t, func() bool {
+		return rp.backends.Has(be.Address)
+	}, 1*time.Second, 10*time.Millisecond)
+
+	// Verify that the proxy created a context
+	storedBe := rp.backends.GetList()[0]
+	if storedBe.Ctx == nil {
+		t.Fatal("expected proxy to create a context for the backend")
+	}
+
+	// 4. Connect client
+	conn, err := net.Dial("tcp", proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	time.Sleep(100 * time.Millisecond)
+
+	// 5. Trigger removal
+	rp.ReceiveUpdate(backend.BackendUpdate{
+		Kind:    backend.UpdBackendRemoved,
+		Address: be.Address,
+	})
+
+	// 6. Verify client connection is closed
+	done := make(chan struct{})
+	go func() {
+		buf := make([]byte, 1)
+		_, err := conn.Read(buf)
+		if err != nil {
+			close(done)
+		}
+	}()
+
+	select {
+	case <-done:
+		// Success
+	case <-time.After(2 * time.Second):
+		t.Error("expected client connection to be closed after backend removal (direct inventory case)")
+	}
+}
+
