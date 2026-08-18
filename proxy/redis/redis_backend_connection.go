@@ -112,74 +112,88 @@ func (rbc *RedisBackendConnection) Healthcheck() error {
 }
 
 // ResetAndRelease prepares the connection for reuse by sending a Redis RESET command.
-// This clears any client state (like subscriptions or transactions) before returning
-// the connection to the idle pool.
+// It proceeds in two steps:
+// 1. Synchronize the connection by sending an ECHO marker and draining any pending responses.
+// 2. Send the RESET command and verify it returns "+OK\r\n".
+// If any step fails or returns an unexpected response, the connection is marked as failed.
 func (rbc *RedisBackendConnection) ResetAndRelease() {
 	if rbc.ctx.Err() != nil {
 		rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Not releasing backend connection (context cancelled)")
 		return
 	}
 
-	// Generate a unique token to synchronize the connection state without allocation.
-	count := atomic.AddUint64(&rbc.resetCount, 1)
-	var tokenBuf [64]byte // Stack buffer for token and RESP encoding
-	token := append(tokenBuf[:0], "MLB_RESET_FLAG_"...)
-	token = strconv.AppendUint(token, count, 10)
-
-	// Send RESET and ECHO <token> commands to ensure the connection is in a clean state.
-	// We use ECHO as a marker to know when the RESET command has been fully processed.
-	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Bytes("token", token).Msg("Sending RESET and ECHO to backend connection")
-
-	// Construct the pipelined command using a stack buffer to avoid allocations.
-	// RESET: *1\r\n$5\r\nRESET\r\n
-	// ECHO:  *2\r\n$4\r\nECHO\r\n$<token_len>\r\n<token>\r\n
-	var cmdBuf [128]byte
-	cmd := append(cmdBuf[:0], "*1\r\n$5\r\nRESET\r\n*2\r\n$4\r\nECHO\r\n$"...)
-	cmd = strconv.AppendInt(cmd, int64(len(token)), 10)
-	cmd = append(cmd, "\r\n"...)
-	cmd = append(cmd, token...)
-	cmd = append(cmd, "\r\n"...)
-
-	_, err := rbc.conn.Write(cmd)
-	if err != nil {
-		rbc.fail(fmt.Errorf("failed to send RESET/ECHO: %w", err))
-		return
-	}
-
-	// Drain responses from the backend until we receive the ECHO confirmation.
-	// This is necessary because there might be pending data (like Pub/Sub messages) in the buffer.
-	reader := NewRedisProtocolReader(rbc.conn, rbc.pool.proxy.bufferSize)
-	defer reader.Release()
-
-	// Set a short deadline for the reset operation to prevent hanging.
+	// Set a deadline for the entire reset operation to prevent hanging.
 	_ = rbc.conn.SetDeadline(time.Now().Add(rbc.pool.proxy.resetTimeout))
 	defer func() { _ = rbc.conn.SetDeadline(time.Time{}) }()
 
+	reader := NewRedisProtocolReader(rbc.conn, rbc.pool.proxy.bufferSize)
+	defer reader.Release()
+
+	// Step 1: Sync by draining pending responses from the backend until we receive an ECHO confirmation.
+	// This is necessary because there might be pending data (like Pub/Sub messages) in the buffer.
+	count := atomic.AddUint64(&rbc.resetCount, 1)
+	var tokenBuf [64]byte // Stack buffer for token and RESP encoding
+	token := append(tokenBuf[:0], "MLB_SYNC_FLAG_"...)
+	token = strconv.AppendUint(token, count, 10)
+
+	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Bytes("token", token).Msg("Syncing backend connection with ECHO")
+
+	// Construct the ECHO command: *2\r\n$4\r\nECHO\r\n$<token_len>\r\n<token>\r\n
+	var echoCmdBuf [128]byte
+	echoCmd := append(echoCmdBuf[:0], "*2\r\n$4\r\nECHO\r\n$"...)
+	echoCmd = strconv.AppendInt(echoCmd, int64(len(token)), 10)
+	echoCmd = append(echoCmd, "\r\n"...)
+	echoCmd = append(echoCmd, token...)
+	echoCmd = append(echoCmd, "\r\n"...)
+
+	if _, err := rbc.conn.Write(echoCmd); err != nil {
+		rbc.fail(fmt.Errorf("failed to send ECHO sync: %w", err))
+		return
+	}
+
 	// Pre-calculate expected ECHO response to avoid allocations in the loop
-	var expectBuf [64]byte
-	expectedResponse := append(expectBuf[:0], '$')
-	expectedResponse = strconv.AppendInt(expectedResponse, int64(len(token)), 10)
-	expectedResponse = append(expectedResponse, "\r\n"...)
-	expectedResponse = append(expectedResponse, token...)
-	expectedResponse = append(expectedResponse, "\r\n"...)
+	var expectEchoBuf [64]byte
+	expectedEcho := append(expectEchoBuf[:0], '$')
+	expectedEcho = strconv.AppendInt(expectedEcho, int64(len(token)), 10)
+	expectedEcho = append(expectedEcho, "\r\n"...)
+	expectedEcho = append(expectedEcho, token...)
+	expectedEcho = append(expectedEcho, "\r\n"...)
 
 	for {
 		item, err := reader.ReadMessage(false)
 		if err != nil {
-			rbc.fail(fmt.Errorf("error while draining backend connection: %w", err))
+			rbc.fail(fmt.Errorf("error while syncing backend connection: %w", err))
 			return
 		}
-
-		// When we see the expected ECHO response, we know the connection is clean and ready to be reused.
-		if bytes.Equal(item, expectedResponse) {
-			rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Backend connection reset successful")
-			ReleaseBuffer(item)
-			rbc.lastUsed = time.Now()
-			rbc.pool.Put(rbc)
-			return
-		}
-
-		// Discard any other messages received while waiting for the reset response.
 		ReleaseBuffer(item)
+
+		isEcho := bytes.Equal(item, expectedEcho)
+
+		if isEcho {
+			break
+		}
 	}
+
+	// Step 2: Send RESET to clear any client state (like subscriptions or transactions) and verify its response.
+	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Sending RESET to backend connection")
+	if _, err := rbc.conn.Write([]byte("*1\r\n$5\r\nRESET\r\n")); err != nil {
+		rbc.fail(fmt.Errorf("failed to send RESET: %w", err))
+		return
+	}
+
+	resp, err := reader.ReadMessage(false)
+	if err != nil {
+		rbc.fail(fmt.Errorf("error while reading RESET response: %w", err))
+		return
+	}
+	defer ReleaseBuffer(resp)
+
+	if !bytes.Equal(resp, []byte("+RESET\r\n")) {
+		rbc.fail(fmt.Errorf("unexpected RESET response: %q", string(resp)))
+		return
+	}
+
+	rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Backend connection reset successful")
+	rbc.lastUsed = time.Now()
+	rbc.pool.Put(rbc)
 }

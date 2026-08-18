@@ -244,30 +244,28 @@ func TestConnection_ResetAndRelease(t *testing.T) {
 		reader := NewRedisProtocolReader(conn, 1024)
 		defer reader.Release()
 
-		// Expect RESET
+		// Step 1: Expect ECHO
 		msg, err := reader.ReadMessage(false)
-		if err != nil {
-			return
-		}
-		if string(msg) == "*1\r\n$5\r\nRESET\r\n" {
-			_, _ = conn.Write([]byte("+RESET\r\n"))
-		}
-		ReleaseBuffer(msg)
-
-		// Expect ECHO
-		msg, err = reader.ReadMessage(false)
 		if err != nil {
 			return
 		}
 		smsg := string(msg)
 		if len(smsg) > 14 && smsg[:14] == "*2\r\n$4\r\nECHO\r\n" {
+			// Find the bulk string part of the ECHO command and return it as response
 			idx := 14
-			for idx < len(smsg) && smsg[idx] != '$' {
-				idx++
-			}
-			if idx < len(smsg) {
+			if smsg[idx] == '$' {
 				_, _ = conn.Write([]byte(smsg[idx:]))
 			}
+		}
+		ReleaseBuffer(msg)
+
+		// Step 2: Expect RESET
+		msg, err = reader.ReadMessage(false)
+		if err != nil {
+			return
+		}
+		if string(msg) == "*1\r\n$5\r\nRESET\r\n" {
+			_, _ = conn.Write([]byte("+RESET\r\n"))
 		}
 		ReleaseBuffer(msg)
 	}()
@@ -346,5 +344,80 @@ func TestPool_GetStaleConnection(t *testing.T) {
 	}
 	if rbc == rbc2 {
 		t.Error("expected new connection, got the stale one")
+	}
+}
+
+func TestConnection_ResetFail(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer ln.Close()
+	addr := ln.Addr().String()
+
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		reader := NewRedisProtocolReader(conn, 1024)
+		defer reader.Release()
+
+		// Step 1: Expect ECHO
+		msg, err := reader.ReadMessage(false)
+		if err != nil {
+			return
+		}
+		smsg := string(msg)
+		if len(smsg) > 14 && smsg[:14] == "*2\r\n$4\r\nECHO\r\n" {
+			idx := 14
+			if smsg[idx] == '$' {
+				_, _ = conn.Write([]byte(smsg[idx:]))
+			}
+		}
+		ReleaseBuffer(msg)
+
+		// Step 2: Expect RESET and return error
+		msg, err = reader.ReadMessage(false)
+		if err != nil {
+			return
+		}
+		if string(msg) == "*1\r\n$5\r\nRESET\r\n" {
+			_, _ = conn.Write([]byte("-ERR some error\r\n"))
+		}
+		ReleaseBuffer(msg)
+	}()
+
+	proxy := &RedisProxy{
+		beMetricsCache:     make(map[string]*Metrics),
+		log:                log.Logger,
+		bufferSize:         4096,
+		healthcheckTimeout: time.Second,
+		resetTimeout:       2 * time.Second,
+		backends:           backend.NewRegistry(zerolog.Nop(), false),
+	}
+	proxy.ctx, proxy.cancel = context.WithCancel(context.Background())
+	defer proxy.cancel()
+
+	pool := &RedisBackendConnectionPool{
+		proxy: proxy,
+		ctx:   proxy.ctx,
+		pool:  make([]*RedisBackendConnection, 0),
+	}
+	be := backend.NewBackend(addr, nil)
+	proxy.backends.Add(be)
+	rbc, err := NewRedisBackendConnection(pool, be)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	rbc.ResetAndRelease()
+
+	pool.mutex.Lock()
+	defer pool.mutex.Unlock()
+	if len(pool.pool) != 0 {
+		t.Errorf("expected pool size 0 (failed reset), got %d", len(pool.pool))
 	}
 }
