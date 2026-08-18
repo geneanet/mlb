@@ -135,7 +135,7 @@ backends_processor "consul_kv" "test" {
 	waitSub(t, sub, "Ready update")
 
 	// Add a backend
-	b1 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
+	b1 := backend.NewBackend("127.0.0.1:8080", nil)
 
 	// We expect 1 add/modify from the add, and 1 from watcher updating
 	sub.Wg.Add(2)
@@ -268,7 +268,7 @@ backends_processor "consul_kv" "test" {
 	modules.AddModule("foo", dp)
 	_ = consulMod.Bind(modules)
 
-	b1 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
+	b1 := backend.NewBackend("127.0.0.1:8080", nil)
 	sub1 := &testutil.DummySubscriber{Wg: sync.WaitGroup{}}
 	consulMod.ProvideUpdates(sub1)
 	sub1.Wg.Add(1)
@@ -404,7 +404,7 @@ func TestConsulKV_FetchErrors(t *testing.T) {
 	mu.Lock()
 	responseBody = `invalid json`
 	mu.Unlock()
-	w := newConsulKVWatcher(&backend.Backend{Address: "foo"}, "id", ts.URL, "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, make(chan *consulKVWatcherMessage, 10), ctx, log.Logger)
+	w := newConsulKVWatcher(backend.NewBackend("foo", nil), "id", ts.URL, "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, make(chan *consulKVWatcherMessage, 10), ctx, log.Logger)
 	_, err := w.fetch()
 	if err == nil {
 		t.Errorf("Expected error for invalid json")
@@ -420,7 +420,7 @@ func TestConsulKV_FetchErrors(t *testing.T) {
 	}
 
 	// Case 3: Invalid URL scheme
-	w = newConsulKVWatcher(&backend.Backend{Address: "foo"}, "id", "httpxx://invalid", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, make(chan *consulKVWatcherMessage, 10), ctx, log.Logger)
+	w = newConsulKVWatcher(backend.NewBackend("foo", nil), "id", "httpxx://invalid", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, make(chan *consulKVWatcherMessage, 10), ctx, log.Logger)
 	_, err = w.fetch()
 	if err == nil {
 		t.Errorf("Expected error for invalid scheme")
@@ -441,7 +441,8 @@ func TestConsulKV_WatcherCoverage(t *testing.T) {
 
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	ch := make(chan *consulKVWatcherMessage, 10)
-	newConsulKVWatcher(&backend.Backend{Address: "foo1"}, "id", ts1.URL, "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, ch, ctx1, log.Logger)
+	newConsulKVWatcher(backend.NewBackend("foo1", nil), "id", ts1.URL, "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, ch, ctx1, log.Logger)
+
 
 	// Ensure request starts
 	testutil.Eventually(t, func() bool {
@@ -460,7 +461,7 @@ func TestConsulKV_WatcherCoverage(t *testing.T) {
 	defer ts2.Close()
 
 	ctx2, cancel2 := context.WithCancel(context.Background())
-	newConsulKVWatcher(&backend.Backend{Address: "foo2"}, "id", ts2.URL, "key", 500*time.Millisecond, 1*time.Second, 1.5, ch, ctx2, log.Logger)
+	newConsulKVWatcher(backend.NewBackend("foo2", nil), "id", ts2.URL, "key", 500*time.Millisecond, 1*time.Second, 1.5, ch, ctx2, log.Logger)
 
 	// Give it time to execute its first request and fall into sleep
 	testutil.Eventually(t, func() bool {

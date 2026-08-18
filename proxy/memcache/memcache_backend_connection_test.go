@@ -24,7 +24,7 @@ func TestMemcacheBackendConnection_QueryAndAbort(t *testing.T) {
 		}
 	}()
 
-	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}
+	b1 := backend.NewBackend(b1L.Addr().String(), nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -87,7 +87,7 @@ func TestMemcacheBackendConnection_ReadFull(t *testing.T) {
 
 	go dummyMemcacheServer(b1L, "v1")
 
-	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}
+	b1 := backend.NewBackend(b1L.Addr().String(), nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

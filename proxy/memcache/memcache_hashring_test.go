@@ -8,9 +8,9 @@ import (
 
 func TestMemcacheHashRing_Distribution(t *testing.T) {
 	ring := newMemcacheHashRing()
-	b1 := &backend.Backend{Address: "127.0.0.1:11211"}
-	b2 := &backend.Backend{Address: "127.0.0.1:11212"}
-	b3 := &backend.Backend{Address: "127.0.0.1:11213"}
+	b1 := backend.NewBackend("127.0.0.1:11211", nil)
+	b2 := backend.NewBackend("127.0.0.1:11212", nil)
+	b3 := backend.NewBackend("127.0.0.1:11213", nil)
 
 	ring.update([]*backend.Backend{b1, b2, b3})
 
@@ -38,8 +38,8 @@ func TestMemcacheHashRing_Empty(t *testing.T) {
 
 func TestMemcacheHashRing_Stability(t *testing.T) {
 	ring := newMemcacheHashRing()
-	b1 := &backend.Backend{Address: "127.0.0.1:11211"}
-	b2 := &backend.Backend{Address: "127.0.0.1:11212"}
+	b1 := backend.NewBackend("127.0.0.1:11211", nil)
+	b2 := backend.NewBackend("127.0.0.1:11212", nil)
 
 	ring.update([]*backend.Backend{b1, b2})
 
@@ -53,7 +53,7 @@ func TestMemcacheHashRing_Stability(t *testing.T) {
 	}
 
 	// Add a backend, most keys should still map to the same backend
-	b3 := &backend.Backend{Address: "127.0.0.1:11213"}
+	b3 := backend.NewBackend("127.0.0.1:11213", nil)
 	ring.update([]*backend.Backend{b1, b2, b3})
 
 	changed := 0

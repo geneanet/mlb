@@ -240,20 +240,11 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (
 			select {
 			case upd := <-p.backendUpdatesChan: // Backend changed
 				switch upd.Kind {
-				case backend.UpdBackendAdded, backend.UpdBackendModified:
-					clone := upd.Backend.Clone()
-					if clone.Ctx == nil {
-						clone.Ctx, clone.Cancel = context.WithCancel(p.ctx)
-					}
-					if upd.Kind == backend.UpdBackendAdded {
-						p.backends.Add(clone)
-					} else {
-						p.backends.Update(clone)
-					}
+				case backend.UpdBackendAdded:
+					p.backends.Add(upd.Backend.Clone())
+				case backend.UpdBackendModified:
+					p.backends.Update(upd.Backend.Clone())
 				case backend.UpdBackendRemoved:
-					if be := p.backends.Get(upd.Address); be != nil && be.Cancel != nil {
-						be.Cancel()
-					}
 					p.backends.Remove(upd.Address)
 				}
 				go p.backendConnectionPool.Update()

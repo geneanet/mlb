@@ -60,10 +60,7 @@ func newStaticBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx conte
 	}
 
 	for _, address := range config.Hosts {
-		c.backends.Add(&backend.Backend{
-			Address: address,
-			Meta:    backend.NewEmptyMetaMap(0),
-		})
+		c.backends.Add(backend.NewBackend(address, nil))
 	}
 
 	c.ctx, c.cancel = context.WithCancel(ctx)

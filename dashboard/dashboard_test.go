@@ -62,7 +62,7 @@ func TestBackendsHandler(t *testing.T) {
 	ml := make(module.ModulesRegistry)
 	provider := &mockBackendListProvider{
 		backends: []*backend.Backend{
-			{Address: "1.2.3.4:80"},
+			backend.NewBackend("1.2.3.4:80", nil),
 		},
 	}
 	ml["test_provider"] = provider

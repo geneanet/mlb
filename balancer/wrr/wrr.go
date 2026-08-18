@@ -133,7 +133,6 @@ func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 
 					if upd.Kind == backend.UpdBackendAdded {
 						clone := upd.Backend.Clone()
-						clone.Ctx, clone.Cancel = context.WithCancel(b.ctx)
 						b.backends.Add(clone)
 					} else {
 						b.log.Debug().Str("address", upd.Address).Int("weight", weight).Msg("Updating backend in WRR balancer")
@@ -144,9 +143,6 @@ func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 					weights[upd.Address] = weight
 
 				case backend.UpdBackendRemoved:
-					if be := b.backends.Get(upd.Address); be != nil && be.Cancel != nil {
-						be.Cancel()
-					}
 					b.backends.Remove(upd.Address)
 					delete(weights, upd.Address)
 				case backend.UpdReady:

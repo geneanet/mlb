@@ -128,7 +128,6 @@ func newWLCBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 
 					if upd.Kind == backend.UpdBackendAdded {
 						clone := upd.Backend.Clone()
-						clone.Ctx, clone.Cancel = context.WithCancel(b.ctx)
 						b.backends.Add(clone)
 						b.stats[upd.Address] = &backendStats{
 							backend: clone,
@@ -144,9 +143,6 @@ func newWLCBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 					b.backends.Get(upd.Address).Meta.Set("wlc", "weight", cty.NumberIntVal(weight))
 
 				case backend.UpdBackendRemoved:
-					if be := b.backends.Get(upd.Address); be != nil && be.Cancel != nil {
-						be.Cancel()
-					}
 					b.backends.Remove(upd.Address)
 					delete(b.stats, upd.Address)
 				case backend.UpdReady:

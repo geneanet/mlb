@@ -155,16 +155,13 @@ func newConsulBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx conte
 				added, modified, removed := consulServicesDiff(old, services)
 
 				for address, service := range added {
-					c.backends.Add(&backend.Backend{
-						Address: address,
-						Meta: backend.NewMetaMap(map[string]backend.MetaBucket{
-							"consul": {
-								"node":   cty.StringVal(service.Node.Node),
-								"weight": cty.NumberUIntVal(service.Service.Weights.Passing),
-								"tags":   ctyTagSet(service.Service.Tags),
-							},
-						}),
-					})
+					c.backends.Add(backend.NewBackend(address, backend.NewMetaMap(map[string]backend.MetaBucket{
+						"consul": {
+							"node":   cty.StringVal(service.Node.Node),
+							"weight": cty.NumberUIntVal(service.Service.Weights.Passing),
+							"tags":   ctyTagSet(service.Service.Tags),
+						},
+					})))
 					c.backends.Publish(backend.BackendUpdate{
 						Kind:    backend.UpdBackendAdded,
 						Address: address,

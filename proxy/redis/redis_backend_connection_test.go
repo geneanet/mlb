@@ -71,7 +71,7 @@ func TestRedisBackendConnection(t *testing.T) {
 		readyChan:          make(chan struct{}),
 	}
 	pool := NewRedisBackendConnectionPool(p)
-	be := &backend.Backend{Address: ln.Addr().String()}
+	be := backend.NewBackend(ln.Addr().String(), nil)
 	p.backends.Add(be)
 
 	t.Run("Lifecycle and Healthcheck", func(t *testing.T) {

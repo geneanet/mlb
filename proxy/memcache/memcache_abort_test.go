@@ -35,7 +35,7 @@ func TestMemcacheBackendConnection_AbortInflightQueries_WithPending(t *testing.T
 	pool := NewMemcacheBackendConnectionPool(proxy)
 	proxy.backendConnectionPool = pool
 
-	b := &backend.Backend{Address: l.Addr().String()}
+	b := backend.NewBackend(l.Addr().String(), nil)
 
 	// Accept connection to avoid dial error
 	go func() {

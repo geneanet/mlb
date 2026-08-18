@@ -20,15 +20,23 @@ type Backend struct {
 	Cancel  context.CancelFunc `json:"-"`
 }
 
+// NewBackend creates a new Backend with the given address and metadata.
+func NewBackend(address string, meta *MetaMap) *Backend {
+	if meta == nil {
+		meta = NewEmptyMetaMap(0)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Backend{
+		Address: address,
+		Meta:    meta,
+		Ctx:     ctx,
+		Cancel:  cancel,
+	}
+}
+
 // Clone creates a deep copy of the Backend.
 func (b *Backend) Clone() *Backend {
-	new := &Backend{
-		Address: b.Address,
-		Meta:    b.Meta.Clone(),
-		Ctx:     b.Ctx,
-		Cancel:  b.Cancel,
-	}
-	return new
+	return NewBackend(b.Address, b.Meta.Clone())
 }
 
 // Equal checks if two backends are equal based on address and metadata.
@@ -222,10 +230,11 @@ func (r *Registry) Remove(address string) {
 
 	r.log.Debug().Str("address", address).Msg("Backend removed from registry")
 
-	if _, ok := r.backends[address]; ok {
+	if backend, ok := r.backends[address]; ok {
 		if r.logUpdates {
 			r.log.Info().Str("address", address).Msg("Backend removed")
 		}
+		backend.Cancel()
 		delete(r.backends, address)
 		r.updateWaitState()
 	}

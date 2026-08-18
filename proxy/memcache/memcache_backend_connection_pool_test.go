@@ -16,7 +16,7 @@ func TestMemcacheBackendConnectionPool_Del(t *testing.T) {
 	defer func() { _ = b1L.Close() }()
 	go dummyMemcacheServer(b1L, "v1")
 
-	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}
+	b1 := backend.NewBackend(b1L.Addr().String(), nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -64,7 +64,7 @@ func TestMemcacheBackendConnectionPool_UpdateRemovesDeadBackends(t *testing.T) {
 	defer func() { _ = b1L.Close() }()
 	go dummyMemcacheServer(b1L, "v1")
 
-	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}
+	b1 := backend.NewBackend(b1L.Addr().String(), nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -117,7 +117,7 @@ func TestMemcacheMinMaxPoolGrowth(t *testing.T) {
 	defer func() { _ = l.Close() }()
 
 	addr := l.Addr().String()
-	b1 := &backend.Backend{Address: addr}
+	b1 := backend.NewBackend(addr, nil)
 
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -233,8 +233,8 @@ func TestMemcacheBackendConnectionPool_UpdateParallel(t *testing.T) {
 	defer func() { _ = b1L.Close() }()
 	go dummyMemcacheServer(b1L, "v1")
 
-	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}
-	b2 := &backend.Backend{Address: "127.0.0.1:1", Meta: backend.NewMetaMap(nil)} // Faulty address
+	b1 := backend.NewBackend(b1L.Addr().String(), nil)
+	b2 := backend.NewBackend("127.0.0.1:1", nil) // Faulty address
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -294,7 +294,7 @@ func TestMemcacheBackendConnectionPool_Get_SkipUnhealthy(t *testing.T) {
 	pool := NewMemcacheBackendConnectionPool(p)
 
 	addr := "127.0.0.1:11211"
-	b1 := &backend.Backend{Address: addr}
+	b1 := backend.NewBackend(addr, nil)
 	pool.backends[addr] = b1
 
 	// Add an unhealthy connection
@@ -348,7 +348,7 @@ func TestMemcacheBackendConnectionPool_NotifyFailure(t *testing.T) {
 	pool := NewMemcacheBackendConnectionPool(p)
 
 	addr := "127.0.0.1:11211"
-	b1 := &backend.Backend{Address: addr}
+	b1 := backend.NewBackend(addr, nil)
 	p.backends.Add(b1)
 	pool.backends[addr] = b1
 

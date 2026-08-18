@@ -71,7 +71,7 @@ backends_processor "simple_filter" "test" {
 	time.Sleep(2 * time.Millisecond)
 
 	// Test 1: Add passing backend
-	b1 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
+	b1 := backend.NewBackend("127.0.0.1:8080", nil)
 	sub.Wg.Add(1)
 	dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: b1.Address, Backend: b1})
 	waitSub(t, sub, "Add passing backend")
@@ -81,7 +81,7 @@ backends_processor "simple_filter" "test" {
 	}
 
 	// Test 2: Add non-passing backend
-	b2 := &backend.Backend{Address: "127.0.0.1:8081", Meta: backend.NewEmptyMetaMap(0)}
+	b2 := backend.NewBackend("127.0.0.1:8081", nil)
 	dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: b2.Address, Backend: b2})
 
 	// Add a passing one to be sure the previous one was processed
@@ -111,7 +111,7 @@ backends_processor "simple_filter" "test" {
 	dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: b2.Address})
 
 	// Marker update (add passing one then remove it)
-	b3 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
+	b3 := backend.NewBackend("127.0.0.1:8080", nil)
 	sub.Wg.Add(1)
 	dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: b3.Address, Backend: b3})
 	waitSub(t, sub, "Marker add")
@@ -156,7 +156,7 @@ backends_processor "simple_filter" "test" {
 	sub1 := &testutil.DummySubscriber{Wg: sync.WaitGroup{}}
 	filterMod.ProvideUpdates(sub1)
 
-	b := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
+	b := backend.NewBackend("127.0.0.1:8080", nil)
 	sub1.Wg.Add(1)
 	dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: b.Address, Backend: b})
 	waitSub(t, sub1, "Wait for first add")
@@ -204,7 +204,7 @@ backends_processor "simple_filter" "test_meta" {
 	_ = filterMod.Bind(modules)
 
 	// Add backend (matches initially)
-	b := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
+	b := backend.NewBackend("127.0.0.1:8080", nil)
 	b.Meta.Set("test", "active", cty.BoolVal(true))
 
 	sub.Wg.Add(1)
@@ -232,7 +232,7 @@ backends_processor "simple_filter" "test_meta" {
 	dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: bErr.Address, Backend: bErr})
 
 	// Add a separate passing marker backend to be sure the previous one was processed
-	bMarker := &backend.Backend{Address: "127.0.0.1:9999", Meta: backend.NewEmptyMetaMap(0)}
+	bMarker := backend.NewBackend("127.0.0.1:9999", nil)
 	bMarker.Meta.Set("test", "active", cty.BoolVal(true))
 	sub.Wg.Add(1)
 	dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: bMarker.Address, Backend: bMarker})
@@ -243,7 +243,7 @@ backends_processor "simple_filter" "test_meta" {
 	}
 
 	// Real error in condition evaluation: attribute does not exist
-	bErr2 := &backend.Backend{Address: "127.0.0.1:8082", Meta: backend.NewEmptyMetaMap(0)}
+	bErr2 := backend.NewBackend("127.0.0.1:8082", nil)
 	dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: bErr2.Address, Backend: bErr2})
 
 	// Marker update
@@ -363,13 +363,13 @@ backends_processor "simple_filter" "test" {
 	_ = filterMod.Bind(modules)
 
 	// Add 3 backends with different weights
-	b1 := &backend.Backend{Address: "127.0.0.1:8081", Meta: backend.NewEmptyMetaMap(0)}
+	b1 := backend.NewBackend("127.0.0.1:8081", nil)
 	b1.Meta.Set("test", "weight", cty.NumberIntVal(10))
 
-	b2 := &backend.Backend{Address: "127.0.0.1:8082", Meta: backend.NewEmptyMetaMap(0)}
+	b2 := backend.NewBackend("127.0.0.1:8082", nil)
 	b2.Meta.Set("test", "weight", cty.NumberIntVal(20))
 
-	b3 := &backend.Backend{Address: "127.0.0.1:8083", Meta: backend.NewEmptyMetaMap(0)}
+	b3 := backend.NewBackend("127.0.0.1:8083", nil)
 	b3.Meta.Set("test", "weight", cty.NumberIntVal(30))
 
 	sub.Wg.Add(1)
@@ -487,9 +487,9 @@ backends_processor "simple_filter" "test3" {
 
 	t.Run("AddressAsc", func(t *testing.T) {
 		runTest(t, src1, func(dp *testutil.DummyProvider) {
-			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "1.1.1.1", Backend: &backend.Backend{Address: "1.1.1.1", Meta: backend.NewEmptyMetaMap(0)}})
-			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "2.2.2.2", Backend: &backend.Backend{Address: "2.2.2.2", Meta: backend.NewEmptyMetaMap(0)}})
-			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "0.0.0.0", Backend: &backend.Backend{Address: "0.0.0.0", Meta: backend.NewEmptyMetaMap(0)}})
+			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "1.1.1.1", Backend: backend.NewBackend("1.1.1.1", nil)})
+			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "2.2.2.2", Backend: backend.NewBackend("2.2.2.2", nil)})
+			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "0.0.0.0", Backend: backend.NewBackend("0.0.0.0", nil)})
 		}, func(list []*backend.Backend) {
 			if len(list) != 3 || list[0].Address != "0.0.0.0" || list[1].Address != "1.1.1.1" || list[2].Address != "2.2.2.2" {
 				addrs := []string{}
@@ -503,9 +503,9 @@ backends_processor "simple_filter" "test3" {
 
 	t.Run("StringAsc", func(t *testing.T) {
 		runTest(t, src2, func(dp *testutil.DummyProvider) {
-			b1 := &backend.Backend{Address: "a", Meta: backend.NewEmptyMetaMap(0)}
+			b1 := backend.NewBackend("a", nil)
 			b1.Meta.Set("test", "name", cty.StringVal("charlie"))
-			b2 := &backend.Backend{Address: "b", Meta: backend.NewEmptyMetaMap(0)}
+			b2 := backend.NewBackend("b", nil)
 			b2.Meta.Set("test", "name", cty.StringVal("alpha"))
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "a", Backend: b1})
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "b", Backend: b2})
@@ -522,9 +522,9 @@ backends_processor "simple_filter" "test3" {
 
 	t.Run("BoolDesc", func(t *testing.T) {
 		runTest(t, src3, func(dp *testutil.DummyProvider) {
-			b1 := &backend.Backend{Address: "a", Meta: backend.NewEmptyMetaMap(0)}
+			b1 := backend.NewBackend("a", nil)
 			b1.Meta.Set("test", "active", cty.BoolVal(false))
-			b2 := &backend.Backend{Address: "b", Meta: backend.NewEmptyMetaMap(0)}
+			b2 := backend.NewBackend("b", nil)
 			b2.Meta.Set("test", "active", cty.BoolVal(true))
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "a", Backend: b1})
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "b", Backend: b2})
@@ -543,9 +543,9 @@ backends_processor "simple_filter" "test3" {
 	t.Run("TypeMismatch", func(t *testing.T) {
 		// Mixed types for sort_by will trigger the Type() mismatch path
 		runTest(t, src2, func(dp *testutil.DummyProvider) {
-			b1 := &backend.Backend{Address: "a", Meta: backend.NewEmptyMetaMap(0)}
+			b1 := backend.NewBackend("a", nil)
 			b1.Meta.Set("test", "name", cty.StringVal("z"))
-			b2 := &backend.Backend{Address: "b", Meta: backend.NewEmptyMetaMap(0)}
+			b2 := backend.NewBackend("b", nil)
 			b2.Meta.Set("test", "name", cty.NumberIntVal(1))
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "a", Backend: b1})
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "b", Backend: b2})
@@ -566,11 +566,11 @@ backends_processor "simple_filter" "test_num" {
 }
 `
 		runTest(t, srcNum, func(dp *testutil.DummyProvider) {
-			b1 := &backend.Backend{Address: "a", Meta: backend.NewEmptyMetaMap(0)}
+			b1 := backend.NewBackend("a", nil)
 			b1.Meta.Set("test", "val", cty.NumberIntVal(100))
-			b2 := &backend.Backend{Address: "b", Meta: backend.NewEmptyMetaMap(0)}
+			b2 := backend.NewBackend("b", nil)
 			b2.Meta.Set("test", "val", cty.NumberIntVal(50))
-			b3 := &backend.Backend{Address: "c", Meta: backend.NewEmptyMetaMap(0)}
+			b3 := backend.NewBackend("c", nil)
 			b3.Meta.Set("test", "val", cty.NumberIntVal(50))
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "a", Backend: b1})
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "b", Backend: b2})
@@ -591,9 +591,9 @@ backends_processor "simple_filter" "test_other" {
 }
 `
 		runTest(t, srcOther, func(dp *testutil.DummyProvider) {
-			b1 := &backend.Backend{Address: "a", Meta: backend.NewEmptyMetaMap(0)}
+			b1 := backend.NewBackend("a", nil)
 			b1.Meta.Set("test", "val", cty.ListVal([]cty.Value{cty.True}))
-			b2 := &backend.Backend{Address: "b", Meta: backend.NewEmptyMetaMap(0)}
+			b2 := backend.NewBackend("b", nil)
 			b2.Meta.Set("test", "val", cty.ListVal([]cty.Value{cty.False}))
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "a", Backend: b1})
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "b", Backend: b2})

@@ -68,7 +68,7 @@ func TestRedisProxyMultiplexing(t *testing.T) {
 	wg := &sync.WaitGroup{}
 
 	reg := backend.NewRegistry(zerolog.Nop(), false)
-	reg.Add(&backend.Backend{Address: backendAddr})
+	reg.Add(backend.NewBackend(backendAddr, nil))
 
 	p := &RedisProxy{
 		id:                  "test-proxy",

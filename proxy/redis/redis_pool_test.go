@@ -62,7 +62,7 @@ func TestPool_GetPut(t *testing.T) {
 	pool := NewRedisBackendConnectionPool(proxy)
 
 	// Add backend
-	proxy.backends.Add(&backend.Backend{Address: addr})
+	proxy.backends.Add(backend.NewBackend(addr, nil))
 
 	// Get connection
 	rbc, err := pool.Get(context.Background())
@@ -134,7 +134,7 @@ func TestPool_CleanupIdle(t *testing.T) {
 	rbc := &RedisBackendConnection{
 		lastUsed: time.Now().Add(-1 * time.Hour),
 		cancel:   cancel,
-		backend:  &backend.Backend{Address: "127.0.0.1:6379"},
+		backend:  backend.NewBackend("127.0.0.1:6379", nil),
 	}
 	pool.pool = append(pool.pool, rbc)
 
@@ -171,7 +171,7 @@ func TestPool_UpdatePreconnect(t *testing.T) {
 	proxy.beMetricsCache = make(map[string]*Metrics)
 
 	pool := NewRedisBackendConnectionPool(proxy)
-	proxy.backends.Add(&backend.Backend{Address: addr})
+	proxy.backends.Add(backend.NewBackend(addr, nil))
 
 	pool.Update()
 	// Preconnect should have added 2 connections
@@ -215,7 +215,7 @@ func TestConnection_HealthcheckFail(t *testing.T) {
 	defer proxy.cancel()
 
 	pool := &RedisBackendConnectionPool{proxy: proxy, ctx: proxy.ctx}
-	rbc, err := NewRedisBackendConnection(pool, &backend.Backend{Address: addr})
+	rbc, err := NewRedisBackendConnection(pool, backend.NewBackend(addr, nil))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestConnection_ResetAndRelease(t *testing.T) {
 		ctx:   proxy.ctx,
 		pool:  make([]*RedisBackendConnection, 0),
 	}
-	be := &backend.Backend{Address: addr}
+	be := backend.NewBackend(addr, nil)
 	proxy.backends.Add(be)
 	rbc, err := NewRedisBackendConnection(pool, be)
 	if err != nil {
@@ -326,7 +326,7 @@ func TestPool_GetStaleConnection(t *testing.T) {
 	cancel() // Make it stale
 	rbc := &RedisBackendConnection{
 		ctx:     ctx,
-		backend: &backend.Backend{Address: "127.0.0.1:6379"},
+		backend: backend.NewBackend("127.0.0.1:6379", nil),
 	}
 	pool.pool = append(pool.pool, rbc)
 
@@ -336,7 +336,7 @@ func TestPool_GetStaleConnection(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	defer ln.Close()
-	proxy.backends.Add(&backend.Backend{Address: ln.Addr().String()})
+	proxy.backends.Add(backend.NewBackend(ln.Addr().String(), nil))
 	proxy.beMetricsCache = make(map[string]*Metrics)
 
 	// Get should skip the stale one and create a new one

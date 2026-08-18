@@ -38,8 +38,8 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 	})
 
 	t.Run("Put and Get (LIFO)", func(t *testing.T) {
-		rbc1 := &RedisBackendConnection{pool: pool, backend: &backend.Backend{Address: "1"}, lastUsed: time.Now(), ctx: ctx}
-		rbc2 := &RedisBackendConnection{pool: pool, backend: &backend.Backend{Address: "2"}, lastUsed: time.Now(), ctx: ctx}
+		rbc1 := &RedisBackendConnection{pool: pool, backend: backend.NewBackend("1", nil), lastUsed: time.Now(), ctx: ctx}
+		rbc2 := &RedisBackendConnection{pool: pool, backend: backend.NewBackend("2", nil), lastUsed: time.Now(), ctx: ctx}
 
 		p.backends.Add(rbc1.backend)
 		p.backends.Add(rbc2.backend)
@@ -69,7 +69,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 	t.Run("Idle Cleanup", func(t *testing.T) {
 		rbc := &RedisBackendConnection{
 			pool:     pool,
-			backend:  &backend.Backend{Address: "127.0.0.1:6379"},
+			backend:  backend.NewBackend("127.0.0.1:6379", nil),
 			lastUsed: time.Now().Add(-1 * time.Hour),
 		}
 		rbc.ctx, rbc.cancel = context.WithCancel(ctx)
@@ -95,7 +95,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 		// So we might just test the filtering logic
 		rbc := &RedisBackendConnection{
 			pool:    pool,
-			backend: &backend.Backend{Address: "127.0.0.1:6379"},
+			backend: backend.NewBackend("127.0.0.1:6379", nil),
 			ctx:     ctx,
 		}
 		p.backends.Add(rbc.backend)
@@ -118,7 +118,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 		}
 		defer func() { _ = ln.Close() }()
 
-		p.backends.Add(&backend.Backend{Address: ln.Addr().String()})
+		p.backends.Add(backend.NewBackend(ln.Addr().String(), nil))
 		p.preconnect = 2
 
 		pool.Update()
@@ -175,7 +175,7 @@ func TestRedisBackendConnectionPool(t *testing.T) {
 
 		// Wait 100ms then add backend
 		time.Sleep(100 * time.Millisecond)
-		reg.Add(&backend.Backend{Address: ln.Addr().String()})
+		reg.Add(backend.NewBackend(ln.Addr().String(), nil))
 
 		select {
 		case <-done:

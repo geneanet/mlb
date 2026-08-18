@@ -15,10 +15,7 @@ import (
 // TestBackend_Clone tests the deep copy functionality of the Backend structure.
 // It ensures that modifications to a cloned backend do not propagate to the original.
 func TestBackend_Clone(t *testing.T) {
-	b1 := &Backend{
-		Address: "127.0.0.1:8080",
-		Meta:    NewEmptyMetaMap(0),
-	}
+	b1 := NewBackend("127.0.0.1:8080", nil)
 	b1.Meta.Set("test", "foo", cty.StringVal("bar"))
 
 	b2 := b1.Clone()
@@ -45,9 +42,9 @@ func TestBackend_Clone(t *testing.T) {
 // TestBackend_Equal tests the equality logic for Backend objects.
 // It verifies comparison by address and metadata.
 func TestBackend_Equal(t *testing.T) {
-	b1 := &Backend{Address: "127.0.0.1", Meta: NewEmptyMetaMap(0)}
-	b2 := &Backend{Address: "127.0.0.1", Meta: NewEmptyMetaMap(0)}
-	b3 := &Backend{Address: "127.0.0.2", Meta: NewEmptyMetaMap(0)}
+	b1 := NewBackend("127.0.0.1", nil)
+	b2 := NewBackend("127.0.0.1", nil)
+	b3 := NewBackend("127.0.0.2", nil)
 
 	if !b1.Equal(b2) {
 		t.Errorf("expected b1 to equal b2")
@@ -61,10 +58,7 @@ func TestBackend_Equal(t *testing.T) {
 // It covers simple attribute access, nested metadata access, evaluation with custom contexts,
 // and error handling for unknown values or type mismatches.
 func TestBackend_ResolveExpression(t *testing.T) {
-	b := &Backend{
-		Address: "127.0.0.1:8080",
-		Meta:    NewEmptyMetaMap(0),
-	}
+	b := NewBackend("127.0.0.1:8080", nil)
 	b.Meta.Set("custom", "weight", cty.NumberIntVal(10))
 
 	// Test: Simple expression referencing backend.address
@@ -146,8 +140,8 @@ func TestRegistry_BasicOperations(t *testing.T) {
 		t.Errorf("expected empty map to have size 0, got %d", len(bm.GetList()))
 	}
 
-	b1 := &Backend{Address: "10.0.0.1", Meta: NewEmptyMetaMap(0)}
-	b2 := &Backend{Address: "10.0.0.2", Meta: NewEmptyMetaMap(0)}
+	b1 := NewBackend("10.0.0.1", nil)
+	b2 := NewBackend("10.0.0.2", nil)
 
 	// Test Add and Size
 	bm.Add(b1)
@@ -189,8 +183,8 @@ func TestRegistry_BasicOperations(t *testing.T) {
 // It verifies that GetList returns all backends and GetSortedList returns them sorted by address.
 func TestRegistry_Lists(t *testing.T) {
 	bm := NewRegistry(zerolog.Nop(), false)
-	b1 := &Backend{Address: "10.0.0.2", Meta: NewEmptyMetaMap(0)}
-	b2 := &Backend{Address: "10.0.0.1", Meta: NewEmptyMetaMap(0)}
+	b1 := NewBackend("10.0.0.2", nil)
+	b2 := NewBackend("10.0.0.1", nil)
 
 	bm.Add(b1)
 	bm.Add(b2)
@@ -209,13 +203,13 @@ func TestRegistry_Update(t *testing.T) {
 
 	m1 := NewEmptyMetaMap(0)
 	m1.Set("b1", "k1", cty.StringVal("v1"))
-	b1 := &Backend{Address: "10.0.0.1", Meta: m1}
+	b1 := NewBackend("10.0.0.1", m1)
 	bm.Add(b1)
 
 	m2 := NewEmptyMetaMap(0)
 	m2.Set("b1", "k1", cty.StringVal("new_v1"))
 	m2.Set("b2", "k2", cty.StringVal("v2"))
-	b2 := &Backend{Address: "10.0.0.1", Meta: m2}
+	b2 := NewBackend("10.0.0.1", m2)
 
 	// Update existing backend 10.0.0.1 while preserving bucket "b1"
 	bm.Update(b2, "b1")
@@ -229,7 +223,7 @@ func TestRegistry_Update(t *testing.T) {
 	}
 
 	// Test updating a non-existent backend adds it to the map
-	b3 := &Backend{Address: "10.0.0.2", Meta: NewEmptyMetaMap(0)}
+	b3 := NewBackend("10.0.0.2", nil)
 	bm.Update(b3)
 	if !bm.Has("10.0.0.2") {
 		t.Errorf("expected b3 to be added via Update")
@@ -250,7 +244,7 @@ func (s *testSubscriber) ReceiveUpdate(u BackendUpdate) {
 // TestRegistry_PublishSubscribe tests the Observer pattern implementation in Registry.
 func TestRegistry_PublishSubscribe(t *testing.T) {
 	reg := NewRegistry(zerolog.Nop(), false)
-	b1 := &Backend{Address: "10.0.0.1", Meta: NewEmptyMetaMap(0)}
+	b1 := NewBackend("10.0.0.1", nil)
 	reg.Add(b1)
 
 	sub := &testSubscriber{}
@@ -305,7 +299,7 @@ func TestRegistry_Wait(t *testing.T) {
 	}()
 
 	time.Sleep(20 * time.Millisecond) // Ensure Wait is blocking
-	reg.Add(&Backend{Address: "127.0.0.1", Meta: NewEmptyMetaMap(0)})
+	reg.Add(NewBackend("127.0.0.1", nil))
 
 	select {
 	case err := <-unblockChan:

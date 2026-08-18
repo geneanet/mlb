@@ -36,8 +36,8 @@ func TestWLCBalancer_LeastConnections(t *testing.T) {
 	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 	provider.ProvideUpdates(balancer)
 
-	beA := &backend.Backend{Address: "A", Meta: backend.NewEmptyMetaMap(0)}
-	beB := &backend.Backend{Address: "B", Meta: backend.NewEmptyMetaMap(0)}
+	beA := backend.NewBackend("A", nil)
+	beB := backend.NewBackend("B", nil)
 
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "A", Backend: beA})
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "B", Backend: beB})
@@ -109,9 +109,9 @@ func TestWLCBalancer_WeightedLeastConnections(t *testing.T) {
 	provider.ProvideUpdates(balancer)
 
 	// A: weight 2, B: weight 1
-	beA := &backend.Backend{Address: "A", Meta: backend.NewEmptyMetaMap(0)}
+	beA := backend.NewBackend("A", nil)
 	beA.Meta.Set("wlc", "weight", cty.NumberIntVal(2))
-	beB := &backend.Backend{Address: "B", Meta: backend.NewEmptyMetaMap(0)}
+	beB := backend.NewBackend("B", nil)
 	beB.Meta.Set("wlc", "weight", cty.NumberIntVal(1))
 
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "A", Backend: beA})
@@ -171,11 +171,11 @@ func TestWLCBalancer_ZeroWeightExclusion(t *testing.T) {
 	provider.ProvideUpdates(balancer)
 
 	// A: weight 1, B: weight 0, C: weight -1
-	beA := &backend.Backend{Address: "A", Meta: backend.NewEmptyMetaMap(0)}
+	beA := backend.NewBackend("A", nil)
 	beA.Meta.Set("wlc", "weight", cty.NumberIntVal(1))
-	beB := &backend.Backend{Address: "B", Meta: backend.NewEmptyMetaMap(0)}
+	beB := backend.NewBackend("B", nil)
 	beB.Meta.Set("wlc", "weight", cty.NumberIntVal(0))
-	beC := &backend.Backend{Address: "C", Meta: backend.NewEmptyMetaMap(0)}
+	beC := backend.NewBackend("C", nil)
 	beC.Meta.Set("wlc", "weight", cty.NumberIntVal(-1))
 
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "A", Backend: beA})
@@ -254,7 +254,7 @@ func TestWLCBalancer_WaitBackend(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	backend1 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
+	backend1 := backend.NewBackend("127.0.0.1:8080", nil)
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend1.Address, Backend: backend1})
 
 	select {

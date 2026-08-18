@@ -153,10 +153,7 @@ backends_processor "redis" "test" {
 	_ = redisChecker.Bind(modules)
 
 	// Add backend
-	b := &backend.Backend{
-		Address: redisAddr,
-		Meta:    backend.NewEmptyMetaMap(0),
-	}
+	b := backend.NewBackend(redisAddr, nil)
 
 	dp.Backends.MarkReady()
 	dp.SendUpdate(backend.BackendUpdate{
@@ -367,10 +364,7 @@ func (m *mockRedisClient) Close() error {
 }
 
 func TestRedisCheck_UpdateStatus(t *testing.T) {
-	b := &backend.Backend{
-		Address: "127.0.0.1:6379",
-		Meta:    backend.NewEmptyMetaMap(0),
-	}
+	b := backend.NewBackend("127.0.0.1:6379", nil)
 	statusChan := make(chan *backend.Backend, 1)
 	check := NewRedisCheck(b, "", time.Second, 5*time.Second, 1.5, 100*time.Millisecond, time.Second, 1.5, 3, time.Second, time.Second, time.Second, statusChan)
 	check.ctx = context.Background()

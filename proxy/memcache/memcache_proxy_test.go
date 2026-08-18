@@ -287,8 +287,8 @@ func (m *mockUpdateProvider) Ready() <-chan struct{} {
 
 func TestMemcacheHashRing(t *testing.T) {
 	ring := newMemcacheHashRing()
-	b1 := &backend.Backend{Address: "127.0.0.1:11211"}
-	b2 := &backend.Backend{Address: "127.0.0.1:11212"}
+	b1 := backend.NewBackend("127.0.0.1:11211", nil)
+	b2 := backend.NewBackend("127.0.0.1:11212", nil)
 
 	ring.update([]*backend.Backend{b1, b2})
 
@@ -315,8 +315,8 @@ func TestMemcacheProxyScatterGather(t *testing.T) {
 	go dummyMemcacheServer(b1L, "v1")
 	go dummyMemcacheServer(b2L, "v2")
 
-	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}
-	b2 := &backend.Backend{Address: b2L.Addr().String(), Meta: backend.NewMetaMap(nil)}
+	b1 := backend.NewBackend(b1L.Addr().String(), nil)
+	b2 := backend.NewBackend(b2L.Addr().String(), nil)
 
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -542,7 +542,7 @@ func TestMemcacheProxyProtocol(t *testing.T) {
 
 	go dummyMemcacheServer(b1L, "v1")
 
-	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}
+	b1 := backend.NewBackend(b1L.Addr().String(), nil)
 
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -754,7 +754,7 @@ func TestMemcacheProxy_ForwardSingle_Errors(t *testing.T) {
 	}
 
 	// Test Backend Failure (Connection Pool returns nil)
-	b1 := &backend.Backend{Address: "127.0.0.1:1234", Meta: backend.NewMetaMap(nil)}
+	b1 := backend.NewBackend("127.0.0.1:1234", nil)
 	proxy.backends.Add(b1)
 	proxy.ring.update(proxy.backends.GetList())
 
@@ -839,7 +839,7 @@ func TestMemcachePipelining(t *testing.T) {
 		},
 		readyChan: make(chan struct{}),
 	}
-	p.backends.Add(&backend.Backend{Address: backendAddr})
+	p.backends.Add(backend.NewBackend(backendAddr, nil))
 	p.ring.update(p.backends.GetList())
 	p.backendConnectionPool = NewMemcacheBackendConnectionPool(p)
 	p.backendConnectionPool.Update()
@@ -904,7 +904,7 @@ func TestMemcacheProxyMetaProtocol(t *testing.T) {
 	defer b1L.Close()
 	go dummyMemcacheServer(b1L, "v1")
 
-	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}
+	b1 := backend.NewBackend(b1L.Addr().String(), nil)
 
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1024,7 +1024,7 @@ func TestMemcacheProxyMetaProtocolExpanded(t *testing.T) {
 		}
 	}()
 
-	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}
+	b1 := backend.NewBackend(b1L.Addr().String(), nil)
 
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1127,7 +1127,7 @@ func TestMemcacheProxyFlushOnConnectFunctional(t *testing.T) {
 		}
 	}()
 
-	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}
+	b1 := backend.NewBackend(b1L.Addr().String(), nil)
 
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1218,8 +1218,8 @@ func TestMemcacheProxyRandomization(t *testing.T) {
 	go handler(b1L, "b1")
 	go handler(b2L, "b2")
 
-	b1 := &backend.Backend{Address: b1L.Addr().String(), Meta: backend.NewMetaMap(nil)}
-	b2 := &backend.Backend{Address: b2L.Addr().String(), Meta: backend.NewMetaMap(nil)}
+	b1 := backend.NewBackend(b1L.Addr().String(), nil)
+	b2 := backend.NewBackend(b2L.Addr().String(), nil)
 
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1389,7 +1389,7 @@ func TestMemcachePhantomResponse(t *testing.T) {
 		},
 		readyChan: make(chan struct{}),
 	}
-	p.backends.Add(&backend.Backend{Address: backendAddr})
+	p.backends.Add(backend.NewBackend(backendAddr, nil))
 	p.ring.update(p.backends.GetList())
 	p.backendConnectionPool = NewMemcacheBackendConnectionPool(p)
 	p.backendConnectionPool.Update()

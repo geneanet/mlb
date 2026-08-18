@@ -200,7 +200,7 @@ func TestMySQL(t *testing.T) {
 	// Test Ready functionality: should be ready after dp is ready and first check is done
 	dp.Backends.MarkReady()
 	// Add backend
-	b := &backend.Backend{Address: "127.0.0.1:3306", Meta: backend.NewEmptyMetaMap(0)}
+	b := backend.NewBackend("127.0.0.1:3306", nil)
 	mysqlChecker.ReceiveUpdate(backend.BackendUpdate{
 		Kind:    backend.UpdBackendAdded,
 		Address: "127.0.0.1:3306",
@@ -322,7 +322,7 @@ func TestMySQL_Coverage(t *testing.T) {
 	mysqlChecker := mod.(*MySQLChecker)
 
 	// 2. Add an item directly to cover loop execution in GetBackendList, ProvideUpdates, and stopChecks
-	b := &backend.Backend{Address: "127.0.0.1:3307", Meta: backend.NewEmptyMetaMap(0)}
+	b := backend.NewBackend("127.0.0.1:3307", nil)
 	statusChan := make(chan *backend.Backend, 100)
 	// Drain status channel asynchronously to prevent deadlocks during the test
 	go func() {
@@ -406,7 +406,7 @@ func TestMySQL_Coverage(t *testing.T) {
 	mysqlChecker.ReceiveUpdate(backend.BackendUpdate{
 		Kind:    backend.UpdBackendAdded,
 		Address: "error_address",
-		Backend: &backend.Backend{Address: "error_address", Meta: backend.NewEmptyMetaMap(0)},
+		Backend: backend.NewBackend("error_address", nil),
 	})
 	// Small sleep to ensure the goroutine picks up the update while mysqlDriverName is still invalid.
 	time.Sleep(20 * time.Millisecond)

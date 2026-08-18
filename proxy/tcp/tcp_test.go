@@ -34,9 +34,7 @@ func (m *mockBackendProvider) GetBackend(wait bool) (*backend.Backend, func()) {
 	if m.returnNil {
 		return nil, func() {}
 	}
-	return &backend.Backend{
-		Address: m.backendAddress,
-	}, func() {}
+	return backend.NewBackend(m.backendAddress, nil), func() {}
 }
 
 func (m *mockBackendProvider) setReturnNil(v bool) {
@@ -850,11 +848,9 @@ func TestTCPProxy_CloseOnBackendRemoval(t *testing.T) {
 	}
 
 	beCtx, beCancel := context.WithCancel(context.Background())
-	testBe := &backend.Backend{
-		Address: backendServer.Addr().String(),
-		Ctx:     beCtx,
-		Cancel:  beCancel,
-	}
+	testBe := backend.NewBackend(backendServer.Addr().String(), nil)
+	testBe.Ctx = beCtx
+	testBe.Cancel = beCancel
 
 	provider := &customBackendProvider{id: "test_backend", be: testBe}
 	modules := make(module.ModulesRegistry)

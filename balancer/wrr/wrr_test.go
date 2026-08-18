@@ -111,7 +111,7 @@ func TestWRRBalancer_WaitBackend(t *testing.T) {
 	// We use a small sleep here because there is no exported state to poll for "being blocked".
 	time.Sleep(20 * time.Millisecond)
 
-	backend1 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
+	backend1 := backend.NewBackend("127.0.0.1:8080", nil)
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend1.Address, Backend: backend1})
 
 	select {
@@ -173,7 +173,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	}
 
 	// Add a backend and verify it can be retrieved
-	backend1 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
+	backend1 := backend.NewBackend("127.0.0.1:8080", nil)
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend1.Address, Backend: backend1})
 
 	testutil.Eventually(t, func() bool {
@@ -211,7 +211,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	}, 1*time.Second, 10*time.Millisecond)
 
 	// Add backend2 - despite active evaluation error, it should still be tracked
-	backend2 := &backend.Backend{Address: "127.0.0.1:8081", Meta: backend.NewEmptyMetaMap(0)}
+	backend2 := backend.NewBackend("127.0.0.1:8081", nil)
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend2.Address, Backend: backend2})
 
 	testutil.Eventually(t, func() bool {
@@ -227,7 +227,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 
 	// Restore var_weight and add a final backend to verify recovery
 	evalCtx.Variables["var_weight"] = cty.NumberIntVal(2)
-	backend3 := &backend.Backend{Address: "127.0.0.1:8082", Meta: backend.NewEmptyMetaMap(0)}
+	backend3 := backend.NewBackend("127.0.0.1:8082", nil)
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend3.Address, Backend: backend3})
 
 	testutil.Eventually(t, func() bool {
@@ -360,7 +360,7 @@ func TestWRRBalancer_ContextCancellation(t *testing.T) {
 	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 	provider.ProvideUpdates(balancer)
 
-	backend1 := &backend.Backend{Address: "127.0.0.1:8080", Meta: backend.NewEmptyMetaMap(0)}
+	backend1 := backend.NewBackend("127.0.0.1:8080", nil)
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend1.Address, Backend: backend1})
 
 	var retrievedBackend *backend.Backend
@@ -420,11 +420,11 @@ func TestWRRBalancer_SmoothDistribution(t *testing.T) {
 
 	// Add 3 backends with weights: A=5, B=1, C=1
 	// Total weight = 7
-	beA := &backend.Backend{Address: "A", Meta: backend.NewEmptyMetaMap(0)}
+	beA := backend.NewBackend("A", nil)
 	beA.Meta.Set("wrr", "weight", cty.NumberIntVal(5))
-	beB := &backend.Backend{Address: "B", Meta: backend.NewEmptyMetaMap(0)}
+	beB := backend.NewBackend("B", nil)
 	beB.Meta.Set("wrr", "weight", cty.NumberIntVal(1))
-	beC := &backend.Backend{Address: "C", Meta: backend.NewEmptyMetaMap(0)}
+	beC := backend.NewBackend("C", nil)
 	beC.Meta.Set("wrr", "weight", cty.NumberIntVal(1))
 
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "A", Backend: beA})

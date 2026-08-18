@@ -170,7 +170,7 @@ func TestRedisProxy_BindAndReceiveUpdate(t *testing.T) {
 	}
 
 	// Test ReceiveUpdate
-	be := &backend.Backend{Address: "127.0.0.1:6379", Meta: backend.NewEmptyMetaMap(0)}
+	be := backend.NewBackend("127.0.0.1:6379", nil)
 	rp.ReceiveUpdate(backend.BackendUpdate{
 		Kind:    backend.UpdBackendAdded,
 		Backend: be,
@@ -308,12 +308,9 @@ func TestRedisProxy_CloseOnBackendRemoval(t *testing.T) {
 
 	// 3. Add backend
 	beCtx, beCancel := context.WithCancel(context.Background())
-	be := &backend.Backend{
-		Address: lnBackend.Addr().String(),
-		Meta:    backend.NewEmptyMetaMap(0),
-		Ctx:     beCtx,
-		Cancel:  beCancel,
-	}
+	be := backend.NewBackend(lnBackend.Addr().String(), nil)
+	be.Ctx = beCtx
+	be.Cancel = beCancel
 	rp.ReceiveUpdate(backend.BackendUpdate{
 		Kind:    backend.UpdBackendAdded,
 		Backend: be,
@@ -442,12 +439,9 @@ func TestRedisProxy_NotCloseOnBackendRemoval(t *testing.T) {
 
 	// 3. Add backend
 	beCtx, beCancel := context.WithCancel(context.Background())
-	be := &backend.Backend{
-		Address: lnBackend.Addr().String(),
-		Meta:    backend.NewEmptyMetaMap(0),
-		Ctx:     beCtx,
-		Cancel:  beCancel,
-	}
+	be := backend.NewBackend(lnBackend.Addr().String(), nil)
+	be.Ctx = beCtx
+	be.Cancel = beCancel
 	rp.ReceiveUpdate(backend.BackendUpdate{
 		Kind:    backend.UpdBackendAdded,
 		Backend: be,
@@ -571,11 +565,7 @@ func TestRedisProxy_CloseOnBackendRemoval_NoBalancer(t *testing.T) {
 	}()
 
 	// 3. Add backend WITHOUT context
-	be := &backend.Backend{
-		Address: lnBackend.Addr().String(),
-		Meta:    backend.NewEmptyMetaMap(0),
-		// Ctx and Cancel are nil
-	}
+	be := backend.NewBackend(lnBackend.Addr().String(), nil)
 	rp.ReceiveUpdate(backend.BackendUpdate{
 		Kind:    backend.UpdBackendAdded,
 		Backend: be,
