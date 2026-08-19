@@ -221,7 +221,7 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 				switch upd.Kind {
 				case backend.UpdBackendAdded:
 					if p.flushBackendWhenAdded {
-						p.flushBackend(upd.Backend)
+						go p.flushBackend(upd.Backend)
 					}
 					p.backends.Add(upd.Backend.Clone())
 				case backend.UpdBackendModified:
