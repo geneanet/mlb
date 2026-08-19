@@ -91,20 +91,16 @@ func (mbcp *MemcacheBackendConnectionPool) Get(address string) *MemcacheBackendC
 		mbc, err := NewMemcacheBackendConnection(mbcp, backend)
 		if err != nil {
 			// Failed to open a new one, fallback to round-robin on existing (even if full or unhealthy)
-			mbcp.mutex.Lock()
-			pool = mbcp.pools[address]
-			if len(pool) == 0 {
-				mbcp.mutex.Unlock()
-				return nil
-			}
-			idx := mbcp.indices[address] % uint64(len(pool))
-			mbc = pool[idx]
-			mbcp.indices[address] = idx + 1
-			mbcp.mutex.Unlock()
-			return mbc
+			return mbcp.fallbackGet(address)
 		}
 
 		mbcp.mutex.Lock()
+		// ponytail: re-check limit under lock to avoid race during burst growth
+		if len(mbcp.pools[address]) >= mbcp.proxy.backendMaxConnections {
+			mbcp.mutex.Unlock()
+			mbc.cancel()
+			return mbcp.fallbackGet(address)
+		}
 		mbcp.pools[address] = append(mbcp.pools[address], mbc)
 		mbcp.indices[address] = uint64(len(mbcp.pools[address])) // point to next after new one
 		mbcp.mutex.Unlock()
@@ -112,12 +108,25 @@ func (mbcp *MemcacheBackendConnectionPool) Get(address string) *MemcacheBackendC
 	}
 
 	// 3. Already at max connections and all are full or unhealthy. Fallback to round-robin on healthy ones if possible.
+	mbcp.mutex.Unlock()
+	return mbcp.fallbackGet(address)
+}
+
+func (mbcp *MemcacheBackendConnectionPool) fallbackGet(address string) *MemcacheBackendConnection {
+	mbcp.mutex.Lock()
+	defer mbcp.mutex.Unlock()
+
+	pool := mbcp.pools[address]
+	if len(pool) == 0 {
+		return nil
+	}
+
+	startIdx := mbcp.indices[address] % uint64(len(pool))
 	for i := 0; i < len(pool); i++ {
 		idx := (startIdx + uint64(i)) % uint64(len(pool))
 		mbc := pool[idx]
 		if mbc.ctx.Err() == nil {
 			mbcp.indices[address] = idx + 1
-			mbcp.mutex.Unlock()
 			return mbc
 		}
 	}
@@ -125,7 +134,6 @@ func (mbcp *MemcacheBackendConnectionPool) Get(address string) *MemcacheBackendC
 	idx := mbcp.indices[address] % uint64(len(pool))
 	mbc := pool[idx]
 	mbcp.indices[address] = idx + 1
-	mbcp.mutex.Unlock()
 	return mbc
 }
 
