@@ -72,8 +72,9 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 		Timeout:   mbc.pool.proxy.connectTimeout,
 		KeepAlive: mbc.pool.proxy.backendTCPKeepAlive,
 	}
-	connBack, err := dialer.DialContext(mbc.ctx, "tcp", mbc.backend.Address)
+	connBack, err := dialer.DialContext(pool.ctx, "tcp", mbc.backend.Address)
 	if err != nil {
+		mbc.cancel()
 		return nil, err
 	}
 

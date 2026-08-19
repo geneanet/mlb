@@ -52,6 +52,7 @@ func NewMemcacheBackendConnectionPool(proxy *MemcacheProxy) *MemcacheBackendConn
 				mbcp.Del(failure.mbc)
 				go mbcp.Update()
 			case <-mbcp.ctx.Done():
+				mbcp.cleanupAll()
 				return
 			}
 		}
@@ -60,8 +61,25 @@ func NewMemcacheBackendConnectionPool(proxy *MemcacheProxy) *MemcacheBackendConn
 	return mbcp
 }
 
+// cleanupAll forcibly closes all backend connections when the proxy is shutting down.
+func (mbcp *MemcacheBackendConnectionPool) cleanupAll() {
+	mbcp.mutex.Lock()
+	defer mbcp.mutex.Unlock()
+	for _, pool := range mbcp.pools {
+		for _, mbc := range pool {
+			if mbc != nil && mbc.cancel != nil {
+				mbc.cancel()
+			}
+		}
+	}
+	mbcp.pools = nil
+}
+
 // Get returns an available connection from the pool for the given address using round-robin.
 func (mbcp *MemcacheBackendConnectionPool) Get(address string) *MemcacheBackendConnection {
+	if mbcp.ctx.Err() != nil {
+		return nil
+	}
 	mbcp.mutex.Lock()
 
 	pool := mbcp.pools[address]
@@ -113,6 +131,9 @@ func (mbcp *MemcacheBackendConnectionPool) Get(address string) *MemcacheBackendC
 }
 
 func (mbcp *MemcacheBackendConnectionPool) fallbackGet(address string) *MemcacheBackendConnection {
+	if mbcp.ctx.Err() != nil {
+		return nil
+	}
 	mbcp.mutex.Lock()
 	defer mbcp.mutex.Unlock()
 
@@ -153,12 +174,18 @@ func (mbcp *MemcacheBackendConnectionPool) Del(mbc *MemcacheBackendConnection) {
 
 // NotifyFailure is called by a connection when it encounters a fatal error.
 func (mbcp *MemcacheBackendConnectionPool) NotifyFailure(mbc *MemcacheBackendConnection, err error, hadInFlight bool) {
-	mbcp.chanFailure <- MemcacheBackendConnectionFailure{mbc: mbc, err: err, hadInFlight: hadInFlight}
+	select {
+	case mbcp.chanFailure <- MemcacheBackendConnectionFailure{mbc: mbc, err: err, hadInFlight: hadInFlight}:
+	case <-mbcp.ctx.Done():
+	}
 }
 
 // Update reconciles the current connection pools with the latest backend list.
 // It closes connections to removed backends and opens new ones to reach the desired pool size.
 func (mbcp *MemcacheBackendConnectionPool) Update() {
+	if mbcp.ctx.Err() != nil {
+		return
+	}
 	mbcp.updateMutex.Lock()
 	defer mbcp.updateMutex.Unlock()
 
@@ -195,6 +222,9 @@ func (mbcp *MemcacheBackendConnectionPool) Update() {
 			backoff := misc.NewExponentialBackoff(100*time.Millisecond, 1*time.Second, 1.5)
 			tries := 0
 			for tries < 3 {
+				if mbcp.ctx.Err() != nil {
+					return
+				}
 				mbcp.mutex.Lock()
 				poolLen := len(mbcp.pools[b.Address])
 				mbcp.mutex.Unlock()
