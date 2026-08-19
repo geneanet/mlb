@@ -536,7 +536,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 					fields[len(fields)-1][i] = ' '
 				}
 			}
-		} else if bytes.Equal(cmd, []byte("ms")) || bytes.Equal(cmd, []byte("md")) || bytes.Equal(cmd, []byte("ma")) || bytes.Equal(cmd, []byte("me")) {
+		} else if bytes.Equal(cmd, []byte("ms")) || bytes.Equal(cmd, []byte("md")) || bytes.Equal(cmd, []byte("ma")) || bytes.Equal(cmd, []byte("me")) || bytes.Equal(cmd, []byte("mg")) {
 			for i := 2; i < len(fields); i++ {
 				if bytes.Equal(fields[i], []byte("q")) {
 					isNoReply = true
