@@ -206,18 +206,23 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 			}
 			mbc.metrics.bytesIn.Add(float64(respBuffer.Len()))
 
-			// ponytail: pass buffer ownership to avoid bytes.Clone
-			err = q.ReplyWithBuffer(respBuffer.Bytes(), respBuffer)
-			if err != nil {
-				if err.Error() == "response channel is closed" {
-					mbc.pool.proxy.log.Debug().Uint64("queryId", q.id).Msg("Unable to reply to client: response channel is closed")
-				} else {
-					mbc.pool.proxy.log.Warn().Uint64("queryId", q.id).Err(err).Msg("Unable to reply to client")
-				}
-			}
-
+			// ponytail: pass buffer ownership to avoid bytes.Clone.
+			// Protect ReplyWithBuffer with inFlightMu to avoid race with AbortInflightQueries.
 			mbc.inFlightMu.Lock()
-			mbc.currentQuery = nil
+			if mbc.currentQuery != nil {
+				err = q.ReplyWithBuffer(respBuffer.Bytes(), respBuffer)
+				if err != nil {
+					if err.Error() == "response channel is closed" {
+						mbc.pool.proxy.log.Debug().Uint64("queryId", q.id).Msg("Unable to reply to client: response channel is closed")
+					} else {
+						mbc.pool.proxy.log.Warn().Uint64("queryId", q.id).Err(err).Msg("Unable to reply to client")
+					}
+				}
+				mbc.currentQuery = nil
+			} else {
+				// Already aborted by AbortInflightQueries
+				ReleaseBuffer(respBuffer)
+			}
 			mbc.inFlightMu.Unlock()
 		}
 	}()
