@@ -750,7 +750,8 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 	for _, k := range keys {
 		b := p.ring.getBackend(k)
 		if b != nil {
-			groups[b] = append(groups[b], k)
+			// ponytail: clone keys because the original 'fields' slice points to recycled reader buffer
+			groups[b] = append(groups[b], bytes.Clone(k))
 		}
 	}
 
@@ -765,14 +766,7 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 	}
 
 	requests := make([]req, 0, len(groups))
-	defer func() {
-		// ponytail: ensure all backend queries are aborted if we exit early
-		for i := range requests {
-			if requests[i].stopChan != nil {
-				close(requests[i].stopChan)
-			}
-		}
-	}()
+	var wg sync.WaitGroup
 
 	resultsChan := make(chan MemcacheResponse, len(groups))
 	for b, bKeys := range groups {
@@ -800,7 +794,9 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 		requests = append(requests, req{respChan: respChan, stopChan: respStopChan})
 
 		// ponytail: aggregate responses in parallel to avoid sequential head-of-line blocking
+		wg.Add(1)
 		go func(rc chan MemcacheResponse, sc chan struct{}) {
+			defer wg.Done()
 			select {
 			case resp := <-rc:
 				resultsChan <- resp
@@ -811,6 +807,22 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 			}
 		}(respChan, respStopChan)
 	}
+
+	// ponytail: ensure all backend queries are either completed or aborted before returning.
+	// This prevents phantom responses from leaking into futureChan.
+	defer func() {
+		for i := range requests {
+			if requests[i].stopChan != nil {
+				close(requests[i].stopChan)
+			}
+		}
+		wg.Wait()
+		close(resultsChan)
+		// drain resultsChan to release buffers
+		for resp := range resultsChan {
+			resp.Release()
+		}
+	}()
 
 	var combinedResponse bytes.Buffer
 	var backendErr error
@@ -844,7 +856,7 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 					}
 				}
 			}
-			resp.Release()
+			resp.Release() // ponytail: release only after writing to combinedResponse
 		case <-q.responseChanStop:
 			return
 		}
