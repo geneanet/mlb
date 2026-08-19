@@ -28,12 +28,21 @@ type MemcacheBackendConnection struct {
 	cancel        context.CancelFunc
 	metrics       *Metrics
 	failureErr    error
+	failureMu     sync.RWMutex
 	failureOnce   sync.Once
+}
+
+func (mbc *MemcacheBackendConnection) getFailureErr() error {
+	mbc.failureMu.RLock()
+	defer mbc.failureMu.RUnlock()
+	return mbc.failureErr
 }
 
 func (mbc *MemcacheBackendConnection) fail(err error) {
 	mbc.failureOnce.Do(func() {
+		mbc.failureMu.Lock()
 		mbc.failureErr = err
+		mbc.failureMu.Unlock()
 		mbc.cancel()
 	})
 }
@@ -81,7 +90,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 
 		// Notify the pool
 		mbc.pool.proxy.log.Debug().Str("peer", mbc.backend.Address).Msg("Notifying pool")
-		err := mbc.failureErr
+		err := mbc.getFailureErr()
 		if err == nil {
 			err = mbc.ctx.Err()
 		}
@@ -113,8 +122,12 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 				}
 
 				for _, q := range batch {
+					// ponytail: prevent double-free by passing a copy with nil buffer to inFlight.
+					// The write loop owns and releases the buffer after writing.
+					inFlightQuery := q
+					inFlightQuery.buffer = nil
 					select {
-					case mbc.inFlight <- q:
+					case mbc.inFlight <- inFlightQuery:
 					case <-mbc.ctx.Done():
 						_ = q.Abort()
 						q.Release()
