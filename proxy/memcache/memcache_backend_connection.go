@@ -24,7 +24,8 @@ type MemcacheBackendConnection struct {
 	inputChan     chan MemcacheQuery // Buffer for incoming queries from the proxy
 	inFlight      chan MemcacheQuery // Queue of queries waiting for backend response
 	inFlightMu    sync.Mutex         // Protects currentQuery
-	currentQuery  *MemcacheQuery     // Query currently being read from the backend
+	currentQuery  MemcacheQuery      // Query currently being read from the backend
+	hasCurrentQuery bool             // Indicates if currentQuery is valid
 	ctx           context.Context
 	cancel        context.CancelFunc
 	metrics       *Metrics
@@ -182,7 +183,8 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 			}
 
 			mbc.inFlightMu.Lock()
-			mbc.currentQuery = &q
+			mbc.currentQuery = q
+			mbc.hasCurrentQuery = true
 			mbc.inFlightMu.Unlock()
 
 			err := mbc.pool.proxy.readMemcacheResponseFull(reader, respBuffer, q)
@@ -194,8 +196,8 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 
 				// ponytail: check if AfterFunc already aborted this query to avoid double-free
 				mbc.inFlightMu.Lock()
-				alreadyAborted := mbc.currentQuery == nil
-				mbc.currentQuery = nil
+				alreadyAborted := !mbc.hasCurrentQuery
+				mbc.hasCurrentQuery = false
 				mbc.inFlightMu.Unlock()
 
 				if !alreadyAborted {
@@ -211,7 +213,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 			// ponytail: pass buffer ownership to avoid bytes.Clone.
 			// Protect ReplyWithBuffer with inFlightMu to avoid race with AbortInflightQueries.
 			mbc.inFlightMu.Lock()
-			if mbc.currentQuery != nil {
+			if mbc.hasCurrentQuery {
 				err = q.ReplyWithBuffer(respBuffer.Bytes(), respBuffer)
 				if err != nil {
 					if err.Error() == "response channel is closed" {
@@ -220,7 +222,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 						mbc.pool.proxy.log.Warn().Uint64("queryId", q.id).Err(err).Msg("Unable to reply to client")
 					}
 				}
-				mbc.currentQuery = nil
+				mbc.hasCurrentQuery = false
 			} else {
 				// Already aborted by AbortInflightQueries
 				ReleaseBuffer(respBuffer)
@@ -268,10 +270,10 @@ func (mbc *MemcacheBackendConnection) AbortInflightQueries() int {
 current:
 	// 2. Abort queries waiting for response or currently being read
 	mbc.inFlightMu.Lock()
-	if mbc.currentQuery != nil {
+	if mbc.hasCurrentQuery {
 		_ = mbc.currentQuery.Abort()
 		mbc.currentQuery.Release()
-		mbc.currentQuery = nil
+		mbc.hasCurrentQuery = false
 		count++
 	}
 	mbc.inFlightMu.Unlock()
