@@ -160,5 +160,9 @@ func (p *MemcacheProxy) getFields(line []byte) *[][]byte {
 }
 
 func (p *MemcacheProxy) releaseFields(f *[][]byte) {
+	// ponytail: if the slice grew too large, drop it to avoid leaking memory in the pool
+	if cap(*f) > 1024 {
+		return
+	}
 	p.fieldsPool.Put(f)
 }
