@@ -43,6 +43,7 @@ func NewRedisBackendConnectionPool(proxy *RedisProxy) *RedisBackendConnectionPoo
 			case <-ticker.C:
 				rbcp.cleanupIdle()
 			case <-rbcp.ctx.Done():
+				rbcp.cleanupAll()
 				return
 			}
 		}
@@ -51,8 +52,25 @@ func NewRedisBackendConnectionPool(proxy *RedisProxy) *RedisBackendConnectionPoo
 	return rbcp
 }
 
+// cleanupAll closes all connections in the pool.
+func (rbcp *RedisBackendConnectionPool) cleanupAll() {
+	rbcp.mutex.Lock()
+	defer rbcp.mutex.Unlock()
+
+	for _, rbc := range rbcp.pool {
+		if rbc.cancel != nil {
+			rbc.cancel()
+		}
+	}
+	rbcp.pool = nil
+}
+
 // cleanupIdle removes and closes connections that have exceeded the idle timeout.
 func (rbcp *RedisBackendConnectionPool) cleanupIdle() {
+	if rbcp.ctx.Err() != nil {
+		return
+	}
+
 	rbcp.mutex.Lock()
 	defer rbcp.mutex.Unlock()
 
@@ -86,6 +104,10 @@ func (rbcp *RedisBackendConnectionPool) cleanupIdle() {
 // Get retrieves an available connection from the pool. If the pool is empty, it attempts
 // to pick a backend and create a new connection. It implements LIFO to reuse "hot" connections.
 func (rbcp *RedisBackendConnectionPool) Get(ctx context.Context) (*RedisBackendConnection, error) {
+	if rbcp.ctx.Err() != nil {
+		return nil, fmt.Errorf("proxy is shutting down")
+	}
+
 	for {
 		rbcp.mutex.Lock()
 		var rbc *RedisBackendConnection
@@ -144,6 +166,11 @@ func (rbcp *RedisBackendConnectionPool) Put(rbc *RedisBackendConnection) {
 	if rbc.ctx.Err() != nil {
 		return
 	}
+	if rbcp.ctx.Err() != nil {
+		rbc.cancel()
+		return
+	}
+
 	if !rbcp.proxy.backends.Has(rbc.backend.Address) {
 		rbcp.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Backend removed, discarding returned connection")
 		if rbc.cancel != nil {
@@ -161,6 +188,9 @@ func (rbcp *RedisBackendConnectionPool) Put(rbc *RedisBackendConnection) {
 // It removes connections to backends that are no longer present and triggers preconnect
 // if the pool size is below the configured target.
 func (rbcp *RedisBackendConnectionPool) Update() {
+	if rbcp.ctx.Err() != nil {
+		return
+	}
 	rbcp.updateMutex.Lock()
 	defer rbcp.updateMutex.Unlock()
 

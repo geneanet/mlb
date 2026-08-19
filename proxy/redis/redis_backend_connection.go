@@ -50,7 +50,7 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 		metrics: pool.proxy.getBackendMetrics(backend.Address),
 	}
 
-	rbc.ctx, rbc.cancel = context.WithCancel(pool.ctx)
+	rbc.ctx, rbc.cancel = context.WithCancel(context.Background())
 
 	// Increment Prometheus processed connection counter.
 	rbc.metrics.processed.Inc()
@@ -61,8 +61,9 @@ func NewRedisBackendConnection(pool *RedisBackendConnectionPool, backend *backen
 		Timeout:   pool.proxy.connectTimeout,
 		KeepAlive: pool.proxy.backendTCPKeepAlive,
 	}
-	connBack, err := dialer.DialContext(rbc.ctx, "tcp", rbc.backend.Address)
+	connBack, err := dialer.DialContext(pool.ctx, "tcp", rbc.backend.Address)
 	if err != nil {
+		rbc.cancel()
 		return nil, err
 	}
 
@@ -119,6 +120,12 @@ func (rbc *RedisBackendConnection) Healthcheck() error {
 func (rbc *RedisBackendConnection) ResetAndRelease() {
 	if rbc.ctx.Err() != nil {
 		rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Not releasing backend connection (context cancelled)")
+		return
+	}
+
+	if rbc.pool.ctx.Err() != nil {
+		rbc.pool.proxy.log.Debug().Str("peer", rbc.backend.Address).Msg("Proxy shutting down, closing backend connection")
+		rbc.cancel()
 		return
 	}
 
