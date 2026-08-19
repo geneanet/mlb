@@ -778,12 +778,16 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 			close(requests[i].stopChan)
 			requests[i].stopChan = nil // Mark as closed
 			if resp.item != nil {
-				// Strip the END\r\n from intermediate responses to combine them properly
-				idx := bytes.LastIndex(resp.item, []byte("END\r\n"))
-				if idx != -1 {
-					combinedResponse.Write(resp.item[:idx])
-				} else {
-					combinedResponse.Write(resp.item)
+				// ponytail: only combine if it looks like a valid ASCII data block (VALUE or STAT/ITEM/VA)
+				// and ignore error responses (SERVER_ERROR, ERROR, CLIENT_ERROR) which would corrupt the protocol.
+				if bytes.HasPrefix(resp.item, []byte("VALUE ")) || bytes.HasPrefix(resp.item, []byte("STAT ")) || bytes.HasPrefix(resp.item, []byte("ITEM ")) || bytes.HasPrefix(resp.item, []byte("VA ")) || bytes.HasPrefix(resp.item, []byte("HD ")) {
+					// Strip the END\r\n from intermediate responses to combine them properly
+					idx := bytes.LastIndex(resp.item, []byte("END\r\n"))
+					if idx != -1 {
+						combinedResponse.Write(resp.item[:idx])
+					} else {
+						combinedResponse.Write(resp.item)
+					}
 				}
 			}
 			resp.Release() // ponytail: return pooled buffer

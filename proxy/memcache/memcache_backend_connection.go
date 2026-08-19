@@ -120,6 +120,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 						q.Release()
 						continue
 					}
+
 					n, err := writer.Write(q.item)
 					q.Release() // ponytail: release pooled query buffer if any
 					if err != nil {
@@ -169,16 +170,21 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 			mbc.inFlightMu.Unlock()
 
 			err := mbc.pool.proxy.readMemcacheResponseFull(reader, respBuffer, q)
-
-			mbc.inFlightMu.Lock()
-			mbc.currentQuery = nil
-			mbc.inFlightMu.Unlock()
-
 			if err != nil {
 				ReleaseBuffer(respBuffer)
 				if err != io.EOF && !errors.Is(err, net.ErrClosed) {
 					mbc.pool.proxy.log.Error().Str("peer", mbc.backend.Address).Err(err).Msg("Unexpected error while reading from the backend")
 				}
+
+				// ponytail: ensure the query we were processing is aborted before we exit.
+				// AbortInflightQueries will handle others, but this one is in our hands.
+				_ = q.Abort()
+				q.Release()
+
+				mbc.inFlightMu.Lock()
+				mbc.currentQuery = nil
+				mbc.inFlightMu.Unlock()
+
 				mbc.fail(err)
 				return
 			}
@@ -193,6 +199,10 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 					mbc.pool.proxy.log.Warn().Uint64("queryId", q.id).Err(err).Msg("Unable to reply to client")
 				}
 			}
+
+			mbc.inFlightMu.Lock()
+			mbc.currentQuery = nil
+			mbc.inFlightMu.Unlock()
 		}
 	}()
 
@@ -233,20 +243,15 @@ func (mbc *MemcacheBackendConnection) AbortInflightQueries() int {
 	}
 
 current:
-	// 2. Abort query currently being read
+	// 2. Abort queries waiting for response or currently being read
 	mbc.inFlightMu.Lock()
 	if mbc.currentQuery != nil {
 		_ = mbc.currentQuery.Abort()
-		// ponytail: release pooled buffer if any.
-		// note: Release() is usually called by the reader, but if we abort it here,
-		// the reader might not have reached Release() yet.
-		// However, MemcacheQuery.Release() is idempotent.
 		mbc.currentQuery.Release()
 		count++
 	}
 	mbc.inFlightMu.Unlock()
 
-	// 3. Abort queries waiting for response
 	for {
 		select {
 		case query := <-mbc.inFlight:
