@@ -524,20 +524,49 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 			return
 		}
 
-		// Create a channel for this specific query's response (from pool)
-		reqRespChan := getResponseChan()
+		// Detect and strip noreply/q flags to force backend response while discarding it for the client
+		isNoReply := false
+		if bytes.Equal(cmd, []byte("set")) || bytes.Equal(cmd, []byte("add")) || bytes.Equal(cmd, []byte("replace")) || bytes.Equal(cmd, []byte("append")) || bytes.Equal(cmd, []byte("prepend")) || bytes.Equal(cmd, []byte("cas")) {
+			if len(fields) >= 6 && bytes.Equal(fields[len(fields)-1], []byte("noreply")) {
+				isNoReply = true
+				p.log.Debug().Str("cmd", string(cmd)).Msg("Detected noreply flag, stripping it")
+				for i := range fields[len(fields)-1] {
+					fields[len(fields)-1][i] = ' '
+				}
+			}
+		} else if bytes.Equal(cmd, []byte("ms")) || bytes.Equal(cmd, []byte("md")) || bytes.Equal(cmd, []byte("ma")) || bytes.Equal(cmd, []byte("me")) {
+			for i := 2; i < len(fields); i++ {
+				if bytes.Equal(fields[i], []byte("q")) {
+					isNoReply = true
+					p.log.Debug().Str("cmd", string(cmd)).Msg("Detected quiet flag for Meta command, stripping it")
+					fields[i][0] = ' '
+				}
+			}
+		} else if bytes.Equal(cmd, []byte("delete")) || bytes.Equal(cmd, []byte("incr")) || bytes.Equal(cmd, []byte("decr")) || bytes.Equal(cmd, []byte("touch")) {
+			if len(fields) >= 3 && bytes.Equal(fields[len(fields)-1], []byte("noreply")) {
+				isNoReply = true
+				for i := range fields[len(fields)-1] {
+					fields[len(fields)-1][i] = ' '
+				}
+			}
+		}
 
-		// Enqueue the future for the response writer
-		select {
-		case futureChan <- reqRespChan:
-		case <-done:
-			putResponseChan(reqRespChan)
-			p.releaseFields(fieldsPtr)
-			return
+		// Create a channel for this specific query's response (from pool)
+		var reqRespChan chan MemcacheResponse
+		if !isNoReply {
+			reqRespChan = getResponseChan()
+			// Enqueue the future for the response writer
+			select {
+			case futureChan <- reqRespChan:
+			case <-done:
+				putResponseChan(reqRespChan)
+				p.releaseFields(fieldsPtr)
+				return
+			}
 		}
 
 		// Create a query that will eventually reply to our reqRespChan
-		query := NewMemcacheQuery(nil, reqRespChan, futureChanStop)
+		query := NewMemcacheQuery(nil, reqRespChan, futureChanStop, isNoReply)
 
 		// Storage commands: <command> <key> <flags> <exptime> <bytes> [noreply]\r\n<data>\r\n
 		// Supported: set, add, replace, append, prepend, cas
@@ -729,7 +758,7 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 
 		respChan := make(chan MemcacheResponse, 1)
 		respStopChan := make(chan struct{})
-		bq := NewMemcacheQuery(payload, respChan, respStopChan)
+		bq := NewMemcacheQuery(payload, respChan, respStopChan, false)
 
 		if err := conn.Query(bq); err != nil {
 			close(respStopChan)

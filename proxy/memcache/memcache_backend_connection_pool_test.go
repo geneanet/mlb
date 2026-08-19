@@ -180,7 +180,7 @@ func TestMemcacheMinMaxPoolGrowth(t *testing.T) {
 
 	// Send queries until conn1.IsFull() is true
 	for i := 0; i < 100; i++ {
-		q := NewMemcacheQuery([]byte("set k 0 0 1\r\nv\r\n"), nil, nil)
+		q := NewMemcacheQuery([]byte("set k 0 0 1\r\nv\r\n"), nil, nil, false)
 		_ = conn1.Query(q)
 		if conn1.IsFull() {
 			break
@@ -211,7 +211,7 @@ func TestMemcacheMinMaxPoolGrowth(t *testing.T) {
 	// Even if both are full, Get() should return one of them and NOT grow to 3.
 	// (Saturate conn2 first)
 	for i := 0; i < 100; i++ {
-		q := NewMemcacheQuery([]byte("set k 0 0 1\r\nv\r\n"), nil, nil)
+		q := NewMemcacheQuery([]byte("set k 0 0 1\r\nv\r\n"), nil, nil, false)
 		_ = conn2.Query(q)
 		if conn2.IsFull() {
 			break

@@ -58,7 +58,7 @@ func TestMemcacheBackendConnection_QueryAndAbort(t *testing.T) {
 
 	respChan := make(chan MemcacheResponse, 1)
 	stopChan := make(chan struct{})
-	q := NewMemcacheQuery([]byte("get key\r\n"), respChan, stopChan)
+	q := NewMemcacheQuery([]byte("get key\r\n"), respChan, stopChan, false)
 
 	err = conn.Query(q)
 	if err != nil {
@@ -121,7 +121,7 @@ func TestMemcacheBackendConnection_ReadFull(t *testing.T) {
 
 	respChan := make(chan MemcacheResponse, 1)
 	stopChan := make(chan struct{})
-	q := NewMemcacheQuery([]byte("get key\r\n"), respChan, stopChan)
+	q := NewMemcacheQuery([]byte("get key\r\n"), respChan, stopChan, false)
 
 	err = conn.Query(q)
 	if err != nil {
@@ -136,7 +136,7 @@ func TestMemcacheBackendConnection_ReadFull(t *testing.T) {
 	// Test non-value response (e.g. STORED)
 	respChan2 := make(chan MemcacheResponse, 1)
 	stopChan2 := make(chan struct{})
-	q2 := NewMemcacheQuery([]byte("set key 0 0 2\r\nv1\r\n"), respChan2, stopChan2)
+	q2 := NewMemcacheQuery([]byte("set key 0 0 2\r\nv1\r\n"), respChan2, stopChan2, false)
 	_ = conn.Query(q2)
 
 	resp2 := <-respChan2

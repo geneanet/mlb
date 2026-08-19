@@ -746,7 +746,7 @@ func TestMemcacheProxy_ForwardSingle_Errors(t *testing.T) {
 	defer close(responseChanStop)
 
 	// Test No Backend
-	q := NewMemcacheQuery([]byte("get key\r\n"), responseChan, responseChanStop)
+	q := NewMemcacheQuery([]byte("get key\r\n"), responseChan, responseChanStop, false)
 	proxy.forwardSingle(q, []byte("key"))
 	resp := <-responseChan
 	if string(resp.item) != "SERVER_ERROR no backend available\r\n" {
@@ -758,7 +758,7 @@ func TestMemcacheProxy_ForwardSingle_Errors(t *testing.T) {
 	proxy.backends.Add(b1)
 	proxy.ring.update(proxy.backends.GetList())
 
-	q2 := NewMemcacheQuery([]byte("get key\r\n"), responseChan, responseChanStop)
+	q2 := NewMemcacheQuery([]byte("get key\r\n"), responseChan, responseChanStop, false)
 	proxy.forwardSingle(q2, []byte("key"))
 	resp2 := <-responseChan
 	if string(resp2.item) != "SERVER_ERROR backend failure\r\n" {
@@ -1414,7 +1414,7 @@ func TestMemcachePhantomResponse(t *testing.T) {
 
 	// 1. Manually get a channel, put a "phantom" response in it, and put it back in the pool.
 	ch := getResponseChan()
-	phantomQuery := NewMemcacheQuery([]byte("get phantom\r\n"), ch, make(chan struct{}))
+	phantomQuery := NewMemcacheQuery([]byte("get phantom\r\n"), ch, make(chan struct{}), false)
 	ch <- MemcacheResponse{query: phantomQuery, item: []byte("VALUE phantom 0 7\r\nphantom\r\nEND\r\n")}
 	putResponseChan(ch)
 

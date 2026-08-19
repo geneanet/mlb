@@ -17,16 +17,18 @@ type MemcacheQuery struct {
 	buffer           *bytes.Buffer // Optional pooled buffer to be released
 	responseChan     chan MemcacheResponse
 	responseChanStop chan struct{}
+	NoReply          bool
 }
 
 // NewMemcacheQuery creates a new MemcacheQuery with a unique ID.
 // The responseChan is used to send the MemcacheResponse back to the client handler.
-func NewMemcacheQuery(item []byte, responseChan chan MemcacheResponse, responseChanStop chan struct{}) MemcacheQuery {
+func NewMemcacheQuery(item []byte, responseChan chan MemcacheResponse, responseChanStop chan struct{}, noReply bool) MemcacheQuery {
 	return MemcacheQuery{
 		id:               MemcacheQueryCounter.Add(1),
 		item:             item,
 		responseChan:     responseChan,
 		responseChanStop: responseChanStop,
+		NoReply:          noReply,
 	}
 }
 
@@ -47,6 +49,12 @@ func (q MemcacheQuery) Reply(item []byte) error {
 // ReplyWithBuffer sends the backend response back to the client and provides
 // a pooled buffer to be released after the response is sent.
 func (q MemcacheQuery) ReplyWithBuffer(item []byte, buffer *bytes.Buffer) error {
+	if q.NoReply {
+		if buffer != nil {
+			ReleaseBuffer(buffer)
+		}
+		return nil
+	}
 	select {
 	case q.responseChan <- MemcacheResponse{
 		query:  q,
@@ -65,6 +73,9 @@ func (q MemcacheQuery) ReplyWithBuffer(item []byte, buffer *bytes.Buffer) error 
 // Abort sends an error response to the client, effectively aborting the query.
 // This is typically called when a backend connection is lost.
 func (q MemcacheQuery) Abort() error {
+	if q.NoReply {
+		return nil
+	}
 	return q.Reply([]byte("SERVER_ERROR backend failure\r\n"))
 }
 
