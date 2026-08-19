@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"mlb/backend"
+	"mlb/util"
 	"net"
 	"sync"
 )
@@ -317,11 +318,10 @@ func (p *MemcacheProxy) readMemcacheResponseFull(r *MemcacheProtocolReader, w io
 			fields := *fieldsPtr
 			if len(fields) >= 4 {
 				// size is fields[3] in ASCII protocol
-				size := 0
-				for _, b := range fields[3] {
-					if b >= '0' && b <= '9' {
-						size = size*10 + int(b-'0')
-					}
+				size, err := util.ParseSize(fields[3])
+				if err != nil {
+					p.releaseFields(fieldsPtr)
+					return err
 				}
 				buf, err := r.ReadFull(size + 2) // data + \r\n
 				if err != nil {
@@ -341,11 +341,10 @@ func (p *MemcacheProxy) readMemcacheResponseFull(r *MemcacheProtocolReader, w io
 			fields := *fieldsPtr
 			if len(fields) >= 2 {
 				// size is fields[1] in Meta protocol
-				size := 0
-				for _, b := range fields[1] {
-					if b >= '0' && b <= '9' {
-						size = size*10 + int(b-'0')
-					}
+				size, err := util.ParseSize(fields[1])
+				if err != nil {
+					p.releaseFields(fieldsPtr)
+					return err
 				}
 				buf, err := r.ReadFull(size + 2) // data + \r\n
 				if err != nil {
