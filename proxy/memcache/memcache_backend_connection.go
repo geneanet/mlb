@@ -189,14 +189,16 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 					mbc.pool.proxy.log.Error().Str("peer", mbc.backend.Address).Err(err).Msg("Unexpected error while reading from the backend")
 				}
 
-				// ponytail: ensure the query we were processing is aborted before we exit.
-				// AbortInflightQueries will handle others, but this one is in our hands.
-				_ = q.Abort()
-				q.Release()
-
+				// ponytail: check if AfterFunc already aborted this query to avoid double-free
 				mbc.inFlightMu.Lock()
+				alreadyAborted := mbc.currentQuery == nil
 				mbc.currentQuery = nil
 				mbc.inFlightMu.Unlock()
+
+				if !alreadyAborted {
+					_ = q.Abort()
+					q.Release()
+				}
 
 				mbc.fail(err)
 				return
@@ -261,6 +263,7 @@ current:
 	if mbc.currentQuery != nil {
 		_ = mbc.currentQuery.Abort()
 		mbc.currentQuery.Release()
+		mbc.currentQuery = nil
 		count++
 	}
 	mbc.inFlightMu.Unlock()
