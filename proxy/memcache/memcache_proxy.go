@@ -604,23 +604,29 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 				p.releaseFields(fieldsPtr)
 				continue
 			}
+
+			// ponytail: extract key and copy line BEFORE ReadFull, because ReadFull might reallocate reader.buffer
+			// making fields and line pointers dangling.
+			key := bytes.Clone(fields[1])
+			buf := bufferPool.Get().(*bytes.Buffer)
+			buf.Reset()
+			buf.Write(line)
+
 			// Read the data payload + trailing \r\n
 			payload, err := reader.ReadFull(size + 2)
 			if err != nil {
 				query.Release()
 				p.releaseFields(fieldsPtr)
+				ReleaseBuffer(buf)
 				return
 			}
 			feMetrics.bytesIn.Add(float64(len(payload)))
+
 			// Forward the full command (header + payload) to the appropriate backend
-			// ponytail: using pooled buffer instead of bytes.Clone
-			buf := bufferPool.Get().(*bytes.Buffer)
-			buf.Reset()
-			buf.Write(line)
 			buf.Write(payload)
 			query.item = buf.Bytes()
 			query.buffer = buf
-			p.forwardSingle(query, fields[1])
+			p.forwardSingle(query, key)
 			p.releaseFields(fieldsPtr)
 			continue
 		}
@@ -643,22 +649,28 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 				p.releaseFields(fieldsPtr)
 				continue
 			}
+
+			// ponytail: extract key and copy line BEFORE ReadFull
+			key := bytes.Clone(fields[1])
+			buf := bufferPool.Get().(*bytes.Buffer)
+			buf.Reset()
+			buf.Write(line)
+
 			// Read the data payload + trailing \r\n
 			payload, err := reader.ReadFull(size + 2)
 			if err != nil {
 				query.Release()
 				p.releaseFields(fieldsPtr)
+				ReleaseBuffer(buf)
 				return
 			}
 			feMetrics.bytesIn.Add(float64(len(payload)))
+
 			// Forward to backend based on key
-			buf := bufferPool.Get().(*bytes.Buffer)
-			buf.Reset()
-			buf.Write(line)
 			buf.Write(payload)
 			query.item = buf.Bytes()
 			query.buffer = buf
-			p.forwardSingle(query, fields[1])
+			p.forwardSingle(query, key)
 			p.releaseFields(fieldsPtr)
 			continue
 		}
