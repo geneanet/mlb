@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"mlb/backend"
 	"mlb/config"
@@ -751,6 +752,7 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 		}
 	}()
 
+	resultsChan := make(chan MemcacheResponse, len(groups))
 	for b, bKeys := range groups {
 		conn := p.backendConnectionPool.Get(b.Address)
 		if conn == nil {
@@ -774,18 +776,43 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 		}
 
 		requests = append(requests, req{respChan: respChan, stopChan: respStopChan})
+
+		// ponytail: aggregate responses in parallel to avoid sequential head-of-line blocking
+		go func(rc chan MemcacheResponse, sc chan struct{}) {
+			select {
+			case resp := <-rc:
+				resultsChan <- resp
+			case <-sc:
+				// multi-get aborted
+			case <-q.responseChanStop:
+				// client disconnected
+			}
+		}(respChan, respStopChan)
 	}
 
 	var combinedResponse bytes.Buffer
+	var backendErr error
 	for i := 0; i < len(requests); i++ {
 		select {
-		case resp := <-requests[i].respChan:
-			close(requests[i].stopChan)
-			requests[i].stopChan = nil // Mark as closed
+		case resp := <-resultsChan:
+			// find and close the corresponding stopChan
+			for j := range requests {
+				if requests[j].respChan == resp.query.responseChan {
+					if requests[j].stopChan != nil {
+						close(requests[j].stopChan)
+						requests[j].stopChan = nil
+					}
+					break
+				}
+			}
+
 			if resp.item != nil {
-				// ponytail: only combine if it looks like a valid ASCII data block (VALUE or STAT/ITEM/VA)
-				// and ignore error responses (SERVER_ERROR, ERROR, CLIENT_ERROR) which would corrupt the protocol.
-				if bytes.HasPrefix(resp.item, []byte("VALUE ")) || bytes.HasPrefix(resp.item, []byte("STAT ")) || bytes.HasPrefix(resp.item, []byte("ITEM ")) || bytes.HasPrefix(resp.item, []byte("VA ")) || bytes.HasPrefix(resp.item, []byte("HD ")) {
+				// ponytail: fail the whole multi-get if any backend returns an error
+				if bytes.HasPrefix(resp.item, []byte("ERROR")) || bytes.HasPrefix(resp.item, []byte("SERVER_ERROR")) || bytes.HasPrefix(resp.item, []byte("CLIENT_ERROR")) {
+					if backendErr == nil {
+						backendErr = errors.New(string(bytes.TrimRight(resp.item, "\r\n")))
+					}
+				} else if bytes.HasPrefix(resp.item, []byte("VALUE ")) || bytes.HasPrefix(resp.item, []byte("STAT ")) || bytes.HasPrefix(resp.item, []byte("ITEM ")) || bytes.HasPrefix(resp.item, []byte("VA ")) || bytes.HasPrefix(resp.item, []byte("HD ")) {
 					// Strip the END\r\n from intermediate responses to combine them properly
 					idx := bytes.LastIndex(resp.item, []byte("END\r\n"))
 					if idx != -1 {
@@ -795,10 +822,15 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 					}
 				}
 			}
-			resp.Release() // ponytail: return pooled buffer
+			resp.Release()
 		case <-q.responseChanStop:
 			return
 		}
+	}
+
+	if backendErr != nil {
+		_ = q.Reply([]byte(fmt.Sprintf("SERVER_ERROR backend failure: %v\r\n", backendErr)))
+		return
 	}
 
 	combinedResponse.Write([]byte("END\r\n"))
