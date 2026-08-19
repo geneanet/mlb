@@ -48,6 +48,10 @@ func NewMemcacheProtocolReader(r io.Reader, bufferSize int) *MemcacheProtocolRea
 	if v := protocolReaderPool.Get(); v != nil {
 		pr = v.(*MemcacheProtocolReader)
 		pr.br.Reset(r)
+		// ponytail: if the buffer was pruned in Release, re-initialize it
+		if pr.buffer == nil {
+			pr.buffer = make([]byte, 0, bufferSize)
+		}
 	} else {
 		pr = &MemcacheProtocolReader{
 			br:     bufio.NewReaderSize(r, bufferSize),
