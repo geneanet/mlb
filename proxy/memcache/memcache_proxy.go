@@ -528,35 +528,45 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 		// Detect and strip noreply/q flags to force backend response while discarding it for the client
 		isNoReply := false
 		isMultiLine := false
-		if bytes.Equal(cmd, []byte("set")) || bytes.Equal(cmd, []byte("add")) || bytes.Equal(cmd, []byte("replace")) || bytes.Equal(cmd, []byte("append")) || bytes.Equal(cmd, []byte("prepend")) || bytes.Equal(cmd, []byte("cas")) {
-			if len(fields) >= 6 && bytes.Equal(fields[len(fields)-1], []byte("noreply")) {
-				isNoReply = true
-				p.log.Debug().Str("cmd", string(cmd)).Msg("Detected noreply flag, stripping it")
-				for i := range fields[len(fields)-1] {
-					fields[len(fields)-1][i] = ' '
-				}
-			}
-		} else if bytes.Equal(cmd, []byte("ms")) || bytes.Equal(cmd, []byte("md")) || bytes.Equal(cmd, []byte("ma")) || bytes.Equal(cmd, []byte("me")) || bytes.Equal(cmd, []byte("mg")) {
-			for i := 2; i < len(fields); i++ {
-				if bytes.Equal(fields[i], []byte("q")) {
-					isNoReply = true
-					p.log.Debug().Str("cmd", string(cmd)).Msg("Detected quiet flag for Meta command, stripping it")
-					fields[i][0] = ' '
-				}
-			}
-		} else if bytes.Equal(cmd, []byte("delete")) || bytes.Equal(cmd, []byte("incr")) || bytes.Equal(cmd, []byte("decr")) || bytes.Equal(cmd, []byte("touch")) {
-			if len(fields) >= 3 && bytes.Equal(fields[len(fields)-1], []byte("noreply")) {
-				isNoReply = true
-				for i := range fields[len(fields)-1] {
-					fields[len(fields)-1][i] = ' '
-				}
-			}
-		} else if bytes.Equal(cmd, []byte("stats")) {
+
+		if bytes.Equal(cmd, []byte("stats")) {
 			// ponytail: stats reset returns a single RESET line instead of END-terminated multi-line
 			if len(fields) >= 2 && bytes.Equal(fields[1], []byte("reset")) {
 				isMultiLine = false
 			} else {
 				isMultiLine = true
+			}
+		} else if bytes.Equal(cmd, []byte("ms")) || bytes.Equal(cmd, []byte("md")) || bytes.Equal(cmd, []byte("ma")) || bytes.Equal(cmd, []byte("me")) || bytes.Equal(cmd, []byte("mg")) {
+			// Meta commands: look for 'q' flag case-insensitively
+			for i := 2; i < len(fields); i++ {
+				if len(fields[i]) == 1 && (fields[i][0]|0x20 == 'q') {
+					isNoReply = true
+					p.log.Debug().Str("cmd", string(cmd)).Msg("Detected quiet flag for Meta command, stripping it")
+					fields[i][0] = ' '
+				}
+			}
+		} else {
+			// ASCII commands: look for 'noreply' flag case-insensitively as the last field
+			if len(fields) > 1 {
+				lastField := fields[len(fields)-1]
+				if len(lastField) == 7 &&
+					(lastField[0]|0x20 == 'n') && (lastField[1]|0x20 == 'o') && (lastField[2]|0x20 == 'r') &&
+					(lastField[3]|0x20 == 'e') && (lastField[4]|0x20 == 'p') && (lastField[5]|0x20 == 'l') &&
+					(lastField[6]|0x20 == 'y') {
+
+					// Whitelist of commands supporting noreply
+					if bytes.Equal(cmd, []byte("set")) || bytes.Equal(cmd, []byte("add")) || bytes.Equal(cmd, []byte("replace")) ||
+						bytes.Equal(cmd, []byte("append")) || bytes.Equal(cmd, []byte("prepend")) || bytes.Equal(cmd, []byte("cas")) ||
+						bytes.Equal(cmd, []byte("delete")) || bytes.Equal(cmd, []byte("incr")) || bytes.Equal(cmd, []byte("decr")) ||
+						bytes.Equal(cmd, []byte("touch")) || bytes.Equal(cmd, []byte("flush_all")) || bytes.Equal(cmd, []byte("verbosity")) {
+
+						isNoReply = true
+						p.log.Debug().Str("cmd", string(cmd)).Msg("Detected noreply flag, stripping it")
+						for i := range lastField {
+							lastField[i] = ' '
+						}
+					}
+				}
 			}
 		}
 
