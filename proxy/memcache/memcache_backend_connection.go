@@ -103,6 +103,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 
 	// Read queries and send them to the backend
 	go func() {
+		defer mbc.AbortInflightQueries()
 		batch := make([]MemcacheQuery, 0, 32)
 		writer := NewMemcacheProtocolWriter(mbc.conn, mbc.pool.proxy.bufferSize)
 		defer writer.Release()
@@ -164,6 +165,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 
 	// Read backend responses and send them to the client
 	go func() {
+		defer mbc.AbortInflightQueries()
 		reader := NewMemcacheProtocolReader(mbc.conn, mbc.pool.proxy.bufferSize)
 		defer reader.Release()
 
