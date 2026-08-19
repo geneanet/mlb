@@ -551,7 +551,12 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 				}
 			}
 		} else if bytes.Equal(cmd, []byte("stats")) {
-			isMultiLine = true
+			// ponytail: stats reset returns a single RESET line instead of END-terminated multi-line
+			if len(fields) >= 2 && bytes.Equal(fields[1], []byte("reset")) {
+				isMultiLine = false
+			} else {
+				isMultiLine = true
+			}
 		}
 
 		// Create a channel for this specific query's response (from pool)
