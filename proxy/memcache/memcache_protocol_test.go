@@ -118,7 +118,11 @@ func TestReadMemcacheResponseFull(t *testing.T) {
 			r := NewMemcacheProtocolReader(bytes.NewReader([]byte(tt.input)), 1024)
 			defer r.Release()
 			buf := new(bytes.Buffer)
-			err := p.readMemcacheResponseFull(r, buf)
+			q := MemcacheQuery{}
+			if tt.name == "Stats" {
+				q.MultiLine = true
+			}
+			err := p.readMemcacheResponseFull(r, buf, q)
 			if err != nil {
 				t.Fatal(err)
 			}

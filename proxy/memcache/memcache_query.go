@@ -18,17 +18,19 @@ type MemcacheQuery struct {
 	responseChan     chan MemcacheResponse
 	responseChanStop chan struct{}
 	NoReply          bool
+	MultiLine        bool
 }
 
 // NewMemcacheQuery creates a new MemcacheQuery with a unique ID.
 // The responseChan is used to send the MemcacheResponse back to the client handler.
-func NewMemcacheQuery(item []byte, responseChan chan MemcacheResponse, responseChanStop chan struct{}, noReply bool) MemcacheQuery {
+func NewMemcacheQuery(item []byte, responseChan chan MemcacheResponse, responseChanStop chan struct{}, noReply bool, multiLine bool) MemcacheQuery {
 	return MemcacheQuery{
 		id:               MemcacheQueryCounter.Add(1),
 		item:             item,
 		responseChan:     responseChan,
 		responseChanStop: responseChanStop,
 		NoReply:          noReply,
+		MultiLine:        multiLine,
 	}
 }
 

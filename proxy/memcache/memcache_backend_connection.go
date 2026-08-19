@@ -22,6 +22,8 @@ type MemcacheBackendConnection struct {
 	inputChanStop chan struct{}      // Signal to stop the input loop
 	inputChan     chan MemcacheQuery // Buffer for incoming queries from the proxy
 	inFlight      chan MemcacheQuery // Queue of queries waiting for backend response
+	inFlightMu    sync.Mutex         // Protects currentQuery
+	currentQuery  *MemcacheQuery     // Query currently being read from the backend
 	ctx           context.Context
 	cancel        context.CancelFunc
 	metrics       *Metrics
@@ -153,7 +155,25 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 		for {
 			respBuffer := bufferPool.Get().(*bytes.Buffer)
 			respBuffer.Reset()
-			err := mbc.pool.proxy.readMemcacheResponseFull(reader, respBuffer)
+
+			var q MemcacheQuery
+			select {
+			case q = <-mbc.inFlight:
+			case <-mbc.ctx.Done():
+				ReleaseBuffer(respBuffer)
+				return
+			}
+
+			mbc.inFlightMu.Lock()
+			mbc.currentQuery = &q
+			mbc.inFlightMu.Unlock()
+
+			err := mbc.pool.proxy.readMemcacheResponseFull(reader, respBuffer, q)
+
+			mbc.inFlightMu.Lock()
+			mbc.currentQuery = nil
+			mbc.inFlightMu.Unlock()
+
 			if err != nil {
 				ReleaseBuffer(respBuffer)
 				if err != io.EOF && !errors.Is(err, net.ErrClosed) {
@@ -164,21 +184,13 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 			}
 			mbc.metrics.bytesIn.Add(float64(respBuffer.Len()))
 
-			var query MemcacheQuery
-			select {
-			case query = <-mbc.inFlight:
-			case <-mbc.ctx.Done():
-				ReleaseBuffer(respBuffer)
-				return
-			}
-
 			// ponytail: pass buffer ownership to avoid bytes.Clone
-			err = query.ReplyWithBuffer(respBuffer.Bytes(), respBuffer)
+			err = q.ReplyWithBuffer(respBuffer.Bytes(), respBuffer)
 			if err != nil {
 				if err.Error() == "response channel is closed" {
-					mbc.pool.proxy.log.Debug().Uint64("queryId", query.id).Msg("Unable to reply to client: response channel is closed")
+					mbc.pool.proxy.log.Debug().Uint64("queryId", q.id).Msg("Unable to reply to client: response channel is closed")
 				} else {
-					mbc.pool.proxy.log.Warn().Uint64("queryId", query.id).Err(err).Msg("Unable to reply to client")
+					mbc.pool.proxy.log.Warn().Uint64("queryId", q.id).Err(err).Msg("Unable to reply to client")
 				}
 			}
 		}
@@ -216,12 +228,25 @@ func (mbc *MemcacheBackendConnection) AbortInflightQueries() int {
 			query.Release()
 			count++
 		default:
-			goto inFlight
+			goto current
 		}
 	}
 
-inFlight:
-	// 2. Abort queries waiting for response
+current:
+	// 2. Abort query currently being read
+	mbc.inFlightMu.Lock()
+	if mbc.currentQuery != nil {
+		_ = mbc.currentQuery.Abort()
+		// ponytail: release pooled buffer if any.
+		// note: Release() is usually called by the reader, but if we abort it here,
+		// the reader might not have reached Release() yet.
+		// However, MemcacheQuery.Release() is idempotent.
+		mbc.currentQuery.Release()
+		count++
+	}
+	mbc.inFlightMu.Unlock()
+
+	// 3. Abort queries waiting for response
 	for {
 		select {
 		case query := <-mbc.inFlight:
@@ -239,8 +264,8 @@ inFlight:
 // 1. Simple one-line responses (STORED, END, HD, etc.)
 // 2. Data blocks (VALUE <key> ... \r\n<data>\r\n)
 // 3. Meta data blocks (VA <size> ... \r\n<data>\r\n)
-// 4. Multi-line responses like STATS.
-func (p *MemcacheProxy) readMemcacheResponseFull(r *MemcacheProtocolReader, w io.Writer) error {
+// 4. Multi-line responses like STATS, draining until END.
+func (p *MemcacheProxy) readMemcacheResponseFull(r *MemcacheProtocolReader, w io.Writer, q MemcacheQuery) error {
 	for {
 		line, err := r.ReadLine()
 		if err != nil {
@@ -254,6 +279,15 @@ func (p *MemcacheProxy) readMemcacheResponseFull(r *MemcacheProtocolReader, w io
 		// End of retrieval command (ASCII protocol)
 		if bytes.HasPrefix(line, []byte("END\r\n")) {
 			return nil
+		}
+
+		// Generic Multi-line handling (e.g. stats)
+		// Drain everything until END\r\n (above) or an error response.
+		if q.MultiLine {
+			if bytes.HasPrefix(line, []byte("ERROR")) || bytes.HasPrefix(line, []byte("CLIENT_ERROR")) || bytes.HasPrefix(line, []byte("SERVER_ERROR")) {
+				return nil
+			}
+			continue
 		}
 
 		// Data block (ASCII protocol): VALUE <key> <flags> <bytes> [<cas unique>]\r\n<data>\r\n
@@ -310,11 +344,9 @@ func (p *MemcacheProxy) readMemcacheResponseFull(r *MemcacheProtocolReader, w io
 		} else if bytes.HasPrefix(line, []byte("STORED")) || bytes.HasPrefix(line, []byte("NOT_STORED")) || bytes.HasPrefix(line, []byte("EXISTS")) || bytes.HasPrefix(line, []byte("NOT_FOUND")) || bytes.HasPrefix(line, []byte("DELETED")) || bytes.HasPrefix(line, []byte("ERROR")) || bytes.HasPrefix(line, []byte("CLIENT_ERROR")) || bytes.HasPrefix(line, []byte("SERVER_ERROR")) || bytes.HasPrefix(line, []byte("OK")) || bytes.HasPrefix(line, []byte("HD")) || bytes.HasPrefix(line, []byte("NF")) || bytes.HasPrefix(line, []byte("EX")) || bytes.HasPrefix(line, []byte("NS")) || bytes.HasPrefix(line, []byte("EN")) || bytes.HasPrefix(line, []byte("VERSION ")) {
 			// One-line responses (standard and meta) indicate completion of a command.
 			return nil
-		} else if bytes.HasPrefix(line, []byte("STAT ")) {
-			// Multi-line responses (STAT) - keep reading until END
-			continue
 		} else {
-			// Catch-all for unknown or unexpected responses
+			// Catch-all for unknown or unexpected responses.
+			// In ASCII protocol, unknown lines in a stream are usually single lines.
 			return nil
 		}
 	}

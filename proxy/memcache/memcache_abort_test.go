@@ -54,14 +54,14 @@ func TestMemcacheBackendConnection_AbortInflightQueries_WithPending(t *testing.T
 	defer mbc.cancel()
 
 	// 1. Add some queries to inFlight
-	q1 := NewMemcacheQuery([]byte("get key1\r\n"), make(chan MemcacheResponse, 1), make(chan struct{}), false)
-	q2 := NewMemcacheQuery([]byte("get key2\r\n"), make(chan MemcacheResponse, 1), make(chan struct{}), false)
+	q1 := NewMemcacheQuery([]byte("get key1\r\n"), make(chan MemcacheResponse, 1), make(chan struct{}), false, false)
+	q2 := NewMemcacheQuery([]byte("get key2\r\n"), make(chan MemcacheResponse, 1), make(chan struct{}), false, false)
 	mbc.inFlight <- q1
 	mbc.inFlight <- q2
 
 	// 2. Add some queries to inputChan
-	q3 := NewMemcacheQuery([]byte("get key3\r\n"), make(chan MemcacheResponse, 1), make(chan struct{}), false)
-	q4 := NewMemcacheQuery([]byte("get key4\r\n"), make(chan MemcacheResponse, 1), make(chan struct{}), false)
+	q3 := NewMemcacheQuery([]byte("get key3\r\n"), make(chan MemcacheResponse, 1), make(chan struct{}), false, false)
+	q4 := NewMemcacheQuery([]byte("get key4\r\n"), make(chan MemcacheResponse, 1), make(chan struct{}), false, false)
 	mbc.inputChan <- q3
 	mbc.inputChan <- q4
 

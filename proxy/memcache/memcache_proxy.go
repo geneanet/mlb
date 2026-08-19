@@ -526,6 +526,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 
 		// Detect and strip noreply/q flags to force backend response while discarding it for the client
 		isNoReply := false
+		isMultiLine := false
 		if bytes.Equal(cmd, []byte("set")) || bytes.Equal(cmd, []byte("add")) || bytes.Equal(cmd, []byte("replace")) || bytes.Equal(cmd, []byte("append")) || bytes.Equal(cmd, []byte("prepend")) || bytes.Equal(cmd, []byte("cas")) {
 			if len(fields) >= 6 && bytes.Equal(fields[len(fields)-1], []byte("noreply")) {
 				isNoReply = true
@@ -549,6 +550,8 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 					fields[len(fields)-1][i] = ' '
 				}
 			}
+		} else if bytes.Equal(cmd, []byte("stats")) {
+			isMultiLine = true
 		}
 
 		// Create a channel for this specific query's response (from pool)
@@ -566,7 +569,7 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 		}
 
 		// Create a query that will eventually reply to our reqRespChan
-		query := NewMemcacheQuery(nil, reqRespChan, futureChanStop, isNoReply)
+		query := NewMemcacheQuery(nil, reqRespChan, futureChanStop, isNoReply, isMultiLine)
 
 		// Storage commands: <command> <key> <flags> <exptime> <bytes> [noreply]\r\n<data>\r\n
 		// Supported: set, add, replace, append, prepend, cas
@@ -758,7 +761,7 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 
 		respChan := make(chan MemcacheResponse, 1)
 		respStopChan := make(chan struct{})
-		bq := NewMemcacheQuery(payload, respChan, respStopChan, false)
+		bq := NewMemcacheQuery(payload, respChan, respStopChan, false, false)
 
 		if err := conn.Query(bq); err != nil {
 			close(respStopChan)

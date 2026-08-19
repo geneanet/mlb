@@ -526,6 +526,8 @@ func dummyMemcacheServer(l net.Listener, val string) {
 						_, _ = fmt.Fprintf(c, "VALUE %s 0 %d\r\n%s\r\n", string(k), len(val), val)
 					}
 					_, _ = c.Write([]byte("END\r\n"))
+				case "stats":
+					_, _ = c.Write([]byte("END\r\n"))
 				case "quit":
 					return
 				default:
@@ -631,7 +633,7 @@ func TestMemcacheProxyProtocol(t *testing.T) {
 		// Retrieval with missing key
 		{"get\r\n", "CLIENT_ERROR bad command line format\r\n"},
 		// Command without key (should go to random backend)
-		{"stats\r\n", "STORED\r\n"},
+		{"stats\r\n", "END\r\n"},
 		// Unknown command
 		{"unknown_cmd\r\n", "STORED\r\n"},
 		// Quit
@@ -746,7 +748,7 @@ func TestMemcacheProxy_ForwardSingle_Errors(t *testing.T) {
 	defer close(responseChanStop)
 
 	// Test No Backend
-	q := NewMemcacheQuery([]byte("get key\r\n"), responseChan, responseChanStop, false)
+	q := NewMemcacheQuery([]byte("get key\r\n"), responseChan, responseChanStop, false, false)
 	proxy.forwardSingle(q, []byte("key"))
 	resp := <-responseChan
 	if string(resp.item) != "SERVER_ERROR no backend available\r\n" {
@@ -758,7 +760,7 @@ func TestMemcacheProxy_ForwardSingle_Errors(t *testing.T) {
 	proxy.backends.Add(b1)
 	proxy.ring.update(proxy.backends.GetList())
 
-	q2 := NewMemcacheQuery([]byte("get key\r\n"), responseChan, responseChanStop, false)
+	q2 := NewMemcacheQuery([]byte("get key\r\n"), responseChan, responseChanStop, false, false)
 	proxy.forwardSingle(q2, []byte("key"))
 	resp2 := <-responseChan
 	if string(resp2.item) != "SERVER_ERROR backend failure\r\n" {
@@ -1414,7 +1416,7 @@ func TestMemcachePhantomResponse(t *testing.T) {
 
 	// 1. Manually get a channel, put a "phantom" response in it, and put it back in the pool.
 	ch := getResponseChan()
-	phantomQuery := NewMemcacheQuery([]byte("get phantom\r\n"), ch, make(chan struct{}), false)
+	phantomQuery := NewMemcacheQuery([]byte("get phantom\r\n"), ch, make(chan struct{}), false, false)
 	ch <- MemcacheResponse{query: phantomQuery, item: []byte("VALUE phantom 0 7\r\nphantom\r\nEND\r\n")}
 	putResponseChan(ch)
 
