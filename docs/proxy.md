@@ -69,7 +69,10 @@ proxy "redis" "my_redis_proxy" {
 
 ---
 
-## Memcache Proxy
+## Memcache Proxy (experimental)
+
+> [!WARNING]
+> The Memcache proxy is currently experimental and may undergo breaking changes in its configuration or behavior. It is not yet recommended for production use.
 
 A Memcache-protocol aware proxy supporting both ASCII and Meta protocols. It uses Ketama consistent hashing to route keys to backends.
 

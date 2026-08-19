@@ -5,7 +5,7 @@ It is designed to be easily extensible through its modular architecture and prov
 
 ## Key Features
 
-- **Multi-protocol Support:** TCP, Redis, and Memcache.
+- **Multi-protocol Support:** TCP, Redis, and Memcache (experimental).
 - **Dynamic Backend Discovery:** Support for Consul and static host lists.
 - **Advanced Health Checking:** Native health checks for MySQL and Redis.
 - **Flexible Filtering:** Filter and sort backends based on rich metadata using HCL expressions.
