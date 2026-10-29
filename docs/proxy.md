@@ -40,7 +40,7 @@ A Redis-protocol aware proxy using connection-level multiplexing (connection pin
 
 ```hcl
 proxy "redis" "my_redis_proxy" {
-  source = balancer.wrr.redis_master
+  source = backends_processor.simple_filter.redis_master
   addresses = [":6379"]
   preconnect = 5
   idle_timeout = "10m"
@@ -52,7 +52,7 @@ proxy "redis" "my_redis_proxy" {
 - `addresses` (list of strings, required): List of TCP addresses to listen on (e.g., `[":6379"]`).
 - `connect_timeout` (duration string, optional): Timeout for establishing a new connection to a backend. Default: `5s`.
 - `close_timeout` (duration string, optional): Grace period for existing connections to finish after a shutdown signal. Default: `30s`.
-- `backend_wait_timeout` (duration string, optional): How long to wait for a backend to become available if the balancer is empty before returning an error to the client. Default: `0s`.
+- `backend_wait_timeout` (duration string, optional): How long to wait for a backend to become available if the backend pool is empty before returning an error to the client. Default: `0s`.
 - `buffer_size` (number or string, optional): Size of the read/write buffers for network I/O. Supports human-readable suffixes like `kb`, `mb`, `gb` (e.g., `"16kb"`). Default: `16384`.
 - `max_reused_buffer_size` (number or string, optional): Maximum capacity of a buffer that can be returned to the pool for reuse. Buffers larger than this will be dropped to save memory. Supports human-readable suffixes. Default: `65536`.
 - `preconnect` (number, optional): The number of connections to establish to backends at startup. Default: `0`.
@@ -63,7 +63,7 @@ proxy "redis" "my_redis_proxy" {
 - `reset_timeout` (duration string, optional): Timeout for the `RESET` operation performed when returning a connection to the pool. Default: `2s`.
 - `backend_tcp_keepalive` (duration string, optional): Timeout for sending TCP keepalive probes to backend connections. Set to `0s` to disable. Default: `5s`.
 - `log_backend_updates` (boolean, optional): If true, logs an INFO message when a backend is added or removed. Default: `false`.
-- `close_on_backend_removal` (boolean, optional): If `true`, client connections are closed if the backend they are connected to is removed from the balancer. Default: `false`.
+- `close_on_backend_removal` (boolean, optional): If `true`, client connections are closed if the backend they are connected to is removed from the proxy. Default: `false`.
 
 *Note: When a client disconnects, the proxy automatically sends a `RESET` command to the backend to clear the connection state (e.g., clearing PubSub subscriptions or discarding open transactions) before returning the connection to the pool.*
 

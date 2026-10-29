@@ -116,13 +116,8 @@ backends_processor "simple_filter" "master_only" {
   condition = backend.meta.redis.role == "master"
 }
 
-balancer "wrr" "master_balancer" {
-  source = backends_processor.simple_filter.master_only
-  weight = 1
-}
-
 proxy "redis" "redis_frontend" {
-  source = balancer.wrr.master_balancer
+  source = backends_processor.simple_filter.master_only
   addresses = [":6379"]
 }
 ```

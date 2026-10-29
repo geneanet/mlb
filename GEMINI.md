@@ -36,9 +36,9 @@ La communication entre modules repose sur les interfaces définies dans le packa
 
 | Rôle | Interface | Implémenté par | Consommé par | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| **Source d'événements** | `backend.BackendUpdateProvider` | Inventaires, Processeurs | Processeurs, Balancers | Diffuse les ajouts/modifications/suppressions de backends via `ProvideUpdates(s)`. |
-| **Récepteur d'événements** | `backend.BackendUpdateSubscriber` | Processeurs, Balancers | Inventaires, Processeurs | Reçoit les événements de cycle de vie via `ReceiveUpdate(u)`. |
-| **Sélection unitaire** | `backend.BackendProvider` | Balancers | Proxies (`tcp`, `redis`) | Fournit un backend pour une connexion cliente via `GetBackend(wait)`. |
+| **Source d'événements** | `backend.BackendUpdateProvider` | Inventaires, Processeurs | Processeurs, Balancers, Proxies (`redis`) | Diffuse les ajouts/modifications/suppressions de backends via `ProvideUpdates(s)`. |
+| **Récepteur d'événements** | `backend.BackendUpdateSubscriber` | Processeurs, Balancers, Proxies (`redis`) | Inventaires, Processeurs | Reçoit les événements de cycle de vie via `ReceiveUpdate(u)`. |
+| **Sélection unitaire** | `backend.BackendProvider` | Balancers | Proxies (`tcp`) | Fournit un backend pour une connexion cliente via `GetBackend(wait)`. |
 | **Liste complète** | `backend.BackendListProvider` | Inventaires, Balancers | Proxies (`memcache`), Dashboard | Fournit l'ensemble des cibles actives via `GetBackendList()`. |
 
 **Résolution des dépendances (`module.Binder`) :**

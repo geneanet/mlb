@@ -118,12 +118,6 @@ balancer "wrr" "mysql_main_ro" {
   // log_backend_updates = true
 }
 
-balancer "wrr" "redis_master" {
-  source = backends_processor.simple_filter.redis_master
-  // timeout = "0s"
-  // log_backend_updates = true
-}
-
 proxy "tcp" "mysql_main_ro" {
   sources = [
     balancer.wrr.mysql_main_ro
@@ -142,7 +136,7 @@ proxy "tcp" "mysql_main_ro" {
 }
 
 proxy "redis" "redis" {
-  source = balancer.wrr.redis_master
+  source = backends_processor.simple_filter.redis_master
   addresses = [":6379"]
   // connect_timeout = "5s"
   // close_timeout = "30s"
