@@ -682,6 +682,13 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 			continue
 		}
 
+		// Flush all command: broadcast to all active backends in the cluster
+		if bytes.Equal(cmd, []byte("flush_all")) {
+			p.handleFlushAll(query, line)
+			p.releaseFields(fieldsPtr)
+			continue
+		}
+
 		// Other commands with a key (standard and meta)
 		// Supported: delete, incr, decr, touch, mg (Meta Get), md (Meta Delete), ma (Meta Arithmetic), me (Meta Debug)
 		if len(fields) > 1 && (bytes.Equal(cmd, []byte("delete")) || bytes.Equal(cmd, []byte("incr")) || bytes.Equal(cmd, []byte("decr")) || bytes.Equal(cmd, []byte("touch")) || bytes.Equal(cmd, []byte("mg")) || bytes.Equal(cmd, []byte("md")) || bytes.Equal(cmd, []byte("ma")) || bytes.Equal(cmd, []byte("me"))) {
@@ -864,6 +871,117 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 
 	combinedResponse.Write([]byte("END\r\n"))
 	_ = q.Reply(combinedResponse.Bytes())
+}
+
+// handleFlushAll broadcasts a flush_all command to all active backends in the cluster.
+func (p *MemcacheProxy) handleFlushAll(q MemcacheQuery, line []byte) {
+	backends := p.backends.GetList()
+	if len(backends) == 0 {
+		_ = q.Reply([]byte("SERVER_ERROR no backend available\r\n"))
+		q.Release()
+		return
+	}
+
+	type req struct {
+		respChan chan MemcacheResponse
+		stopChan chan struct{}
+	}
+
+	payload := bytes.Clone(line)
+	requests := make([]req, 0, len(backends))
+	var wg sync.WaitGroup
+	var hasError bool
+	var backendErr error
+
+	resultsChan := make(chan MemcacheResponse, len(backends))
+	for _, b := range backends {
+		conn := p.backendConnectionPool.Get(b.Address)
+		if conn == nil {
+			hasError = true
+			continue
+		}
+
+		respChan := make(chan MemcacheResponse, 1)
+		respStopChan := make(chan struct{})
+		bq := NewMemcacheQuery(payload, respChan, respStopChan, false, false)
+
+		if err := conn.Query(bq); err != nil {
+			close(respStopChan)
+			hasError = true
+			if backendErr == nil {
+				backendErr = err
+			}
+			continue
+		}
+
+		requests = append(requests, req{respChan: respChan, stopChan: respStopChan})
+
+		wg.Add(1)
+		go func(rc chan MemcacheResponse, sc chan struct{}) {
+			defer wg.Done()
+			select {
+			case resp := <-rc:
+				resultsChan <- resp
+			case <-sc:
+			case <-q.responseChanStop:
+			}
+		}(respChan, respStopChan)
+	}
+
+	defer func() {
+		for i := range requests {
+			if requests[i].stopChan != nil {
+				close(requests[i].stopChan)
+			}
+		}
+		wg.Wait()
+		close(resultsChan)
+		for resp := range resultsChan {
+			resp.Release()
+		}
+	}()
+
+	for i := 0; i < len(requests); i++ {
+		select {
+		case resp := <-resultsChan:
+			for j := range requests {
+				if requests[j].respChan == resp.query.responseChan {
+					if requests[j].stopChan != nil {
+						close(requests[j].stopChan)
+						requests[j].stopChan = nil
+					}
+					break
+				}
+			}
+
+			if resp.item != nil {
+				if bytes.HasPrefix(resp.item, []byte("ERROR")) || bytes.HasPrefix(resp.item, []byte("SERVER_ERROR")) || bytes.HasPrefix(resp.item, []byte("CLIENT_ERROR")) {
+					if backendErr == nil {
+						backendErr = errors.New(string(bytes.TrimRight(resp.item, "\r\n")))
+					}
+				}
+			}
+			resp.Release()
+		case <-q.responseChanStop:
+			return
+		}
+	}
+
+	if len(requests) == 0 || hasError {
+		if backendErr != nil {
+			_ = q.Reply([]byte(fmt.Sprintf("SERVER_ERROR backend failure: %v\r\n", backendErr)))
+		} else {
+			_ = q.Reply([]byte("SERVER_ERROR backend failure\r\n"))
+		}
+		return
+	}
+
+	if backendErr != nil {
+		_ = q.Reply([]byte(fmt.Sprintf("SERVER_ERROR backend failure: %v\r\n", backendErr)))
+		return
+	}
+
+	_ = q.Reply([]byte("OK\r\n"))
 }
 
 func (p *MemcacheProxy) getBackendMetrics(backendAddress string) *Metrics {
