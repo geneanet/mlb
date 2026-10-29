@@ -425,6 +425,16 @@ func TestConsulKV_FetchErrors(t *testing.T) {
 	if err == nil {
 		t.Errorf("Expected error for invalid scheme")
 	}
+
+	// Case 4: Empty JSON array response (should not panic index out of range)
+	mu.Lock()
+	responseBody = `[]`
+	mu.Unlock()
+	w = newConsulKVWatcher(backend.NewBackend("foo", nil), "id", ts.URL, "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, make(chan *consulKVWatcherMessage, 10), ctx, log.Logger)
+	_, err = w.fetch()
+	if err == nil {
+		t.Errorf("Expected error for empty JSON array response")
+	}
 }
 
 // TestConsulKV_WatcherCoverage tests edge cases in the Consul KV watcher's execution loop,
