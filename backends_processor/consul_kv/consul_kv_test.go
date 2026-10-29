@@ -543,3 +543,72 @@ func TestConsulKV_Watcher_CancelBlockedOnChannel(t *testing.T) {
 		}
 	}, 1*time.Second, 10*time.Millisecond)
 }
+
+func TestConsulKV_DoesNotMutateUpstreamBackend(t *testing.T) {
+	upstreamBackend := backend.NewBackend("1.2.3.4:80", backend.NewMetaMap(map[string]backend.MetaBucket{
+		"consul": {
+			"tags": cty.SetValEmpty(cty.String),
+		},
+	}))
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Consul-Index", "1")
+		resp := []consulKVValue{{Key: "foo/1.2.3.4:80", Value: base64.StdEncoding.EncodeToString([]byte("bar"))}}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer ts.Close()
+
+	src := fmt.Sprintf(`
+backends_processor "consul_kv" "test" {
+	source = "foo"
+	url = "%s"
+	period = "10ms"
+	value "weight" {
+		consul_key = "foo/${backend.address}"
+		default = "100"
+	}
+}
+`, ts.URL)
+
+	block := testutil.ParseHCL(t, src)
+	ctx := &hcl.EvalContext{}
+
+	cfg, diags := module.DecodeConfigBlock(block, ctx, "backends_processor")
+	if diags.HasErrors() {
+		t.Fatalf("Unexpected errors: %s", diags.Error())
+	}
+
+	wg := &sync.WaitGroup{}
+	ctxBG, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mod, err := module.New(cfg, wg, ctxBG, "backends_processor")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+	consulMod := mod.(*ConsulKV)
+
+	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry(zerolog.Nop(), false)}
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("foo", dp)
+	_ = consulMod.Bind(modules)
+
+	sub := &testutil.DummySubscriber{Wg: sync.WaitGroup{}}
+	consulMod.ProvideUpdates(sub)
+
+	sub.Wg.Add(1)
+	dp.SendUpdate(backend.BackendUpdate{
+		Kind:    backend.UpdBackendAdded,
+		Address: upstreamBackend.Address,
+		Backend: upstreamBackend,
+	})
+
+	waitSub(t, sub, "ReceiveUpdate")
+
+	if _, ok := upstreamBackend.Meta.Get("consul_kv", "weight"); ok {
+		t.Errorf("upstream backend was mutated by consul_kv processor! It should not have consul_kv metadata")
+	}
+
+	cancel()
+	wg.Wait()
+}

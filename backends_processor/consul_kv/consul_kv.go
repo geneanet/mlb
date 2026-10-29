@@ -179,8 +179,11 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 			case upd := <-c.updChan: // Backends changed
 				switch upd.Kind {
 				case backend.UpdBackendAdded, backend.UpdBackendModified:
+					if upd.Backend == nil {
+						continue
+					}
 					// Add/Update the backend while preserving the consul_kv bucket
-					c.backends.Update(upd.Backend, "consul_kv")
+					c.backends.Update(upd.Backend.Clone(), "consul_kv")
 
 					// Set default values if they are missing
 					b := c.backends.Get(upd.Address)
