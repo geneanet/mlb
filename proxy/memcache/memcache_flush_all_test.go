@@ -6,6 +6,7 @@ import (
 	"context"
 	"mlb/backend"
 	"mlb/metrics"
+	"mlb/testutil"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -147,14 +148,13 @@ func TestMemcacheProxyFlushAll_Broadcast(t *testing.T) {
 
 	// Send flush_all with noreply
 	_, _ = client.Write([]byte("flush_all noreply\r\n"))
-	// Give a moment for asynchronous dispatch
-	time.Sleep(50 * time.Millisecond)
 
+	// Verify ALL backends received second flush_all asynchronously
 	for i := 0; i < backendCount; i++ {
-		count := flushCounts[i].Load()
-		if count != 2 {
-			t.Errorf("backend %d received %d flush_all after noreply, expected 2", i, count)
-		}
+		idx := i
+		testutil.Eventually(t, func() bool {
+			return flushCounts[idx].Load() == 2
+		}, 1*time.Second, 10*time.Millisecond)
 	}
 }
 

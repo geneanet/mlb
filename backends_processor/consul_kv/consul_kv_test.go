@@ -530,17 +530,16 @@ func TestConsulKV_Watcher_CancelBlockedOnChannel(t *testing.T) {
 		return fetched.Load()
 	}, 1*time.Second, 10*time.Millisecond)
 
-	// Give a few ms for the watcher to reach w.channel <- msg
-	time.Sleep(20 * time.Millisecond)
-
 	// Cancel context
 	cancel()
 
 	// Watcher goroutine MUST exit cleanly
-	select {
-	case <-w.done:
-		// Success
-	case <-time.After(1 * time.Second):
-		t.Fatal("watcher goroutine failed to exit after context cancellation")
-	}
+	testutil.Eventually(t, func() bool {
+		select {
+		case <-w.done:
+			return true
+		default:
+			return false
+		}
+	}, 1*time.Second, 10*time.Millisecond)
 }
