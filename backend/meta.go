@@ -3,6 +3,7 @@ package backend
 import (
 	"encoding/json"
 	"sync"
+	"unsafe"
 
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
@@ -45,13 +46,14 @@ func (m *MetaMap) Set(bucket string, key string, value cty.Value) {
 
 // Update replaces all metadata with the provided ones, except for the specified buckets that are preserved.
 func (m *MetaMap) Update(source *MetaMap, except ...string) {
-	if m == source {
+	if m == source || source == nil {
 		return
 	}
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
 
 	new := source.Clone()
+
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 
 	for _, k := range except {
 		if v, ok := m.data[k]; ok {
@@ -95,11 +97,20 @@ func (m *MetaMap) Equal(other *MetaMap) bool {
 	if m == other {
 		return true
 	}
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
+	if m == nil || other == nil {
+		return false
+	}
 
-	other.mutex.RLock()
-	defer other.mutex.RUnlock()
+	first, second := m, other
+	if uintptr(unsafe.Pointer(first)) > uintptr(unsafe.Pointer(second)) {
+		first, second = second, first
+	}
+
+	first.mutex.RLock()
+	defer first.mutex.RUnlock()
+
+	second.mutex.RLock()
+	defer second.mutex.RUnlock()
 
 	if len(m.data) != len(other.data) {
 		return false

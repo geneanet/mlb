@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/zclconf/go-cty/cty"
 )
@@ -202,6 +203,65 @@ func TestMetaMap_MarshalJSON_Concurrent(t *testing.T) {
 		}
 	}
 
+	close(done)
+	wg.Wait()
+}
+
+// TestMetaMap_CrossUpdate_NoDeadlock verifies that concurrent cross-updates and cross-equals do not deadlock.
+func TestMetaMap_CrossUpdate_NoDeadlock(t *testing.T) {
+	m1 := NewEmptyMetaMap(0)
+	m1.Set("b1", "k1", cty.StringVal("v1"))
+
+	m2 := NewEmptyMetaMap(0)
+	m2.Set("b2", "k2", cty.StringVal("v2"))
+
+	var wg sync.WaitGroup
+	done := make(chan struct{})
+
+	// Goroutine 1: m1.Update(m2)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				m1.Update(m2)
+			}
+		}
+	}()
+
+	// Goroutine 2: m2.Update(m1)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				m2.Update(m1)
+			}
+		}
+	}()
+
+	// Goroutine 3: m1.Equal(m2) and m2.Equal(m1)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				_ = m1.Equal(m2)
+				_ = m2.Equal(m1)
+			}
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
 	close(done)
 	wg.Wait()
 }
