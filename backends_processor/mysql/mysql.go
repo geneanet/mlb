@@ -496,26 +496,30 @@ func (c *MySQLCheck) fetchReplicaLatency() (retReplicaLatency cty.Value, retErr 
 
 			result, err := c.db.QueryContext(ctx, "SHOW REPLICA STATUS")
 			if err != nil {
-				return err
+				// Fallback to SHOW SLAVE STATUS for MySQL < 8.0.22 and MariaDB
+				result, err = c.db.QueryContext(ctx, "SHOW SLAVE STATUS")
+				if err != nil {
+					return err
+				}
 			}
 			defer result.Close()
 
 			// If we have a row
 			if result.Next() {
-				// Find the column index for Seconds_Behind_Source
+				// Find the column index for Seconds_Behind_Source or Seconds_Behind_Master
 				columns, err := result.Columns()
 				if err != nil {
 					return err
 				}
 				sbsColumn := -1
 				for i := range columns {
-					if columns[i] == "Seconds_Behind_Source" {
+					if columns[i] == "Seconds_Behind_Source" || columns[i] == "Seconds_Behind_Master" {
 						sbsColumn = i
 						break
 					}
 				}
 				if sbsColumn == -1 {
-					return fmt.Errorf("column Seconds_Behind_Source not found in SHOW REPLICA STATUS")
+					return fmt.Errorf("column Seconds_Behind_Source or Seconds_Behind_Master not found in replica status")
 				}
 
 				// Create the buffer and scan the row

@@ -106,10 +106,20 @@ func (s *mockStmt) Query(args []driver.Value) (driver.Rows, error) {
 		if s.conn.name == "err_replica" {
 			return nil, errors.New("err replica")
 		}
+		if s.conn.name == "fallback_slave" {
+			return nil, errors.New("Error 1064 (42000): You have an error in your SQL syntax near 'REPLICA STATUS'")
+		}
 		return &mockRows{
 			columns: []string{"Seconds_Behind_Source", "DummyColumn"},
 			data:    [][]driver.Value{{int64(5), "dummy"}},
 		}, nil
+	case "SHOW SLAVE STATUS":
+		if s.conn.name == "fallback_slave" {
+			return &mockRows{
+				columns: []string{"Seconds_Behind_Master", "DummyColumn"},
+				data:    [][]driver.Value{{int64(42), "dummy"}},
+			}, nil
+		}
 	}
 	return nil, errors.New("unknown query")
 }
@@ -447,5 +457,30 @@ backends_processor "mysql" "test" {
 	config := parseMySQLCheckerConfig(cfg)
 	if config == nil {
 		t.Fatal("expected config not to be nil even on error")
+	}
+}
+
+func TestMySQL_FetchReplicaLatency_FallbackToSlaveStatus(t *testing.T) {
+	setMySQLDriverName("mysql_mock")
+	b := backend.NewBackend("127.0.0.1:3306", nil)
+	c := NewMySQLCheck(b, "fallback_slave", time.Millisecond, time.Millisecond, 1.0, time.Millisecond, time.Millisecond, 1.0, 1, time.Minute*5, make(chan *backend.Backend, 1), true)
+	c.ctx, c.cancel = context.WithCancel(context.Background())
+	defer c.cancel()
+	c.ticker = misc.NewExponentialBackoffTicker(time.Millisecond, time.Millisecond, 1.0)
+	var err error
+	c.db, err = sql.Open("mysql_mock", "fallback_slave")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	val, err := c.fetchReplicaLatency()
+	if err != nil {
+		t.Fatalf("expected nil error on fallback, got %v", err)
+	}
+
+	bf := val.AsBigFloat()
+	intVal, _ := bf.Int64()
+	if intVal != 42 {
+		t.Fatalf("expected replica_latency 42, got %d", intVal)
 	}
 }
