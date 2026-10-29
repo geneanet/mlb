@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/zclconf/go-cty/cty"
 )
@@ -215,20 +214,15 @@ func TestMetaMap_CrossUpdate_NoDeadlock(t *testing.T) {
 	m2 := NewEmptyMetaMap(0)
 	m2.Set("b2", "k2", cty.StringVal("v2"))
 
+	const iterations = 500
 	var wg sync.WaitGroup
-	done := make(chan struct{})
 
 	// Goroutine 1: m1.Update(m2)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for {
-			select {
-			case <-done:
-				return
-			default:
-				m1.Update(m2)
-			}
+		for i := 0; i < iterations; i++ {
+			m1.Update(m2)
 		}
 	}()
 
@@ -236,13 +230,8 @@ func TestMetaMap_CrossUpdate_NoDeadlock(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for {
-			select {
-			case <-done:
-				return
-			default:
-				m2.Update(m1)
-			}
+		for i := 0; i < iterations; i++ {
+			m2.Update(m1)
 		}
 	}()
 
@@ -250,19 +239,12 @@ func TestMetaMap_CrossUpdate_NoDeadlock(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for {
-			select {
-			case <-done:
-				return
-			default:
-				_ = m1.Equal(m2)
-				_ = m2.Equal(m1)
-			}
+		for i := 0; i < iterations; i++ {
+			_ = m1.Equal(m2)
+			_ = m2.Equal(m1)
 		}
 	}()
 
-	time.Sleep(100 * time.Millisecond)
-	close(done)
 	wg.Wait()
 }
 
