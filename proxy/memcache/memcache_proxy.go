@@ -787,7 +787,7 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 	}
 
 	if len(groups) == 0 {
-		_ = q.Reply([]byte("END\r\n"))
+		_ = q.Reply([]byte("SERVER_ERROR no backend available\r\n"))
 		return
 	}
 
@@ -803,6 +803,7 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 	for b, bKeys := range groups {
 		conn := p.backendConnectionPool.Get(b.Address)
 		if conn == nil {
+			p.log.Warn().Str("backend", b.Address).Msg("Unable to get backend connection for multi-get")
 			continue
 		}
 
@@ -819,6 +820,7 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 
 		if err := conn.Query(bq); err != nil {
 			close(respStopChan)
+			p.log.Warn().Str("backend", b.Address).Err(err).Msg("Failed to query backend for multi-get")
 			continue
 		}
 
@@ -837,6 +839,16 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 				// client disconnected
 			}
 		}(respChan, respStopChan)
+	}
+
+	if len(requests) == 0 {
+		p.log.Warn().Int("groups", len(groups)).Msg("All backends failed for multi-get")
+		_ = q.Reply([]byte("SERVER_ERROR backend failure\r\n"))
+		return
+	}
+
+	if len(requests) < len(groups) {
+		p.log.Warn().Int("requested_backends", len(groups)).Int("active_backends", len(requests)).Msg("Partial failure in multi-get: some backends could not be reached")
 	}
 
 	// ponytail: ensure all backend queries are either completed or aborted before returning.

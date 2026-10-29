@@ -187,3 +187,157 @@ func TestMemcacheProxy_MultiGetPartialFailure(t *testing.T) {
 		t.Errorf("PROTOCOL VIOLATION: Mixed data and error in multi-get: %q", result)
 	}
 }
+
+func TestMemcacheProxy_MultiGetAllBackendsFail(t *testing.T) {
+	// Backend that immediately closes listeners
+	lBack, _ := net.Listen("tcp", "127.0.0.1:0")
+	addr := lBack.Addr().String()
+	_ = lBack.Close()
+
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	proxy := &MemcacheProxy{
+		id:                       "test_multiget_all_fail",
+		log:                      zerolog.Nop(),
+		closeTimeout:             time.Second,
+		connectTimeout:           100 * time.Millisecond,
+		backendMinConnections:    1,
+		backendMaxConnections:    1,
+		backendInputQueueSize:    1024,
+		backendInflightQueueSize: 512,
+		wg:                       wg,
+		ctx:                      ctx,
+		cancel:                   cancel,
+		beMetricsCache:           make(map[string]*Metrics),
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
+		ring:      newMemcacheHashRing(),
+		backends:  backend.NewRegistry(zerolog.Nop(), false),
+		readyChan: make(chan struct{}),
+	}
+	proxy.backendConnectionPool = NewMemcacheBackendConnectionPool(proxy)
+
+	b := backend.NewBackend(addr, nil)
+	proxy.backends.Add(b)
+	proxy.ring.update(proxy.backends.GetList())
+	// Note: backendConnectionPool will fail to connect
+
+	lFront, _ := net.Listen("tcp", "127.0.0.1:0")
+	defer lFront.Close()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			conn, err := lFront.Accept()
+			if err != nil {
+				return
+			}
+			proxy.connectionsWG.Add(1)
+			go proxy.handleConnection(conn, &Metrics{
+				processed: metrics.FeCnxProcessed.WithLabelValues("test_all_fail", "test_all_fail"),
+				active:    metrics.FeActCnx.WithLabelValues("test_all_fail", "test_all_fail"),
+				bytesIn:   metrics.FeBytesIn.WithLabelValues("test_all_fail", "test_all_fail"),
+				bytesOut:  metrics.FeBytesOut.WithLabelValues("test_all_fail", "test_all_fail"),
+				cnxErrors: metrics.FeCnxErrors.WithLabelValues("test_all_fail", "test_all_fail"),
+				requests:  metrics.FeRequests.WithLabelValues("test_all_fail", "test_all_fail"),
+			})
+		}
+	}()
+
+	client, err := net.Dial("tcp", lFront.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	_, _ = client.Write([]byte("get key1 key2\r\n"))
+	reader := bufio.NewReader(client)
+	_ = client.SetDeadline(time.Now().Add(2 * time.Second))
+	resp, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("failed to read response: %v", err)
+	}
+
+	if resp != "SERVER_ERROR backend failure\r\n" {
+		t.Fatalf("expected 'SERVER_ERROR backend failure\\r\\n', got %q", resp)
+	}
+}
+
+func TestMemcacheProxy_MultiGetNoBackend(t *testing.T) {
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	proxy := &MemcacheProxy{
+		id:                       "test_multiget_no_be",
+		log:                      zerolog.Nop(),
+		closeTimeout:             time.Second,
+		connectTimeout:           100 * time.Millisecond,
+		backendMinConnections:    1,
+		backendMaxConnections:    1,
+		backendInputQueueSize:    1024,
+		backendInflightQueueSize: 512,
+		wg:                       wg,
+		ctx:                      ctx,
+		cancel:                   cancel,
+		beMetricsCache:           make(map[string]*Metrics),
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
+		ring:      newMemcacheHashRing(),
+		backends:  backend.NewRegistry(zerolog.Nop(), false),
+		readyChan: make(chan struct{}),
+	}
+	proxy.backendConnectionPool = NewMemcacheBackendConnectionPool(proxy)
+
+	lFront, _ := net.Listen("tcp", "127.0.0.1:0")
+	defer lFront.Close()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			conn, err := lFront.Accept()
+			if err != nil {
+				return
+			}
+			proxy.connectionsWG.Add(1)
+			go proxy.handleConnection(conn, &Metrics{
+				processed: metrics.FeCnxProcessed.WithLabelValues("test_no_be", "test_no_be"),
+				active:    metrics.FeActCnx.WithLabelValues("test_no_be", "test_no_be"),
+				bytesIn:   metrics.FeBytesIn.WithLabelValues("test_no_be", "test_no_be"),
+				bytesOut:  metrics.FeBytesOut.WithLabelValues("test_no_be", "test_no_be"),
+				cnxErrors: metrics.FeCnxErrors.WithLabelValues("test_no_be", "test_no_be"),
+				requests:  metrics.FeRequests.WithLabelValues("test_no_be", "test_no_be"),
+			})
+		}
+	}()
+
+	client, err := net.Dial("tcp", lFront.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	_, _ = client.Write([]byte("get key1 key2\r\n"))
+	reader := bufio.NewReader(client)
+	_ = client.SetDeadline(time.Now().Add(2 * time.Second))
+	resp, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("failed to read response: %v", err)
+	}
+
+	if resp != "SERVER_ERROR no backend available\r\n" {
+		t.Fatalf("expected 'SERVER_ERROR no backend available\\r\\n', got %q", resp)
+	}
+}
