@@ -177,18 +177,6 @@ func newRedisChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 	if err != nil {
 		return nil, err
 	}
-	c.connectTimeout, err = time.ParseDuration(config.ConnectTimeout)
-	if err != nil {
-		return nil, err
-	}
-	c.readTimeout, err = time.ParseDuration(config.ReadTimeout)
-	if err != nil {
-		return nil, err
-	}
-	c.writeTimeout, err = time.ParseDuration(config.WriteTimeout)
-	if err != nil {
-		return nil, err
-	}
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
 
