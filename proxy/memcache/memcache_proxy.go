@@ -658,14 +658,26 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 			continue
 		}
 
-		// Retrieval commands: <command> <key>*\r\n
-		if bytes.Equal(cmd, []byte("get")) || bytes.Equal(cmd, []byte("gets")) || bytes.Equal(cmd, []byte("gat")) || bytes.Equal(cmd, []byte("gats")) {
+		// Retrieval commands: get/gets <key>*\r\n
+		if bytes.Equal(cmd, []byte("get")) || bytes.Equal(cmd, []byte("gets")) {
 			if len(fields) < 2 {
 				_ = query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
 				p.releaseFields(fieldsPtr)
 				continue
 			}
 			p.handleMultiGet(query, string(cmd), fields[1:])
+			p.releaseFields(fieldsPtr)
+			continue
+		}
+
+		// Retrieval commands with exptime: gat/gats <exptime> <key>*\r\n
+		if bytes.Equal(cmd, []byte("gat")) || bytes.Equal(cmd, []byte("gats")) {
+			if len(fields) < 3 {
+				_ = query.Reply([]byte("CLIENT_ERROR bad command line format\r\n"))
+				p.releaseFields(fieldsPtr)
+				continue
+			}
+			p.handleMultiGet(query, string(cmd)+" "+string(fields[1]), fields[2:])
 			p.releaseFields(fieldsPtr)
 			continue
 		}
