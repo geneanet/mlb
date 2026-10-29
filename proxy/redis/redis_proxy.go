@@ -288,30 +288,57 @@ func (p *RedisProxy) listen(address string, wg *sync.WaitGroup) error {
 	})
 
 	wg.Add(1)
-	go func() {
-		defer p.log.Info().Str("address", address).Msg("Frontend closed")
-		defer listener.Close()
-		defer wg.Done()
-		defer p.cancel()
-
-		for {
-			conn, err := listener.Accept()
-			if errors.Is(err, net.ErrClosed) {
-				break
-			}
-			if err != nil {
-				p.log.Error().Err(err).Str("address", address).Msg("Error accepting connection")
-				continue
-			}
-			p.connectionsWG.Add(1)
-			go p.handleConnection(conn, feMetrics)
-		}
-
-		p.log.Debug().Str("address", address).Msg("Waiting for active connections to close")
-		p.connectionsWG.Wait()
-	}()
+	go p.acceptLoop(listener, address, wg, feMetrics)
 
 	return nil
+}
+
+func (p *RedisProxy) acceptLoop(listener net.Listener, address string, wg *sync.WaitGroup, feMetrics *Metrics) {
+	defer p.log.Info().Str("address", address).Msg("Frontend closed")
+	defer listener.Close()
+	defer wg.Done()
+	defer p.cancel()
+
+	var tempDelay time.Duration
+
+	for {
+		conn, err := listener.Accept()
+		if errors.Is(err, net.ErrClosed) {
+			break
+		}
+		if err != nil {
+			select {
+			case <-p.ctx.Done():
+				return
+			default:
+			}
+
+			if tempDelay == 0 {
+				tempDelay = 5 * time.Millisecond
+			} else {
+				tempDelay *= 2
+			}
+			if tempDelay > 1*time.Second {
+				tempDelay = 1 * time.Second
+			}
+
+			p.log.Error().Err(err).Str("address", address).Dur("retrying_in", tempDelay).Msg("Error accepting connection")
+
+			select {
+			case <-time.After(tempDelay):
+			case <-p.ctx.Done():
+				return
+			}
+			continue
+		}
+		tempDelay = 0
+
+		p.connectionsWG.Add(1)
+		go p.handleConnection(conn, feMetrics)
+	}
+
+	p.log.Debug().Str("address", address).Msg("Waiting for active connections to close")
+	p.connectionsWG.Wait()
 }
 
 func (p *RedisProxy) releaseBuffer(b []byte) {
