@@ -129,6 +129,9 @@ func (m *MetaMap) Clone() *MetaMap {
 
 // MarshalJSON implements the json.Marshaler interface.
 func (m *MetaMap) MarshalJSON() ([]byte, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
 	return json.Marshal(m.data)
 }
 

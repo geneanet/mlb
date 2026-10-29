@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"sync"
 	"testing"
 
 	"github.com/zclconf/go-cty/cty"
@@ -169,6 +170,40 @@ func TestMetaMap_MarshalJSON(t *testing.T) {
 	if unmarshaled["b1"] == nil {
 		t.Fatalf("expected b1 in JSON")
 	}
+}
+
+// TestMetaMap_MarshalJSON_Concurrent verifies that MarshalJSON is race-free under concurrent writes.
+func TestMetaMap_MarshalJSON_Concurrent(t *testing.T) {
+	m := NewEmptyMetaMap(0)
+	m.Set("b1", "k1", cty.StringVal("v1"))
+
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					m.Set("b1", "k1", cty.StringVal("v2"))
+				}
+			}
+		}()
+	}
+
+	for i := 0; i < 50; i++ {
+		_, err := m.MarshalJSON()
+		if err != nil {
+			t.Errorf("unexpected error in MarshalJSON: %v", err)
+		}
+	}
+
+	close(done)
+	wg.Wait()
 }
 
 // TestMetaBucket_Equal tests equality between individual MetaBucket objects.
