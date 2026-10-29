@@ -1,6 +1,6 @@
 # MLB - Instructions pour les Agents IA & Développeurs
 
-MLB (Modular Load Balancer) est un répartiteur de charge L4/L7 haute performance écrit en Go 1.26, conçu pour une haute disponibilité avec rechargements sans coupure (*zero-downtime reloads*).
+MLB (Modular Load Balancer) est un répartiteur de charge L4/L7 haute performance écrit en Go 1.27, conçu pour une haute disponibilité avec rechargements sans coupure (*zero-downtime reloads*).
 
 ---
 

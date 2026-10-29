@@ -6,7 +6,7 @@ This document covers running MLB in production, including installation, CLI argu
 
 ### Building from Source
 
-To build MLB from source, you need Go 1.26+:
+To build MLB from source, you need Go 1.27+:
 
 ```bash
 # Basic build (version will be "dev")
