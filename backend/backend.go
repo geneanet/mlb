@@ -126,6 +126,9 @@ func (r *Registry) MarkReady() {
 
 // Ready returns a channel that is closed when the registry is marked ready.
 func (r *Registry) Ready() <-chan struct{} {
+	if r == nil {
+		return nil
+	}
 	return r.readyChan
 }
 
@@ -161,6 +164,9 @@ func (r *Registry) Wait(ctx context.Context) error {
 
 // Get retrieves a backend by its address.
 func (r *Registry) Get(address string) *Backend {
+	if r == nil {
+		return nil
+	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.backends[address]
@@ -168,6 +174,9 @@ func (r *Registry) Get(address string) *Backend {
 
 // GetList returns a slice containing all current backends.
 func (r *Registry) GetList() BackendsList {
+	if r == nil {
+		return nil
+	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return slices.Collect(maps.Values(r.backends))
@@ -176,6 +185,9 @@ func (r *Registry) GetList() BackendsList {
 // GetRandom returns a random backend from the registry, or nil if empty.
 // It leverages Go's map iteration randomization to avoid allocations.
 func (r *Registry) GetRandom() *Backend {
+	if r == nil {
+		return nil
+	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if len(r.backends) == 0 {
@@ -242,6 +254,9 @@ func (r *Registry) Remove(address string) {
 
 // Has checks if a backend with the given address exists in the registry.
 func (r *Registry) Has(address string) bool {
+	if r == nil {
+		return false
+	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	_, ok := r.backends[address]

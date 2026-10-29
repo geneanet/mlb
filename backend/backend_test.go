@@ -196,6 +196,27 @@ func TestRegistry_Lists(t *testing.T) {
 	}
 }
 
+// TestRegistry_NilReceiver verifies that calling read-only methods on a nil *Registry is safe and returns defaults without panicking.
+func TestRegistry_NilReceiver(t *testing.T) {
+	var r *Registry
+
+	if got := r.GetList(); got != nil {
+		t.Errorf("expected nil BackendsList, got %v", got)
+	}
+	if got := r.Get("10.0.0.1"); got != nil {
+		t.Errorf("expected nil *Backend, got %v", got)
+	}
+	if got := r.GetRandom(); got != nil {
+		t.Errorf("expected nil *Backend, got %v", got)
+	}
+	if got := r.Has("10.0.0.1"); got {
+		t.Errorf("expected Has to return false for nil registry")
+	}
+	if got := r.Ready(); got != nil {
+		t.Errorf("expected Ready() to return nil channel for nil registry")
+	}
+}
+
 // TestRegistry_Update tests the conditional update of backends in the map.
 // it verifies that existing backends' metadata is merged and new backends are added.
 func TestRegistry_Update(t *testing.T) {

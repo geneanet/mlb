@@ -287,6 +287,7 @@ func TestMemcacheBackendConnectionPool_Get_SkipUnhealthy(t *testing.T) {
 		id:             "test-proxy",
 		log:            zerolog.Nop(),
 		ctx:            ctx,
+		backends:       backend.NewRegistry(zerolog.Nop(), false),
 		beMetricsCache: make(map[string]*Metrics),
 		readyChan:      make(chan struct{}),
 	}
@@ -374,4 +375,21 @@ func TestMemcacheBackendConnectionPool_NotifyFailure(t *testing.T) {
 			t.Errorf("dummyConn still in pool after NotifyFailure")
 		}
 	}
+}
+
+func TestMemcacheBackendConnectionPool_Update_NilBackends(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p := &MemcacheProxy{
+		id:             "test-proxy",
+		log:            zerolog.Nop(),
+		ctx:            ctx,
+		beMetricsCache: make(map[string]*Metrics),
+		readyChan:      make(chan struct{}),
+	}
+
+	pool := NewMemcacheBackendConnectionPool(p)
+	// Should not panic even if proxy.backends is nil
+	pool.Update()
 }

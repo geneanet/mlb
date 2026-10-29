@@ -28,6 +28,7 @@ func TestMemcacheBackendConnection_AbortInflightQueries_WithPending(t *testing.T
 		connectTimeout:           time.Second,
 		backendInputQueueSize:    10,
 		backendInflightQueueSize: 10,
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
 		beMetricsCache:           make(map[string]*Metrics),
 		readyChan:                make(chan struct{}),
 	}
@@ -36,6 +37,7 @@ func TestMemcacheBackendConnection_AbortInflightQueries_WithPending(t *testing.T
 	proxy.backendConnectionPool = pool
 
 	b := backend.NewBackend(l.Addr().String(), nil)
+	proxy.backends.Add(b)
 
 	// Accept connection to avoid dial error
 	go func() {

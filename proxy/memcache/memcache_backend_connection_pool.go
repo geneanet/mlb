@@ -190,6 +190,10 @@ func (mbcp *MemcacheBackendConnectionPool) Update() {
 	defer mbcp.updateMutex.Unlock()
 
 	mbcp.mutex.Lock()
+	if mbcp.proxy == nil || mbcp.proxy.backends == nil {
+		mbcp.mutex.Unlock()
+		return
+	}
 	backends := mbcp.proxy.backends.GetList()
 
 	validAddresses := make(map[string]bool)
