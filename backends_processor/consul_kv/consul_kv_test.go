@@ -498,3 +498,39 @@ backends_processor "consul_kv" "test" {
 		t.Fatal("expected config not to be nil even on error")
 	}
 }
+
+// TestConsulKV_Watcher_CancelBlockedOnChannel verifies that cancelling the context unblocks
+// the watcher even if the output channel is unbuffered and unread.
+func TestConsulKV_Watcher_CancelBlockedOnChannel(t *testing.T) {
+	var fetched atomic.Bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Consul-Index", "1")
+		_, _ = w.Write([]byte(`[{"Key":"foo","Value":"YmFy"}]`))
+		fetched.Store(true)
+	}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ch := make(chan *consulKVWatcherMessage)
+
+	w := newConsulKVWatcher(backend.NewBackend("foo", nil), "id", ts.URL, "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, ch, ctx, log.Logger)
+
+	// Wait until the watcher has fetched the key from the server
+	testutil.Eventually(t, func() bool {
+		return fetched.Load()
+	}, 1*time.Second, 10*time.Millisecond)
+
+	// Give a few ms for the watcher to reach w.channel <- msg
+	time.Sleep(20 * time.Millisecond)
+
+	// Cancel context
+	cancel()
+
+	// Watcher goroutine MUST exit cleanly
+	select {
+	case <-w.done:
+		// Success
+	case <-time.After(1 * time.Second):
+		t.Fatal("watcher goroutine failed to exit after context cancellation")
+	}
+}

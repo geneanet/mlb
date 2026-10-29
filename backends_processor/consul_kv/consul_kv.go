@@ -315,6 +315,7 @@ type consulKVWatcher struct {
 	ticker  *misc.ExponentialBackoffTicker
 	log     zerolog.Logger
 	index   string
+	done    chan struct{}
 }
 
 // consulKVValue represents the structure of a Consul KV response.
@@ -332,6 +333,7 @@ func newConsulKVWatcher(backend *backend.Backend, id string, url string, key str
 		key:     key,
 		channel: channel,
 		log:     log.With().Str("backend", backend.Address).Str("key", key).Logger(),
+		done:    make(chan struct{}),
 	}
 
 	w.ctx, w.cancel = context.WithCancel(ctx)
@@ -341,6 +343,7 @@ func newConsulKVWatcher(backend *backend.Backend, id string, url string, key str
 	w.ticker = misc.NewExponentialBackoffTicker(defaultPeriod, maxPeriod, backoffFactor)
 
 	go func() {
+		defer close(w.done)
 		defer w.log.Info().Msg("Consul polling stopped")
 		defer w.cancel()
 		defer w.ticker.Stop()
@@ -370,10 +373,14 @@ func newConsulKVWatcher(backend *backend.Backend, id string, url string, key str
 					}
 					w.log.Info().Str("value", valStr).Msg("Value changed")
 
-					w.channel <- &consulKVWatcherMessage{
+					select {
+					case w.channel <- &consulKVWatcherMessage{
 						backend: w.backend,
 						id:      w.id,
 						value:   valStr,
+					}:
+					case <-w.ctx.Done():
+						return
 					}
 				}
 
