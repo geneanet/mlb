@@ -8,6 +8,7 @@ import (
 	"mlb/backend"
 	"mlb/config"
 	"mlb/metrics"
+	"mlb/misc"
 	"mlb/module"
 	"mlb/system"
 	"mlb/util"
@@ -303,7 +304,7 @@ func (p *RedisProxy) acceptLoop(listener net.Listener, address string, wg *sync.
 	defer wg.Done()
 	defer p.cancel()
 
-	var tempDelay time.Duration
+	backoff := misc.NewExponentialBackoff(5*time.Millisecond, 1*time.Second, 2.0)
 
 	for {
 		conn, err := listener.Accept()
@@ -317,25 +318,19 @@ func (p *RedisProxy) acceptLoop(listener net.Listener, address string, wg *sync.
 			default:
 			}
 
-			if tempDelay == 0 {
-				tempDelay = 5 * time.Millisecond
-			} else {
-				tempDelay *= 2
-			}
-			if tempDelay > 1*time.Second {
-				tempDelay = 1 * time.Second
-			}
+			delay := backoff.Get()
+			p.log.Error().Err(err).Str("address", address).Dur("retrying_in", delay).Msg("Error accepting connection")
 
-			p.log.Error().Err(err).Str("address", address).Dur("retrying_in", tempDelay).Msg("Error accepting connection")
-
+			timer := time.NewTimer(delay)
 			select {
-			case <-time.After(tempDelay):
+			case <-timer.C:
 			case <-p.ctx.Done():
+				timer.Stop()
 				return
 			}
 			continue
 		}
-		tempDelay = 0
+		backoff.Reset()
 
 		p.connectionsWG.Add(1)
 		go p.handleConnection(conn, feMetrics)
