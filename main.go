@@ -86,7 +86,9 @@ func main() {
 	if conf.System != nil {
 		// Adjust max allowed file descriptors
 		if conf.System.RLimit != nil && conf.System.RLimit.NOFile > 0 {
-			system.SetRlimitNOFILE(conf.System.RLimit.NOFile)
+			if err := system.SetRlimitNOFILE(conf.System.RLimit.NOFile); err != nil {
+				log.Warn().Err(err).Uint64("limit", conf.System.RLimit.NOFile).Msg("Failed to set RLIMIT_NOFILE")
+			}
 		}
 
 		// Adjust GOMAXPROCS

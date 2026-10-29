@@ -40,7 +40,7 @@ func SetGoMaxProcs(gomaxprocs int) {
 }
 
 // SetRlimitNOFILE sets the maximum number of open file descriptors.
-func SetRlimitNOFILE(nofile uint64) {
+func SetRlimitNOFILE(nofile uint64) error {
 	var rLimit syscall.Rlimit
 
 	log.Debug().Uint64("value", nofile).Msg("Setting RLIMIT_NOFILE")
@@ -50,6 +50,7 @@ func SetRlimitNOFILE(nofile uint64) {
 
 	err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit)
 	if err != nil {
-		panic(err)
+		return err
 	}
+	return nil
 }

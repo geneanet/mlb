@@ -126,24 +126,18 @@ func TestSetRlimitNOFILE(t *testing.T) {
 	}
 
 	// We use the same value to ensure it's a safe operation.
-	SetRlimitNOFILE(rLimit.Cur)
-
-	// Since we can't easily verify the change without potential side effects
-	// or permission issues, we rely on the fact that SetRlimitNOFILE will panic
-	// if it fails (using an explicit panic).
+	err := SetRlimitNOFILE(rLimit.Cur)
+	if err != nil {
+		t.Fatalf("Failed to set current rlimit: %v", err)
+	}
 }
 
-// TestSetRlimitNOFILE_Fail verifies that SetRlimitNOFILE panics when given an impossible limit.
+// TestSetRlimitNOFILE_Fail verifies that SetRlimitNOFILE returns an error when given an impossible limit.
 func TestSetRlimitNOFILE_Fail(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("Expected panic for impossible rlimit")
-		}
-	}()
-	// Setting rlimit to a very high value (or 0 in some cases) might fail
-	// depending on the system and user permissions.
-	// 1<<63 - 1 is almost certainly impossible to set as both Cur and Max.
-	SetRlimitNOFILE(1<<63 - 1)
+	err := SetRlimitNOFILE(1<<63 - 1)
+	if err == nil {
+		t.Errorf("Expected error for impossible rlimit, got nil")
+	}
 }
 
 // TestDecodeConfigBlock_InvalidBody ensures that decoding fails with errors for invalid HCL bodies.
