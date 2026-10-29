@@ -326,22 +326,24 @@ func (p *MemcacheProxy) readMemcacheResponseFull(r *MemcacheProtocolReader, w io
 		if bytes.HasPrefix(line, []byte("VALUE ")) {
 			fieldsPtr := p.getFields(line)
 			fields := *fieldsPtr
-			if len(fields) >= 4 {
-				// size is fields[3] in ASCII protocol
-				size, err := util.ParseSize(fields[3])
-				if err != nil {
-					p.releaseFields(fieldsPtr)
-					return err
-				}
-				buf, err := r.ReadFull(size + 2) // data + \r\n
-				if err != nil {
-					p.releaseFields(fieldsPtr)
-					return err
-				}
-				if _, err := w.Write(buf); err != nil {
-					p.releaseFields(fieldsPtr)
-					return err
-				}
+			if len(fields) < 4 {
+				p.releaseFields(fieldsPtr)
+				return fmt.Errorf("malformed VALUE header: %s", string(bytes.TrimRight(line, "\r\n")))
+			}
+			// size is fields[3] in ASCII protocol
+			size, err := util.ParseSize(fields[3])
+			if err != nil {
+				p.releaseFields(fieldsPtr)
+				return err
+			}
+			buf, err := r.ReadFull(size + 2) // data + \r\n
+			if err != nil {
+				p.releaseFields(fieldsPtr)
+				return err
+			}
+			if _, err := w.Write(buf); err != nil {
+				p.releaseFields(fieldsPtr)
+				return err
 			}
 			p.releaseFields(fieldsPtr)
 		} else if bytes.HasPrefix(line, []byte("VA ")) {
@@ -349,22 +351,24 @@ func (p *MemcacheProxy) readMemcacheResponseFull(r *MemcacheProtocolReader, w io
 			// ponytail: Meta Value (VA) uses fields[1] for size.
 			fieldsPtr := p.getFields(line)
 			fields := *fieldsPtr
-			if len(fields) >= 2 {
-				// size is fields[1] in Meta protocol
-				size, err := util.ParseSize(fields[1])
-				if err != nil {
-					p.releaseFields(fieldsPtr)
-					return err
-				}
-				buf, err := r.ReadFull(size + 2) // data + \r\n
-				if err != nil {
-					p.releaseFields(fieldsPtr)
-					return err
-				}
-				if _, err := w.Write(buf); err != nil {
-					p.releaseFields(fieldsPtr)
-					return err
-				}
+			if len(fields) < 2 {
+				p.releaseFields(fieldsPtr)
+				return fmt.Errorf("malformed VA header: %s", string(bytes.TrimRight(line, "\r\n")))
+			}
+			// size is fields[1] in Meta protocol
+			size, err := util.ParseSize(fields[1])
+			if err != nil {
+				p.releaseFields(fieldsPtr)
+				return err
+			}
+			buf, err := r.ReadFull(size + 2) // data + \r\n
+			if err != nil {
+				p.releaseFields(fieldsPtr)
+				return err
+			}
+			if _, err := w.Write(buf); err != nil {
+				p.releaseFields(fieldsPtr)
+				return err
 			}
 			p.releaseFields(fieldsPtr)
 			// VA is a final response for a single mg command

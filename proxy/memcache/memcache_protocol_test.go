@@ -133,6 +133,46 @@ func TestReadMemcacheResponseFull(t *testing.T) {
 	}
 }
 
+func TestReadMemcacheResponseFull_MalformedHeaders(t *testing.T) {
+	p := &MemcacheProxy{
+		backendMinConnections:    1,
+		backendMaxConnections:    1,
+		backendInputQueueSize:    1024,
+		backendInflightQueueSize: 512,
+		beMetricsCache:           make(map[string]*Metrics),
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
+		readyChan: make(chan struct{}),
+	}
+
+	malformedInputs := []struct {
+		name  string
+		input string
+	}{
+		{"TruncatedValue_3Fields", "VALUE key 0\r\ndata\r\nEND\r\n"},
+		{"TruncatedValue_2Fields", "VALUE key\r\ndata\r\nEND\r\n"},
+		{"TruncatedValue_1Field", "VALUE \r\ndata\r\nEND\r\n"},
+		{"TruncatedVA_1Field", "VA \r\ndata\r\n"},
+	}
+
+	for _, tt := range malformedInputs {
+		t.Run(tt.name, func(t *testing.T) {
+			r := NewMemcacheProtocolReader(bytes.NewReader([]byte(tt.input)), 1024)
+			defer r.Release()
+			buf := new(bytes.Buffer)
+			q := MemcacheQuery{}
+			err := p.readMemcacheResponseFull(r, buf, q)
+			if err == nil {
+				t.Fatalf("expected error for malformed input %q, got nil (buffer: %q)", tt.input, buf.String())
+			}
+		})
+	}
+}
+
 func TestReleaseBuffer(t *testing.T) {
 	// 1. Test too small buffer
 	smallBuf := bytes.NewBuffer(make([]byte, 0, 1024))
