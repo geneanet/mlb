@@ -447,12 +447,30 @@ func parseInfoResponse(infoResult string) (retRole cty.Value, retReadonly cty.Va
 	return cty.StringVal(role), cty.BoolVal(role != "master"), cty.NumberIntVal(slaves), cty.StringVal(masterLinkStatus), cty.BoolVal(masterSyncInProgress)
 }
 
+func (c *RedisCheck) reconnect() {
+	log.Info().Str("address", c.backend.Address).Msg("Reconnecting Redis")
+	if c.client != nil {
+		_ = c.client.Close()
+	}
+	c.client = redis.NewClient(&redis.Options{
+		Addr:         c.backend.Address,
+		Password:     c.password,
+		DialTimeout:  c.connectTimeout,
+		ReadTimeout:  c.readTimeout,
+		WriteTimeout: c.writeTimeout,
+	})
+
+	// Slow down polling frequency if errors persist.
+	if period, updated := c.ticker.ApplyBackoff(); updated {
+		log.Warn().Str("address", c.backend.Address).Dur("period", period).Msg("Updating fetch period")
+	}
+}
+
 // fetchStatus probes the Redis instance to determine its current status and role.
 // It prioritizes the ROLE command and falls back to INFO replication for older versions.
 func (c *RedisCheck) fetchStatus() (retStatus cty.Value, retRole cty.Value, retReadonly cty.Value, retSlaves cty.Value, retMasterLinkStatus cty.Value, retMasterSyncInProgress cty.Value, retErr error) {
 	defer func() {
-		// Recovery block to handle network errors or Redis restarts.
-		// If an error occurs, we attempt to recreate the client and apply an exponential backoff.
+		// Recovery block to handle unexpected panics.
 		if r := recover(); r != nil {
 			retStatus = cty.StringVal("err")
 			retRole = cty.UnknownVal(cty.String)
@@ -465,24 +483,7 @@ func (c *RedisCheck) fetchStatus() (retStatus cty.Value, retRole cty.Value, retR
 			} else {
 				retErr = fmt.Errorf("%v", r)
 			}
-
-			// Reconnect on error to ensure we start from a clean state next iteration.
-			log.Info().Str("address", c.backend.Address).Msg("Reconnecting Redis")
-			if c.client != nil {
-				_ = c.client.Close()
-			}
-			c.client = redis.NewClient(&redis.Options{
-				Addr:         c.backend.Address,
-				Password:     c.password,
-				DialTimeout:  c.connectTimeout,
-				ReadTimeout:  c.readTimeout,
-				WriteTimeout: c.writeTimeout,
-			})
-
-			// Slow down polling frequency if errors persist.
-			if period, updated := c.ticker.ApplyBackoff(); updated {
-				log.Warn().Str("address", c.backend.Address).Dur("period", period).Msg("Updating fetch period")
-			}
+			c.reconnect()
 		}
 	}()
 
@@ -514,7 +515,8 @@ func (c *RedisCheck) fetchStatus() (retStatus cty.Value, retRole cty.Value, retR
 	}
 
 	if err != nil {
-		panic(err)
+		c.reconnect()
+		return cty.StringVal("err"), cty.UnknownVal(cty.String), cty.UnknownVal(cty.Bool), cty.UnknownVal(cty.Number), cty.UnknownVal(cty.String), cty.UnknownVal(cty.Bool), err
 	}
 
 	retRole, retReadonly, retSlaves, retMasterLinkStatus, retMasterSyncInProgress = parseInfoResponse(infoResult)

@@ -418,17 +418,20 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 			// Upgrade path: wait on multiple providers or implement a more complex fallback strategy.
 			backend, release = p.backendProviders[0].GetBackend(true)
 		} else {
-			panic(errors.New("no backend provider configured"))
+			p.log.Error().Stringer("peer", peerAddress).Msg("no backend provider configured")
+			feMetrics.cnxErrors.Inc()
+			return
 		}
+	}
+
+	if backend == nil {
+		p.log.Error().Stringer("peer", peerAddress).Msg("no backend found")
+		feMetrics.cnxErrors.Inc()
+		return
 	}
 	defer release()
 
-	var backendAddress string
-	if backend != nil {
-		backendAddress = backend.Address
-	} else {
-		panic(errors.New("no backend found"))
-	}
+	backendAddress := backend.Address
 
 	if p.closeOnBackendRemoval && backend.Ctx != nil {
 		stopReset := context.AfterFunc(backend.Ctx, func() {
@@ -456,7 +459,9 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	}
 	connBack, err := dialer.DialContext(p.ctx, "tcp", backendAddress)
 	if err != nil {
-		panic(err)
+		p.log.Error().Err(err).Stringer("peer", peerAddress).Str("backend", backendAddress).Msg("Error connecting to backend")
+		feMetrics.cnxErrors.Inc()
+		return
 	}
 
 	// Prometheus

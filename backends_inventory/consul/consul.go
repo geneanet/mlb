@@ -232,30 +232,30 @@ func (c *BackendsInventoryConsul) fetch() (retServices consulServicesSlice, retE
 
 	rq, err := http.NewRequestWithContext(ctx, "GET", c.url+"/v1/health/service/"+c.service+"?index="+c.index+"&timeout=60s", nil)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	resp, err := http.DefaultClient.Do(rq)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	c.log.Debug().Int("status", resp.StatusCode).Msg("Service list fetched")
 
 	if resp.StatusCode != 200 {
-		panic(fmt.Errorf("unexpected status code %s", resp.Status))
+		return nil, fmt.Errorf("unexpected status code %s", resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	var data consulServicesSlice
 	err = json.Unmarshal(body, &data)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	c.index = resp.Header.Get("X-Consul-Index")

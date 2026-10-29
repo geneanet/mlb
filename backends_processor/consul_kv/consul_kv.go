@@ -419,12 +419,12 @@ func (w *consulKVWatcher) fetch() (retValue cty.Value, retError error) {
 
 	rq, err := http.NewRequestWithContext(ctx, "GET", w.url+"/v1/kv/"+w.key+"?index="+w.index+"&timeout=60s", nil)
 	if err != nil {
-		panic(err)
+		return cty.UnknownVal(cty.String), err
 	}
 
 	resp, err := http.DefaultClient.Do(rq)
 	if err != nil {
-		panic(err)
+		return cty.UnknownVal(cty.String), err
 	}
 	defer resp.Body.Close()
 
@@ -433,23 +433,26 @@ func (w *consulKVWatcher) fetch() (retValue cty.Value, retError error) {
 	if resp.StatusCode == 404 {
 		return cty.UnknownVal(cty.String), nil
 	} else if resp.StatusCode != 200 {
-		panic(fmt.Errorf("unexpected status code %s", resp.Status))
+		return cty.UnknownVal(cty.String), fmt.Errorf("unexpected status code %s", resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		panic(err)
+		return cty.UnknownVal(cty.String), err
 	}
 
 	data := []consulKVValue{}
 	err = json.Unmarshal(body, &data)
 	if err != nil {
-		panic(err)
+		return cty.UnknownVal(cty.String), err
+	}
+	if len(data) == 0 {
+		return cty.UnknownVal(cty.String), errors.New("empty response from consul kv")
 	}
 
 	dataDecoded, err := base64.StdEncoding.DecodeString(data[0].Value)
 	if err != nil {
-		panic(err)
+		return cty.UnknownVal(cty.String), err
 	}
 
 	dataStr := string(dataDecoded)

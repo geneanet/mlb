@@ -461,7 +461,7 @@ func (c *MySQLCheck) fetchReadOnly() (retReadonly cty.Value, retErr error) {
 	}
 
 	if err != nil {
-		panic(err)
+		return cty.BoolVal(false), err
 	}
 
 	return cty.BoolVal(readOnly), nil
@@ -551,13 +551,31 @@ func (c *MySQLCheck) fetchReplicaLatency() (retReplicaLatency cty.Value, retErr 
 	}
 
 	if err != nil {
-		if err.Error() == "column Seconds_Behind_Source not found in SHOW REPLICA STATUS" {
-			return cty.NumberIntVal(-1), err
-		}
-		panic(err)
+		return cty.NumberIntVal(-1), err
 	}
 
 	return cty.NumberIntVal(replicationLatency), nil
+}
+
+func (c *MySQLCheck) reopenDB() {
+	log.Info().Str("address", c.backend.Address).Msg("Reopening MySQL connection")
+	if c.db != nil {
+		_ = c.db.Close()
+	}
+	db, err := sql.Open(getMySQLDriverName(), c.dsn)
+	if err != nil {
+		log.Warn().Str("address", c.backend.Address).Err(err).Msg("Error while reopening MySQL connection")
+	} else {
+		db.SetMaxOpenConns(1)
+		db.SetMaxIdleConns(1)
+		db.SetConnMaxLifetime(c.connMaxLifetime)
+		c.db = db
+	}
+
+	// Increase fetch period
+	if period, updated := c.ticker.ApplyBackoff(); updated {
+		log.Warn().Str("address", c.backend.Address).Dur("period", period).Msg("Updating fetch period")
+	}
 }
 
 // fetchStatus performs all health checks for the MySQL instance.
@@ -572,26 +590,7 @@ func (c *MySQLCheck) fetchStatus() (retStatus cty.Value, retReadonly cty.Value, 
 			} else {
 				retErr = fmt.Errorf("%v", r)
 			}
-
-			// Close and reopen MySQL connection to ensure we start on a good base next time
-			log.Info().Str("address", c.backend.Address).Msg("Reopening MySQL connection")
-			if c.db != nil {
-				_ = c.db.Close()
-			}
-			db, err := sql.Open(getMySQLDriverName(), c.dsn)
-			if err != nil {
-				log.Warn().Str("address", c.backend.Address).Err(err).Msg("Error while reopening MySQL connection")
-			} else {
-				db.SetMaxOpenConns(1)
-				db.SetMaxIdleConns(1)
-				db.SetConnMaxLifetime(c.connMaxLifetime)
-				c.db = db
-			}
-
-			// Increase fetch period
-			if period, updated := c.ticker.ApplyBackoff(); updated {
-				log.Warn().Str("address", c.backend.Address).Dur("period", period).Msg("Updating fetch period")
-			}
+			c.reopenDB()
 		}
 	}()
 
@@ -600,7 +599,8 @@ func (c *MySQLCheck) fetchStatus() (retStatus cty.Value, retReadonly cty.Value, 
 	// Read Only
 	readOnly, err := c.fetchReadOnly()
 	if err != nil {
-		panic(err)
+		c.reopenDB()
+		return cty.StringVal("err"), cty.BoolVal(false), cty.NumberIntVal(-1), err
 	}
 
 	// Replica Latency
@@ -608,7 +608,8 @@ func (c *MySQLCheck) fetchStatus() (retStatus cty.Value, retReadonly cty.Value, 
 	if c.checkReplica {
 		replicaLatency, err = c.fetchReplicaLatency()
 		if err != nil {
-			panic(err)
+			c.reopenDB()
+			return cty.StringVal("err"), readOnly, cty.NumberIntVal(-1), err
 		}
 	}
 
