@@ -2,6 +2,7 @@ package util
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -10,7 +11,8 @@ import (
 )
 
 // ParseSize parses a decimal integer from a byte slice without performing heap allocations.
-// It supports negative numbers and validates that all characters are decimal digits.
+// It supports negative numbers, validates that all characters are decimal digits,
+// and protects against integer overflow.
 func ParseSize(b []byte) (int, error) {
 	if len(b) == 0 {
 		return 0, fmt.Errorf("empty integer")
@@ -30,12 +32,20 @@ func ParseSize(b []byte) (int, error) {
 		if c < '0' || c > '9' {
 			return 0, fmt.Errorf("invalid integer")
 		}
-		res = res*10 + int(c-'0')
+		d := int(c - '0')
+		if !neg {
+			if res > math.MaxInt/10 || (res == math.MaxInt/10 && d > math.MaxInt%10) {
+				return 0, fmt.Errorf("integer overflow")
+			}
+			res = res*10 + d
+		} else {
+			if res < math.MinInt/10 || (res == math.MinInt/10 && d > -(math.MinInt%10)) {
+				return 0, fmt.Errorf("integer overflow")
+			}
+			res = res*10 - d
+		}
 	}
 
-	if neg {
-		return -res, nil
-	}
 	return res, nil
 }
 
@@ -47,7 +57,7 @@ func ParseByteSize(s string) (int64, error) {
 		return 0, fmt.Errorf("empty byte size")
 	}
 
-	var multiplier int64 = 1
+	var multiplier int64
 	var unit string
 	var valStr string
 

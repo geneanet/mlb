@@ -1,10 +1,48 @@
 package util
 
 import (
+	"fmt"
+	"math"
 	"testing"
 
 	"github.com/zclconf/go-cty/cty"
 )
+
+func TestParseSize(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int
+		wantErr  bool
+	}{
+		{"zero", "0", 0, false},
+		{"positive", "12345", 12345, false},
+		{"negative", "-12345", -12345, false},
+		{"maxInt", fmt.Sprintf("%d", math.MaxInt), math.MaxInt, false},
+		{"minInt", fmt.Sprintf("%d", math.MinInt), math.MinInt, false},
+		{"empty", "", 0, true},
+		{"justDash", "-", 0, true},
+		{"invalidChars", "123a45", 0, true},
+		{"spaces", " 123 ", 0, true},
+		{"overflowPositive", "9999999999999999999999999999999999999999", 0, true},
+		{"overflowPositiveNext", fmt.Sprintf("%d0", math.MaxInt), 0, true},
+		{"overflowNegative", "-9999999999999999999999999999999999999999", 0, true},
+		{"overflowNegativeNext", fmt.Sprintf("%d0", math.MinInt), 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseSize([]byte(tt.input))
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseSize(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got != tt.expected {
+				t.Errorf("ParseSize(%q) = %d, want %d", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
 
 func TestParseByteSize(t *testing.T) {
 	tests := []struct {
