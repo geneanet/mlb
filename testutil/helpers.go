@@ -1,14 +1,50 @@
 package testutil
 
 import (
+	"errors"
 	"mlb/backend"
 	"mlb/module"
+	"net"
 	"sync"
 	"testing"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
+
+// MockFailingListener is a net.Listener that fails Accept() a fixed number of times.
+type MockFailingListener struct {
+	net.Listener
+	failCount int
+	MaxFails  int
+	mu        sync.Mutex
+}
+
+// NewMockFailingListener wraps a net.Listener to fail Accept() maxFails times.
+func NewMockFailingListener(ln net.Listener, maxFails int) *MockFailingListener {
+	return &MockFailingListener{
+		Listener: ln,
+		MaxFails: maxFails,
+	}
+}
+
+// Accept returns an error until MaxFails is reached, then delegates to the underlying listener.
+func (m *MockFailingListener) Accept() (net.Conn, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.failCount < m.MaxFails {
+		m.failCount++
+		return nil, errors.New("simulated temporary accept error")
+	}
+	return m.Listener.Accept()
+}
+
+// FailCount returns the number of failed accept calls so far.
+func (m *MockFailingListener) FailCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.failCount
+}
 
 // DummySubscriber implements backend.BackendUpdateSubscriber for testing.
 type DummySubscriber struct {

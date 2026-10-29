@@ -2,7 +2,6 @@ package memcache
 
 import (
 	"context"
-	"errors"
 	"mlb/backend"
 	"mlb/testutil"
 	"net"
@@ -14,23 +13,6 @@ import (
 	"github.com/rs/zerolog"
 )
 
-type mockFailingListener struct {
-	net.Listener
-	failCount int
-	maxFails  int
-	mu        sync.Mutex
-}
-
-func (m *mockFailingListener) Accept() (net.Conn, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.failCount < m.maxFails {
-		m.failCount++
-		return nil, errors.New("simulated temporary accept error")
-	}
-	return m.Listener.Accept()
-}
-
 func TestMemcacheProxy_AcceptLoop_Backoff(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -38,10 +20,7 @@ func TestMemcacheProxy_AcceptLoop_Backoff(t *testing.T) {
 	}
 	defer ln.Close()
 
-	mockLn := &mockFailingListener{
-		Listener: ln,
-		maxFails: 2,
-	}
+	mockLn := testutil.NewMockFailingListener(ln, 2)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -76,9 +55,7 @@ func TestMemcacheProxy_AcceptLoop_Backoff(t *testing.T) {
 	defer conn.Close()
 
 	testutil.Eventually(t, func() bool {
-		mockLn.mu.Lock()
-		defer mockLn.mu.Unlock()
-		return mockLn.failCount == 2
+		return mockLn.FailCount() == 2
 	}, 1*time.Second, 10*time.Millisecond)
 
 	cancel()
@@ -93,10 +70,7 @@ func TestMemcacheProxy_AcceptLoop_CancelDuringBackoff(t *testing.T) {
 	}
 	defer ln.Close()
 
-	mockLn := &mockFailingListener{
-		Listener: ln,
-		maxFails: 1000,
-	}
+	mockLn := testutil.NewMockFailingListener(ln, 1000)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -124,9 +98,7 @@ func TestMemcacheProxy_AcceptLoop_CancelDuringBackoff(t *testing.T) {
 
 	// Wait for at least 1 failed accept
 	testutil.Eventually(t, func() bool {
-		mockLn.mu.Lock()
-		defer mockLn.mu.Unlock()
-		return mockLn.failCount >= 1
+		return mockLn.FailCount() >= 1
 	}, 1*time.Second, 10*time.Millisecond)
 
 	// Cancel context while it is backing off

@@ -16,13 +16,13 @@ import (
 	"github.com/rs/zerolog"
 )
 
-type testingWriter struct {
+type testWriter struct {
 	t      *testing.T
 	mu     sync.RWMutex
 	closed bool
 }
 
-func (tw *testingWriter) Write(p []byte) (n int, err error) {
+func (tw *testWriter) Write(p []byte) (n int, err error) {
 	tw.mu.RLock()
 	defer tw.mu.RUnlock()
 	if !tw.closed {
@@ -31,14 +31,14 @@ func (tw *testingWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func (tw *testingWriter) Close() {
+func (tw *testWriter) Close() {
 	tw.mu.Lock()
 	defer tw.mu.Unlock()
 	tw.closed = true
 }
 
 func TestMemcacheProxy_NoReplyDesync(t *testing.T) {
-	tw := &testingWriter{t: t}
+	tw := &testWriter{t: t}
 	defer tw.Close()
 
 	// 1. Setup Mock Backend
