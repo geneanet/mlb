@@ -96,13 +96,12 @@ func (rbc *RedisBackendConnection) Healthcheck() error {
 		return err
 	}
 
-	var maxReused int
-	var bufSize int
+	var reader *RedisProtocolReader
 	if rbc.pool != nil && rbc.pool.proxy != nil {
-		bufSize = rbc.pool.proxy.bufferSize
-		maxReused = rbc.pool.proxy.maxReusedBufferSize
+		reader = rbc.pool.proxy.newProtocolReader(rbc.conn)
+	} else {
+		reader = NewRedisProtocolReader(rbc.conn, DefaultBufferSize)
 	}
-	reader := NewRedisProtocolReader(rbc.conn, bufSize, maxReused)
 	defer reader.Release()
 
 	resp, err := reader.ReadMessage(false)
@@ -145,13 +144,12 @@ func (rbc *RedisBackendConnection) ResetAndRelease() {
 	_ = rbc.conn.SetDeadline(time.Now().Add(rbc.pool.proxy.resetTimeout))
 	defer func() { _ = rbc.conn.SetDeadline(time.Time{}) }()
 
-	var maxReused int
-	var bufSize int
+	var reader *RedisProtocolReader
 	if rbc.pool != nil && rbc.pool.proxy != nil {
-		bufSize = rbc.pool.proxy.bufferSize
-		maxReused = rbc.pool.proxy.maxReusedBufferSize
+		reader = rbc.pool.proxy.newProtocolReader(rbc.conn)
+	} else {
+		reader = NewRedisProtocolReader(rbc.conn, DefaultBufferSize)
 	}
-	reader := NewRedisProtocolReader(rbc.conn, bufSize, maxReused)
 	defer reader.Release()
 
 	// Step 1: Sync by draining pending responses from the backend until we receive an ECHO confirmation.

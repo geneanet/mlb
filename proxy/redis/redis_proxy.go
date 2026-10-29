@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
@@ -45,6 +46,9 @@ type RedisProxy struct {
 	backends                 *backend.Registry
 	bufferSize               int
 	maxReusedBufferSize      int
+	readerPool               sync.Pool
+	writerPool               sync.Pool
+	bufferPool               sync.Pool
 	backendConnectionPool    *RedisBackendConnectionPool
 	preconnect               int
 	idleTimeout              time.Duration
@@ -341,12 +345,67 @@ func (p *RedisProxy) acceptLoop(listener net.Listener, address string, wg *sync.
 	p.connectionsWG.Wait()
 }
 
+func (p *RedisProxy) newProtocolReader(r io.Reader) *RedisProtocolReader {
+	if p == nil {
+		return NewRedisProtocolReader(r, DefaultBufferSize)
+	}
+	bufSize := p.bufferSize
+	if bufSize <= 0 {
+		bufSize = DefaultBufferSize
+	}
+	maxReused := p.maxReusedBufferSize
+	if maxReused <= 0 {
+		maxReused = DefaultMaxReusedBufferSize
+	}
+
+	if v := p.readerPool.Get(); v != nil {
+		pr := v.(*RedisProtocolReader)
+		pr.br.Reset(r)
+		pr.buffer = nil
+		pr.bufferSize = bufSize
+		pr.maxReusedBufferSize = maxReused
+		pr.stack = pr.stackBuf[:0]
+		return pr
+	}
+
+	pr := &RedisProtocolReader{
+		br:                  bufio.NewReaderSize(r, bufSize),
+		bufferSize:          bufSize,
+		maxReusedBufferSize: maxReused,
+		pool:                &p.readerPool,
+		bufPool:             &p.bufferPool,
+	}
+	pr.stack = pr.stackBuf[:0]
+	return pr
+}
+
+func (p *RedisProxy) newProtocolWriter(w io.Writer) *RedisProtocolWriter {
+	if p == nil {
+		return NewRedisProtocolWriter(w, DefaultBufferSize)
+	}
+	bufSize := p.bufferSize
+	if bufSize <= 0 {
+		bufSize = DefaultBufferSize
+	}
+
+	if v := p.writerPool.Get(); v != nil {
+		pw := v.(*RedisProtocolWriter)
+		pw.Reset(w)
+		return pw
+	}
+
+	return &RedisProtocolWriter{
+		Writer: bufio.NewWriterSize(w, bufSize),
+		pool:   &p.writerPool,
+	}
+}
+
 func (p *RedisProxy) releaseBuffer(b []byte) {
 	if p == nil {
 		ReleaseBuffer(b)
 		return
 	}
-	ReleaseBufferWithLimit(b, p.maxReusedBufferSize)
+	releaseBufferToPool(b, p.maxReusedBufferSize, &p.bufferPool)
 }
 
 func (p *RedisProxy) pipe(input net.Conn, output net.Conn, done chan struct{}, stop chan struct{}, bufferSize int, inMetrics *Metrics, outMetrics *Metrics) {
@@ -360,9 +419,9 @@ func (p *RedisProxy) pipe(input net.Conn, output net.Conn, done chan struct{}, s
 		}
 	}()
 
-	reader := NewRedisProtocolReader(input, bufferSize, p.maxReusedBufferSize)
+	reader := p.newProtocolReader(input)
 	defer reader.Release()
-	writer := NewRedisProtocolWriter(output, bufferSize)
+	writer := p.newProtocolWriter(output)
 	defer writer.Release()
 
 	for {

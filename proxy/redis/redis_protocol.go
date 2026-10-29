@@ -30,8 +30,8 @@ func ReleaseBuffer(b []byte) {
 	ReleaseBufferWithLimit(b, DefaultMaxReusedBufferSize)
 }
 
-// ReleaseBufferWithLimit returns a buffer to the pool if it's within the specified reuse limit.
-func ReleaseBufferWithLimit(b []byte, maxReusedBufferSize int) {
+// releaseBufferToPool returns a buffer to the specified pool if it's within the reuse limit.
+func releaseBufferToPool(b []byte, maxReusedBufferSize int, pool *sync.Pool) {
 	if maxReusedBufferSize <= 0 {
 		maxReusedBufferSize = DefaultMaxReusedBufferSize
 	}
@@ -39,12 +39,18 @@ func ReleaseBufferWithLimit(b []byte, maxReusedBufferSize int) {
 		return
 	}
 	b = b[:0]
-	bufferPool.Put(&b)
+	pool.Put(&b)
+}
+
+// ReleaseBufferWithLimit returns a buffer to the pool if it's within the specified reuse limit.
+func ReleaseBufferWithLimit(b []byte, maxReusedBufferSize int) {
+	releaseBufferToPool(b, maxReusedBufferSize, &bufferPool)
 }
 
 // RedisProtocolWriter provides a high-level writer for Redis RESP protocols.
 type RedisProtocolWriter struct {
 	*bufio.Writer
+	pool *sync.Pool
 }
 
 // NewRedisProtocolWriter creates a new writer, potentially reusing one from the pool.
@@ -62,7 +68,11 @@ func NewRedisProtocolWriter(writer io.Writer, bufferSize int) *RedisProtocolWrit
 // Release returns the internal bufio.Writer to the pool.
 func (pw *RedisProtocolWriter) Release() {
 	pw.Reset(nil)
-	protocolWriterPool.Put(pw)
+	if pw.pool != nil {
+		pw.pool.Put(pw)
+	} else {
+		protocolWriterPool.Put(pw)
+	}
 }
 
 // RedisProtocolReader provides a high-level reader for Redis RESP2 and RESP3 protocols.
@@ -75,6 +85,8 @@ type RedisProtocolReader struct {
 	maxReusedBufferSize int
 	stack               []int   // Reusable stack for parsing nested structures
 	stackBuf            [16]int // Fixed buffer for the stack to avoid allocations for common nesting levels
+	pool                *sync.Pool
+	bufPool             *sync.Pool
 }
 
 // NewRedisProtocolReader creates a new reader, potentially reusing one from the pool.
@@ -112,17 +124,29 @@ func (r *RedisProtocolReader) Release() {
 		r.br.Reset(nil)
 	}
 	if r.buffer != nil {
-		ReleaseBufferWithLimit(r.buffer, r.maxReusedBufferSize)
+		if r.bufPool != nil {
+			releaseBufferToPool(r.buffer, r.maxReusedBufferSize, r.bufPool)
+		} else {
+			ReleaseBufferWithLimit(r.buffer, r.maxReusedBufferSize)
+		}
 		r.buffer = nil
 	}
-	protocolReaderPool.Put(r)
+	if r.pool != nil {
+		r.pool.Put(r)
+	} else {
+		protocolReaderPool.Put(r)
+	}
 }
 
 func (r *RedisProtocolReader) getBuffer() {
 	if r.buffer != nil {
 		return
 	}
-	if v := bufferPool.Get(); v != nil {
+	pool := r.bufPool
+	if pool == nil {
+		pool = &bufferPool
+	}
+	if v := pool.Get(); v != nil {
 		r.buffer = *(v.(*[]byte))
 	} else {
 		bufSize := r.bufferSize

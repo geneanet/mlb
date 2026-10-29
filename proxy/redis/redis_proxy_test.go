@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -750,5 +751,37 @@ func TestRedisProxy_AcceptLoop_CancelDuringBackoff(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("acceptLoop failed to exit promptly upon context cancellation")
 	}
+}
+
+func TestRedisProxy_DedicatedReaderPool_SizeIsolation(t *testing.T) {
+	p1 := &RedisProxy{
+		bufferSize:          1024,
+		maxReusedBufferSize: 4096,
+	}
+	p2 := &RedisProxy{
+		bufferSize:          32768,
+		maxReusedBufferSize: 65536,
+	}
+
+	// Reader from proxy 1
+	r1 := p1.newProtocolReader(bytes.NewBuffer(nil))
+	if r1.br.Size() != 1024 {
+		t.Fatalf("expected r1 buffer size 1024, got %d", r1.br.Size())
+	}
+	r1.Release()
+
+	// Reader from proxy 2 must NOT receive proxy 1's 1024-byte reader
+	r2 := p2.newProtocolReader(bytes.NewBuffer(nil))
+	if r2.br.Size() != 32768 {
+		t.Fatalf("expected r2 buffer size 32768, got %d (polluted by proxy 1 pool)", r2.br.Size())
+	}
+	r2.Release()
+
+	// Reusing from proxy 1 again must yield a 1024-byte reader
+	r1Again := p1.newProtocolReader(bytes.NewBuffer(nil))
+	if r1Again.br.Size() != 1024 {
+		t.Fatalf("expected r1Again buffer size 1024, got %d", r1Again.br.Size())
+	}
+	r1Again.Release()
 }
 
