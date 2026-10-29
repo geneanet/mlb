@@ -309,3 +309,43 @@ balancer "wlc" "test" {
 		t.Errorf("Timeout waiting for WLC balancer readiness")
 	}
 }
+
+func TestWLCBalancer_ModifiedBackendWithoutAdded(t *testing.T) {
+	body := &hclsyntax.Body{
+		Attributes: map[string]*hclsyntax.Attribute{
+			"source": {Name: "source", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("src1")}},
+			"weight": {Name: "weight", Expr: &hclsyntax.LiteralValueExpr{Val: cty.NumberIntVal(1)}},
+		},
+	}
+	cfg := &module.Config{Category: "balancer", Name: "test", Type: "wlc", Config: body, Ctx: &hcl.EvalContext{}}
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mod, err := newWLCBalancer(cfg, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+	balancer := mod.(*WLCBalancer)
+
+	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry(zerolog.Nop(), false)}
+	provider.ProvideUpdates(balancer)
+
+	// Send UpdBackendModified directly without an UpdBackendAdded first
+	be := backend.NewBackend("C", nil)
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: "C", Backend: be})
+
+	testutil.Eventually(t, func() bool {
+		return len(balancer.GetBackendList()) == 1
+	}, 1*time.Second, 10*time.Millisecond)
+
+	// GetBackend should return backend C
+	res, rel := balancer.GetBackend(false)
+	if res == nil {
+		t.Fatal("Expected backend C to be available and selected, got nil")
+	}
+	if res.Address != "C" {
+		t.Errorf("Expected address C, got %s", res.Address)
+	}
+	rel()
+}
