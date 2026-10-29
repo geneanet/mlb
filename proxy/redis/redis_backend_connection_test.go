@@ -4,6 +4,7 @@ import (
 	"context"
 	"mlb/backend"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -134,6 +135,47 @@ func TestRedisBackendConnection(t *testing.T) {
 		}
 		if err := rbcClean.Healthcheck(); err != nil {
 			t.Errorf("healthcheck failed on cleaned connection: %v", err)
+		}
+	})
+
+	t.Run("ResetAndRelease With Concurrent Buffer Pool Churn", func(t *testing.T) {
+		pool.mutex.Lock()
+		pool.pool = pool.pool[:0]
+		pool.mutex.Unlock()
+
+		rbc, err := NewRedisBackendConnection(pool, be)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		for i := 0; i < 20; i++ {
+			_, _ = rbc.conn.Write([]byte("PING\r\n"))
+		}
+
+		stopChurn := make(chan struct{})
+		var churnWg sync.WaitGroup
+		for i := 0; i < 4; i++ {
+			churnWg.Add(1)
+			go func() {
+				defer churnWg.Done()
+				for {
+					select {
+					case <-stopChurn:
+						return
+					default:
+						b := make([]byte, 0, BufferSize)
+						ReleaseBuffer(b)
+					}
+				}
+			}()
+		}
+
+		rbc.ResetAndRelease()
+		close(stopChurn)
+		churnWg.Wait()
+
+		if len(pool.pool) != 1 {
+			t.Errorf("expected pool size 1, got %d", len(pool.pool))
 		}
 	})
 }

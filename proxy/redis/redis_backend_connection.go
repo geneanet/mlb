@@ -172,9 +172,9 @@ func (rbc *RedisBackendConnection) ResetAndRelease() {
 			rbc.fail(fmt.Errorf("error while syncing backend connection: %w", err))
 			return
 		}
-		ReleaseBuffer(item)
 
 		isEcho := bytes.Equal(item, expectedEcho)
+		ReleaseBuffer(item)
 
 		if isEcho {
 			break
