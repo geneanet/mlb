@@ -129,24 +129,22 @@ func newWLCBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 					clone := upd.Backend.Clone()
 					if upd.Kind == backend.UpdBackendAdded {
 						b.backends.Add(clone)
-						b.stats[upd.Address] = &backendStats{
-							backend: clone,
-							weight:  weight,
-						}
 					} else {
 						b.log.Debug().Str("address", upd.Address).Int64("weight", weight).Msg("Updating backend in WLC balancer")
 						b.backends.Update(clone)
-						if s, ok := b.stats[upd.Address]; ok {
-							s.weight = weight
-							s.backend = clone
-						} else {
-							b.stats[upd.Address] = &backendStats{
-								backend: clone,
-								weight:  weight,
-							}
+					}
+
+					canonical := b.backends.Get(upd.Address)
+					canonical.Meta.Set("wlc", "weight", cty.NumberIntVal(weight))
+					if s, ok := b.stats[upd.Address]; ok {
+						s.weight = weight
+						s.backend = canonical
+					} else {
+						b.stats[upd.Address] = &backendStats{
+							backend: canonical,
+							weight:  weight,
 						}
 					}
-					b.backends.Get(upd.Address).Meta.Set("wlc", "weight", cty.NumberIntVal(weight))
 
 				case backend.UpdBackendRemoved:
 					b.backends.Remove(upd.Address)

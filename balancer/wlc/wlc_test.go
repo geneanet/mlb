@@ -349,3 +349,82 @@ func TestWLCBalancer_ModifiedBackendWithoutAdded(t *testing.T) {
 	}
 	rel()
 }
+
+func TestWLCBalancer_ModifiedBackendPreservesCanonicalBackendAndCancellation(t *testing.T) {
+	evalCtx := &hcl.EvalContext{
+		Variables: map[string]cty.Value{
+			"var_weight": cty.NumberIntVal(1),
+		},
+	}
+	body := &hclsyntax.Body{
+		Attributes: map[string]*hclsyntax.Attribute{
+			"source": {Name: "source", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("src1")}},
+			"weight": {Name: "weight", Expr: &hclsyntax.ScopeTraversalExpr{Traversal: hcl.Traversal{hcl.TraverseRoot{Name: "var_weight"}}}},
+		},
+	}
+	cfg := &module.Config{Category: "balancer", Name: "test", Type: "wlc", Config: body, Ctx: evalCtx}
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mod, err := newWLCBalancer(cfg, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+	balancer := mod.(*WLCBalancer)
+
+	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry(zerolog.Nop(), false)}
+	provider.ProvideUpdates(balancer)
+
+	// 1. Add backend
+	be := backend.NewBackend("127.0.0.1:8080", nil)
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: be.Address, Backend: be})
+
+	testutil.Eventually(t, func() bool {
+		return len(balancer.GetBackendList()) == 1
+	}, 1*time.Second, 10*time.Millisecond)
+
+	// 2. Modify backend with changed weight
+	evalCtx.Variables["var_weight"] = cty.NumberIntVal(3)
+	beMod := backend.NewBackend("127.0.0.1:8080", nil)
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: beMod.Address, Backend: beMod})
+
+	// Wait for modification to process
+	testutil.Eventually(t, func() bool {
+		balancer.mu.RLock()
+		defer balancer.mu.RUnlock()
+		s, ok := balancer.stats[be.Address]
+		return ok && s.weight == 3
+	}, 1*time.Second, 10*time.Millisecond)
+
+	// 3. GetBackend should return the canonical backend from the registry
+	selected, release := balancer.GetBackend(false)
+	if selected == nil {
+		t.Fatal("expected selected backend, got nil")
+	}
+	defer release()
+
+	canonical := balancer.backends.Get(be.Address)
+	if selected != canonical {
+		t.Fatalf("selected backend pointer %p does not match canonical registry backend %p", selected, canonical)
+	}
+
+	wlcWeight, ok := selected.Meta.Get("wlc", "weight")
+	if !ok || !wlcWeight.IsKnown() || wlcWeight.AsBigFloat().String() != "3" {
+		t.Fatalf("expected wlc weight metadata 3 on selected backend, got ok=%v, val=%v", ok, wlcWeight)
+	}
+
+	// 4. Remove backend: canonical backend context MUST be cancelled
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: be.Address})
+
+	testutil.Eventually(t, func() bool {
+		return len(balancer.GetBackendList()) == 0
+	}, 1*time.Second, 10*time.Millisecond)
+
+	select {
+	case <-selected.Ctx.Done():
+		// OK: context was cancelled on removal
+	case <-time.After(1 * time.Second):
+		t.Fatal("selected backend context was not cancelled when backend was removed")
+	}
+}
