@@ -425,11 +425,9 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 		defer writer.Release()
 
 		defer func() {
-			// ponytail: drain futureChan on exit to return channels to pool
 			for {
 				select {
-				case respChan := <-futureChan:
-					putResponseChan(respChan)
+				case <-futureChan:
 				default:
 					return
 				}
@@ -439,21 +437,10 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 			select {
 			case respChan := <-futureChan:
 				var response MemcacheResponse
-				// ponytail: drain phantom responses from previous connections using the same pooled channel.
-				// Each connection has a unique futureChanStop, so we can detect late replies from old connections.
-				for {
-					select {
-					case response = <-respChan:
-						if response.query.responseChanStop != futureChanStop {
-							p.log.Debug().Uint64("queryId", response.query.id).Msg("Received phantom response from a previous connection, ignoring")
-							response.Release()
-							continue
-						}
-					case <-done:
-						putResponseChan(respChan)
-						return
-					}
-					break
+				select {
+				case response = <-respChan:
+				case <-done:
+					return
 				}
 
 				p.log.Debug().Uint64("queryId", response.query.id).Msg("Received response")
@@ -480,9 +467,6 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 						closeConn()
 					}
 				}
-
-				// ponytail: return channel to pool
-				putResponseChan(respChan)
 			case <-done:
 				return
 			}
@@ -570,15 +554,14 @@ func (p *MemcacheProxy) handleConnection(connFront net.Conn, feMetrics *Metrics)
 			}
 		}
 
-		// Create a channel for this specific query's response (from pool)
+		// Create a channel for this specific query's response
 		var reqRespChan chan MemcacheResponse
 		if !isNoReply {
-			reqRespChan = getResponseChan()
+			reqRespChan = make(chan MemcacheResponse, 1)
 			// Enqueue the future for the response writer
 			select {
 			case futureChan <- reqRespChan:
 			case <-done:
-				putResponseChan(reqRespChan)
 				p.releaseFields(fieldsPtr)
 				return
 			}

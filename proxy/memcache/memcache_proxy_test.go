@@ -1414,11 +1414,14 @@ func TestMemcachePhantomResponse(t *testing.T) {
 		}
 	}()
 
-	// 1. Manually get a channel, put a "phantom" response in it, and put it back in the pool.
-	ch := getResponseChan()
-	phantomQuery := NewMemcacheQuery([]byte("get phantom\r\n"), ch, make(chan struct{}), false, false)
-	ch <- MemcacheResponse{query: phantomQuery, item: []byte("VALUE phantom 0 7\r\nphantom\r\nEND\r\n")}
-	putResponseChan(ch)
+	// 1. Client 1 connects, sends "get phantom", and disconnects before backend response
+	c1, err := net.Dial("tcp", lFront.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = c1.Write([]byte("get phantom\r\n"))
+	<-phantomRespReady
+	c1.Close()
 
 	// 2. Client 2 connects and sends "get real"
 	c2, err := net.Dial("tcp", lFront.Addr().String())
@@ -1429,7 +1432,7 @@ func TestMemcachePhantomResponse(t *testing.T) {
 
 	_, _ = c2.Write([]byte("get real\r\n"))
 
-	// Release the real response from backend
+	// Release the late phantom response from backend
 	close(phantomRespSend)
 
 	reader := bufio.NewReader(c2)

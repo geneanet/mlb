@@ -103,30 +103,6 @@ func (r *MemcacheProtocolReader) ReadFull(n int) ([]byte, error) {
 	return r.buffer[start:], err
 }
 
-var responseChanPool = sync.Pool{
-	New: func() any {
-		return make(chan MemcacheResponse, 1)
-	},
-}
-
-// getResponseChan acquires a response channel from the pool and ensures it's empty.
-func getResponseChan() chan MemcacheResponse {
-	v := responseChanPool.Get()
-
-	ch := v.(chan MemcacheResponse)
-	// ponytail: drain the channel just in case a response arrived after the previous query was abandoned.
-	select {
-	case <-ch:
-	default:
-	}
-	return ch
-}
-
-// putResponseChan returns a response channel to the pool.
-func putResponseChan(ch chan MemcacheResponse) {
-	responseChanPool.Put(ch)
-}
-
 var bufferPool = sync.Pool{
 	New: func() any {
 		return bytes.NewBuffer(make([]byte, 0, 4096))
