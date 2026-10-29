@@ -54,7 +54,7 @@ func TestMemcacheProxy_MultiGetPartialFailure(t *testing.T) {
 			}
 			if bytes.HasPrefix([]byte(line), []byte("get ")) {
 				// Return data for k1
-				conn.Write([]byte("VALUE k1 0 2\r\nv1\r\nEND\r\n"))
+				_, _ = conn.Write([]byte("VALUE k1 0 2\r\nv1\r\nEND\r\n"))
 			}
 		}
 	}()
@@ -73,7 +73,7 @@ func TestMemcacheProxy_MultiGetPartialFailure(t *testing.T) {
 				line, _ := reader.ReadString('\n')
 				if line != "" {
 					// Close connection WHILE processing a request to trigger failure
-					c.Close()
+					_ = c.Close()
 				}
 			}(conn)
 		}
@@ -148,12 +148,12 @@ func TestMemcacheProxy_MultiGetPartialFailure(t *testing.T) {
 	// Send a multi-get that will hit BOTH backends by using many keys
 	var keys bytes.Buffer
 	for i := 0; i < 100; i++ {
-		keys.WriteString(fmt.Sprintf(" k%d", i))
+		fmt.Fprintf(&keys, " k%d", i)
 	}
-	_, _ = client.Write([]byte(fmt.Sprintf("get%s\r\n", keys.String())))
+	_, _ = fmt.Fprintf(client, "get%s\r\n", keys.String())
 
 	reader := bufio.NewReader(client)
-	client.SetDeadline(time.Now().Add(5 * time.Second))
+	_ = client.SetDeadline(time.Now().Add(5 * time.Second))
 
 	var output bytes.Buffer
 	for {

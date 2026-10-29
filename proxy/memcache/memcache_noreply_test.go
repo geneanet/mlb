@@ -68,9 +68,9 @@ func TestMemcacheProxy_NoReplyDesync(t *testing.T) {
 						if bytes.HasPrefix([]byte(line), []byte("set ")) {
 							fields := bytes.Fields([]byte(line))
 							size := 0
-							fmt.Sscanf(string(fields[4]), "%d", &size)
+							_, _ = fmt.Sscanf(string(fields[4]), "%d", &size)
 							payload := make([]byte, size+2)
-							io.ReadFull(reader, payload)
+							_, _ = io.ReadFull(reader, payload)
 						}
 						// Send nothing
 						continue
@@ -80,23 +80,23 @@ func TestMemcacheProxy_NoReplyDesync(t *testing.T) {
 					if bytes.HasPrefix([]byte(line), []byte("set ")) {
 						fields := bytes.Fields([]byte(line))
 						size := 0
-						fmt.Sscanf(string(fields[4]), "%d", &size)
+						_, _ = fmt.Sscanf(string(fields[4]), "%d", &size)
 						payload := make([]byte, size+2)
-						io.ReadFull(reader, payload)
-						c.Write([]byte("STORED\r\n"))
+						_, _ = io.ReadFull(reader, payload)
+						_, _ = c.Write([]byte("STORED\r\n"))
 					} else if bytes.HasPrefix([]byte(line), []byte("get ")) {
-						c.Write([]byte("VALUE key 0 2\r\nhi\r\nEND\r\n"))
+						_, _ = c.Write([]byte("VALUE key 0 2\r\nhi\r\nEND\r\n"))
 					} else if bytes.HasPrefix([]byte(line), []byte("ms ")) {
 						// Meta set
 						fields := bytes.Fields([]byte(line))
 						size := 0
-						fmt.Sscanf(string(fields[2]), "%d", &size)
+						_, _ = fmt.Sscanf(string(fields[2]), "%d", &size)
 						payload := make([]byte, size+2)
-						io.ReadFull(reader, payload)
-						c.Write([]byte("HD\r\n"))
+						_, _ = io.ReadFull(reader, payload)
+						_, _ = c.Write([]byte("HD\r\n"))
 					} else if bytes.HasPrefix([]byte(line), []byte("mg ")) {
 						// Meta get
-						c.Write([]byte("VA 2\r\nhi\r\n"))
+						_, _ = c.Write([]byte("VA 2\r\nhi\r\n"))
 					}
 				}
 			}(conn)
@@ -189,7 +189,7 @@ func TestMemcacheProxy_NoReplyDesync(t *testing.T) {
 	}
 
 	// Step 3: Read responses.
-	client.SetDeadline(time.Now().Add(2 * time.Second))
+	_ = client.SetDeadline(time.Now().Add(2 * time.Second))
 	for i := 0; i < 3; i++ {
 		resp, err = reader.ReadString('\n')
 		if err != nil {

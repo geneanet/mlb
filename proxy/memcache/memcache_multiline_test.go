@@ -39,13 +39,13 @@ func TestMemcacheProxy_MultiLineDesync(t *testing.T) {
 
 					if bytes.HasPrefix([]byte(line), []byte("stats cachedump")) {
 						// Return multiple ITEM lines followed by END
-						c.Write([]byte("ITEM key1 [1 b; 0 s]\r\n"))
-						c.Write([]byte("ITEM key2 [1 b; 0 s]\r\n"))
-						c.Write([]byte("END\r\n"))
+						_, _ = c.Write([]byte("ITEM key1 [1 b; 0 s]\r\n"))
+						_, _ = c.Write([]byte("ITEM key2 [1 b; 0 s]\r\n"))
+						_, _ = c.Write([]byte("END\r\n"))
 					} else if bytes.HasPrefix([]byte(line), []byte("get ")) {
-						c.Write([]byte("VALUE key 0 2\r\nhi\r\nEND\r\n"))
+						_, _ = c.Write([]byte("VALUE key 0 2\r\nhi\r\nEND\r\n"))
 					} else {
-						c.Write([]byte("ERROR\r\n"))
+						_, _ = c.Write([]byte("ERROR\r\n"))
 					}
 				}
 			}(conn)

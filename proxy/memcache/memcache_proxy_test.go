@@ -1421,7 +1421,7 @@ func TestMemcachePhantomResponse(t *testing.T) {
 	}
 	_, _ = c1.Write([]byte("get phantom\r\n"))
 	<-phantomRespReady
-	c1.Close()
+	_ = c1.Close()
 
 	// 2. Client 2 connects and sends "get real"
 	c2, err := net.Dial("tcp", lFront.Addr().String())

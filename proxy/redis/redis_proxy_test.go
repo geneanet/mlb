@@ -243,7 +243,9 @@ func TestRedisProxy_CloseOnBackendRemoval(t *testing.T) {
 			if err != nil {
 				return
 			}
-			go io.Copy(conn, conn) // simple echo
+			go func(c net.Conn) {
+				_, _ = io.Copy(c, c)
+			}(conn) // simple echo
 		}
 	}()
 
@@ -375,7 +377,9 @@ func TestRedisProxy_NotCloseOnBackendRemoval(t *testing.T) {
 			if err != nil {
 				return
 			}
-			go io.Copy(conn, conn)
+			go func(c net.Conn) {
+				_, _ = io.Copy(c, c)
+			}(conn)
 		}
 	}()
 
@@ -502,7 +506,9 @@ func TestRedisProxy_CloseOnBackendRemoval_NoBalancer(t *testing.T) {
 			if err != nil {
 				return
 			}
-			go io.Copy(conn, conn)
+			go func(c net.Conn) {
+				_, _ = io.Copy(c, c)
+			}(conn)
 		}
 	}()
 
