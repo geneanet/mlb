@@ -463,7 +463,7 @@ backends_processor "mysql" "test" {
 func TestMySQL_FetchReplicaLatency_FallbackToSlaveStatus(t *testing.T) {
 	setMySQLDriverName("mysql_mock")
 	b := backend.NewBackend("127.0.0.1:3306", nil)
-	c := NewMySQLCheck(b, "fallback_slave", time.Millisecond, time.Millisecond, 1.0, time.Millisecond, time.Millisecond, 1.0, 1, time.Minute*5, make(chan *backend.Backend, 1), true)
+	c := NewMySQLCheck(b, "fallback_slave", time.Second, time.Second, 1.0, time.Millisecond, time.Millisecond, 1.0, 1, time.Minute*5, make(chan *backend.Backend, 1), true)
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	defer c.cancel()
 	c.ticker = misc.NewExponentialBackoffTicker(time.Millisecond, time.Millisecond, 1.0)
