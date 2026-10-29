@@ -16,15 +16,30 @@ import (
 )
 
 type testWriterMG struct {
-	t *testing.T
+	t      *testing.T
+	mu     sync.RWMutex
+	closed bool
 }
 
-func (tw testWriterMG) Write(p []byte) (n int, err error) {
-	tw.t.Log(string(bytes.TrimSpace(p)))
+func (tw *testWriterMG) Write(p []byte) (n int, err error) {
+	tw.mu.RLock()
+	defer tw.mu.RUnlock()
+	if !tw.closed {
+		tw.t.Log(string(bytes.TrimSpace(p)))
+	}
 	return len(p), nil
 }
 
+func (tw *testWriterMG) Close() {
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+	tw.closed = true
+}
+
 func TestMemcacheProxy_MultiGetPartialFailure(t *testing.T) {
+	tw := &testWriterMG{t: t}
+	defer tw.Close()
+
 	// 1. Setup Mock Backend 1 (Success)
 	lBack1, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer lBack1.Close()
@@ -69,7 +84,7 @@ func TestMemcacheProxy_MultiGetPartialFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	logger := zerolog.New(zerolog.ConsoleWriter{Out: testWriterMG{t}}).With().Timestamp().Logger()
+	logger := zerolog.New(zerolog.ConsoleWriter{Out: tw}).With().Timestamp().Logger()
 
 	proxy := &MemcacheProxy{
 		id:                       "test_multiget_fail",

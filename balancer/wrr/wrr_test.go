@@ -187,7 +187,9 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	}
 
 	// Modify backend1 - adjust weight to 3
+	balancer.mu.Lock()
 	evalCtx.Variables["var_weight"] = cty.NumberIntVal(3)
+	balancer.mu.Unlock()
 	backend1Mod := backend1.Clone()
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: backend1Mod.Address, Backend: backend1Mod})
 
@@ -203,7 +205,9 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	}, 1*time.Second, 10*time.Millisecond)
 
 	// Modify backend1 - introduce error in evaluating weight expression
+	balancer.mu.Lock()
 	delete(evalCtx.Variables, "var_weight") // HCL resolving will fail without this
+	balancer.mu.Unlock()
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: backend1Mod.Address, Backend: backend1Mod})
 
 	testutil.Eventually(t, func() bool {
@@ -226,7 +230,9 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	}, 1*time.Second, 10*time.Millisecond)
 
 	// Restore var_weight and add a final backend to verify recovery
+	balancer.mu.Lock()
 	evalCtx.Variables["var_weight"] = cty.NumberIntVal(2)
+	balancer.mu.Unlock()
 	backend3 := backend.NewBackend("127.0.0.1:8082", nil)
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend3.Address, Backend: backend3})
 
