@@ -485,3 +485,44 @@ func TestWRRBalancer_SmoothDistribution(t *testing.T) {
 		t.Errorf("Distribution is not smooth, found %d consecutive A: %v", maxConsecutiveA, sequence)
 	}
 }
+
+// TestWRRBalancer_NoRecalculateWhenWeightUnchanged verifies that updating a backend
+// without changing its weight does not recalculate the SWRR sequence.
+func TestWRRBalancer_NoRecalculateWhenWeightUnchanged(t *testing.T) {
+	body := &hclsyntax.Body{
+		Attributes: map[string]*hclsyntax.Attribute{
+			"source": {Name: "source", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("src1")}},
+			"weight": {Name: "weight", Expr: &hclsyntax.LiteralValueExpr{Val: cty.NumberIntVal(5)}},
+		},
+	}
+	cfg := &module.Config{Category: "balancer", Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mod, err := newWRRBalancer(cfg, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+	balancer := mod.(*WRRBalancer)
+
+	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry(zerolog.Nop(), false)}
+	provider.ProvideUpdates(balancer)
+
+	beA := backend.NewBackend("A", nil)
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "A", Backend: beA})
+
+	testutil.Eventually(t, func() bool {
+		return len(balancer.GetBackendList()) == 1
+	}, 1*time.Second, 10*time.Millisecond)
+
+	initialState := balancer.state.Load()
+
+	// Update backend with same weight
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: "A", Backend: beA})
+
+	// Wait and verify state pointer remained unchanged
+	testutil.Consistently(t, func() bool {
+		return balancer.state.Load() == initialState
+	}, 100*time.Millisecond, 10*time.Millisecond)
+}

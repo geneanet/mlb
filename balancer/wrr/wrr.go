@@ -120,6 +120,7 @@ func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 			case upd := <-b.updChan: // Backend changed
 				b.mu.Lock()
 
+				shouldRefresh := false
 				switch upd.Kind {
 				case backend.UpdBackendAdded, backend.UpdBackendModified:
 					var weight int
@@ -134,9 +135,14 @@ func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 					if upd.Kind == backend.UpdBackendAdded {
 						clone := upd.Backend.Clone()
 						b.backends.Add(clone)
+						shouldRefresh = true
 					} else {
 						b.log.Debug().Str("address", upd.Address).Int("weight", weight).Msg("Updating backend in WRR balancer")
 						b.backends.Update(upd.Backend.Clone())
+						oldWeight, exists := weights[upd.Address]
+						if !exists || oldWeight != weight {
+							shouldRefresh = true
+						}
 					}
 
 					b.backends.Get(upd.Address).Meta.Set("wrr", "weight", cty.NumberIntVal(int64(weight)))
@@ -145,12 +151,15 @@ func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 				case backend.UpdBackendRemoved:
 					b.backends.Remove(upd.Address)
 					delete(weights, upd.Address)
+					shouldRefresh = true
 				case backend.UpdReady:
 					b.backends.MarkReady()
 				}
 
-				// Re-calculate SWRR sequence
-				b.refreshSequence(weights)
+				// Re-calculate SWRR sequence only if weights or backend set changed
+				if shouldRefresh {
+					b.refreshSequence(weights)
+				}
 				b.mu.Unlock()
 
 			case <-b.ctx.Done(): // Context cancelled
