@@ -104,6 +104,9 @@ func TestNewRedisProxy(t *testing.T) {
 	if rp.bufferSize != 16384 {
 		t.Errorf("expected 16384, got %d", rp.bufferSize)
 	}
+	if rp.maxReusedBufferSize != 65536 {
+		t.Errorf("expected 65536, got %d", rp.maxReusedBufferSize)
+	}
 	if rp.idleTimeout != 5*time.Minute {
 		t.Errorf("expected 5m, got %v", rp.idleTimeout)
 	}

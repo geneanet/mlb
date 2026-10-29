@@ -163,7 +163,7 @@ func TestRedisBackendConnection(t *testing.T) {
 					case <-stopChurn:
 						return
 					default:
-						b := make([]byte, 0, BufferSize)
+						b := make([]byte, 0, DefaultBufferSize)
 						ReleaseBuffer(b)
 					}
 				}

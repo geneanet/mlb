@@ -44,6 +44,7 @@ type RedisProxy struct {
 	backendUpdatesChanClosed chan struct{}
 	backends                 *backend.Registry
 	bufferSize               int
+	maxReusedBufferSize      int
 	backendConnectionPool    *RedisBackendConnectionPool
 	preconnect               int
 	idleTimeout              time.Duration
@@ -86,6 +87,8 @@ type RedisProxyConfig struct {
 	ResetTimeout          string    `hcl:"reset_timeout,optional"`
 	LogBackendUpdates     bool      `hcl:"log_backend_updates,optional"`
 	CloseOnBackendRemoval bool      `hcl:"close_on_backend_removal,optional"`
+	bufferSize            int
+	maxReusedBufferSize   int
 }
 
 // validateRedisProxyConfig validates the Redis proxy configuration.
@@ -138,18 +141,20 @@ func parseRedisProxyConfig(tc *module.Config) *RedisProxyConfig {
 		config.BackendTCPKeepAlive = "5s"
 	}
 
-	BufferSize, _ = util.FromCtyByteSize(config.BufferSize)
-	if BufferSize == 0 {
-		BufferSize = 16384
+	bs, _ := util.FromCtyByteSize(config.BufferSize)
+	if bs == 0 {
+		bs = DefaultBufferSize
 	}
+	config.bufferSize = bs
 
-	MaxReusedBufferSize, _ = util.FromCtyByteSize(config.MaxReusedBufferSize)
-	if MaxReusedBufferSize == 0 {
-		MaxReusedBufferSize = 65536
+	mbs, _ := util.FromCtyByteSize(config.MaxReusedBufferSize)
+	if mbs == 0 {
+		mbs = DefaultMaxReusedBufferSize
 	}
-	if MaxReusedBufferSize < BufferSize {
-		MaxReusedBufferSize = BufferSize
+	if mbs < bs {
+		mbs = bs
 	}
+	config.maxReusedBufferSize = mbs
 
 	if config.IdleTimeout == "" {
 		config.IdleTimeout = "5m"
@@ -173,7 +178,8 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (
 		id:                       config.ID,
 		addresses:                config.Addresses,
 		log:                      log.With().Str("id", config.ID).Logger(),
-		bufferSize:               BufferSize,
+		bufferSize:               config.bufferSize,
+		maxReusedBufferSize:      config.maxReusedBufferSize,
 		source:                   config.Source,
 		preconnect:               config.Preconnect,
 		healthcheck:              config.Healthcheck,
@@ -308,6 +314,14 @@ func (p *RedisProxy) listen(address string, wg *sync.WaitGroup) error {
 	return nil
 }
 
+func (p *RedisProxy) releaseBuffer(b []byte) {
+	if p == nil {
+		ReleaseBuffer(b)
+		return
+	}
+	ReleaseBufferWithLimit(b, p.maxReusedBufferSize)
+}
+
 func (p *RedisProxy) pipe(input net.Conn, output net.Conn, done chan struct{}, stop chan struct{}, bufferSize int, inMetrics *Metrics, outMetrics *Metrics) {
 	// Signal completion
 	defer close(done)
@@ -319,7 +333,7 @@ func (p *RedisProxy) pipe(input net.Conn, output net.Conn, done chan struct{}, s
 		}
 	}()
 
-	reader := NewRedisProtocolReader(input, bufferSize)
+	reader := NewRedisProtocolReader(input, bufferSize, p.maxReusedBufferSize)
 	defer reader.Release()
 	writer := NewRedisProtocolWriter(output, bufferSize)
 	defer writer.Release()
@@ -330,7 +344,7 @@ func (p *RedisProxy) pipe(input net.Conn, output net.Conn, done chan struct{}, s
 			select {
 			case <-stop:
 				// Silence read errors when we are stopping
-				ReleaseBuffer(item)
+				p.releaseBuffer(item)
 				return
 			default:
 			}
@@ -338,7 +352,7 @@ func (p *RedisProxy) pipe(input net.Conn, output net.Conn, done chan struct{}, s
 			if !errors.Is(readErr, io.EOF) && !errors.Is(readErr, net.ErrClosed) {
 				p.log.Error().Stringer("input", input.RemoteAddr()).Stringer("output", output.RemoteAddr()).Err(readErr).Msg("Error reading Redis message from pipe")
 			}
-			ReleaseBuffer(item)
+			p.releaseBuffer(item)
 			return
 		}
 		inMetrics.requests.Inc()
@@ -352,7 +366,7 @@ func (p *RedisProxy) pipe(input net.Conn, output net.Conn, done chan struct{}, s
 			select {
 			case <-stop:
 				// Silence write errors when we are stopping
-				ReleaseBuffer(item)
+				p.releaseBuffer(item)
 				return
 			default:
 			}
@@ -360,12 +374,12 @@ func (p *RedisProxy) pipe(input net.Conn, output net.Conn, done chan struct{}, s
 			if !errors.Is(writeErr, net.ErrClosed) {
 				p.log.Error().Stringer("input", input.RemoteAddr()).Stringer("output", output.RemoteAddr()).Err(writeErr).Msg("Error writing Redis message to pipe")
 			}
-			ReleaseBuffer(item)
+			p.releaseBuffer(item)
 			return
 		}
 		outMetrics.bytesOut.Add(float64(nbytes))
 
-		ReleaseBuffer(item)
+		p.releaseBuffer(item)
 	}
 }
 

@@ -19,17 +19,23 @@ var protocolWriterPool sync.Pool
 // bufferPool allows reuse of byte slices to minimize allocations during ReadMessage.
 var bufferPool sync.Pool
 
-// MaxReusedBufferSize is the maximum capacity of a buffer that can be returned to the pool.
-var MaxReusedBufferSize = 64 * 1024
+// DefaultMaxReusedBufferSize is the default maximum capacity of a buffer that can be returned to the pool.
+const DefaultMaxReusedBufferSize = 64 * 1024
 
-// BufferSize is the initial capacity of buffers and bufio objects.
-var BufferSize = 16 * 1024
+// DefaultBufferSize is the default initial capacity of buffers and bufio objects.
+const DefaultBufferSize = 16 * 1024
 
-// ReleaseBuffer returns a buffer to the pool if it's within the reuse limit.
+// ReleaseBuffer returns a buffer to the pool if it's within the default reuse limit.
 func ReleaseBuffer(b []byte) {
-	// Do not put the buffer back in the pool if too big.
-	// We allow smaller buffers to be pooled; getBuffer() will reallocate if needed.
-	if b == nil || cap(b) > MaxReusedBufferSize {
+	ReleaseBufferWithLimit(b, DefaultMaxReusedBufferSize)
+}
+
+// ReleaseBufferWithLimit returns a buffer to the pool if it's within the specified reuse limit.
+func ReleaseBufferWithLimit(b []byte, maxReusedBufferSize int) {
+	if maxReusedBufferSize <= 0 {
+		maxReusedBufferSize = DefaultMaxReusedBufferSize
+	}
+	if b == nil || cap(b) > maxReusedBufferSize {
 		return
 	}
 	b = b[:0]
@@ -63,24 +69,37 @@ func (pw *RedisProtocolWriter) Release() {
 // It uses an internal bufio.Reader for efficiency and maintains an accumulation buffer
 // to return complete protocol messages.
 type RedisProtocolReader struct {
-	br       *bufio.Reader
-	buffer   []byte  // Accumulation buffer for the current message
-	stack    []int   // Reusable stack for parsing nested structures
-	stackBuf [16]int // Fixed buffer for the stack to avoid allocations for common nesting levels
+	br                  *bufio.Reader
+	buffer              []byte  // Accumulation buffer for the current message
+	bufferSize          int
+	maxReusedBufferSize int
+	stack               []int   // Reusable stack for parsing nested structures
+	stackBuf            [16]int // Fixed buffer for the stack to avoid allocations for common nesting levels
 }
 
 // NewRedisProtocolReader creates a new reader, potentially reusing one from the pool.
 // initialBufferSize specifies the starting capacity of the internal bufio.Reader if one is created.
-func NewRedisProtocolReader(reader io.Reader, bufferSize int) *RedisProtocolReader {
+func NewRedisProtocolReader(reader io.Reader, bufferSize int, maxReusedBufferSize ...int) *RedisProtocolReader {
+	if bufferSize <= 0 {
+		bufferSize = DefaultBufferSize
+	}
+	maxReused := DefaultMaxReusedBufferSize
+	if len(maxReusedBufferSize) > 0 && maxReusedBufferSize[0] > 0 {
+		maxReused = maxReusedBufferSize[0]
+	}
 	if v := protocolReaderPool.Get(); v != nil {
 		pr := v.(*RedisProtocolReader)
 		pr.br.Reset(reader)
 		pr.buffer = nil
+		pr.bufferSize = bufferSize
+		pr.maxReusedBufferSize = maxReused
 		pr.stack = pr.stackBuf[:0]
 		return pr
 	}
 	pr := &RedisProtocolReader{
-		br: bufio.NewReaderSize(reader, bufferSize),
+		br:                  bufio.NewReaderSize(reader, bufferSize),
+		bufferSize:          bufferSize,
+		maxReusedBufferSize: maxReused,
 	}
 	pr.stack = pr.stackBuf[:0]
 	return pr
@@ -93,7 +112,7 @@ func (r *RedisProtocolReader) Release() {
 		r.br.Reset(nil)
 	}
 	if r.buffer != nil {
-		ReleaseBuffer(r.buffer)
+		ReleaseBufferWithLimit(r.buffer, r.maxReusedBufferSize)
 		r.buffer = nil
 	}
 	protocolReaderPool.Put(r)
@@ -106,7 +125,11 @@ func (r *RedisProtocolReader) getBuffer() {
 	if v := bufferPool.Get(); v != nil {
 		r.buffer = *(v.(*[]byte))
 	} else {
-		r.buffer = make([]byte, 0, BufferSize)
+		bufSize := r.bufferSize
+		if bufSize <= 0 {
+			bufSize = DefaultBufferSize
+		}
+		r.buffer = make([]byte, 0, bufSize)
 	}
 	r.buffer = r.buffer[:0]
 }

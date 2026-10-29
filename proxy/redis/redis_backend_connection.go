@@ -96,14 +96,26 @@ func (rbc *RedisBackendConnection) Healthcheck() error {
 		return err
 	}
 
-	reader := NewRedisProtocolReader(rbc.conn, rbc.pool.proxy.bufferSize)
+	var maxReused int
+	var bufSize int
+	if rbc.pool != nil && rbc.pool.proxy != nil {
+		bufSize = rbc.pool.proxy.bufferSize
+		maxReused = rbc.pool.proxy.maxReusedBufferSize
+	}
+	reader := NewRedisProtocolReader(rbc.conn, bufSize, maxReused)
 	defer reader.Release()
 
 	resp, err := reader.ReadMessage(false)
 	if err != nil {
 		return err
 	}
-	defer ReleaseBuffer(resp)
+	defer func() {
+		if rbc.pool != nil && rbc.pool.proxy != nil {
+			rbc.pool.proxy.releaseBuffer(resp)
+		} else {
+			ReleaseBuffer(resp)
+		}
+	}()
 
 	if string(resp) != "+PONG\r\n" {
 		return fmt.Errorf("unexpected healthcheck response: %s", string(resp))
@@ -133,7 +145,13 @@ func (rbc *RedisBackendConnection) ResetAndRelease() {
 	_ = rbc.conn.SetDeadline(time.Now().Add(rbc.pool.proxy.resetTimeout))
 	defer func() { _ = rbc.conn.SetDeadline(time.Time{}) }()
 
-	reader := NewRedisProtocolReader(rbc.conn, rbc.pool.proxy.bufferSize)
+	var maxReused int
+	var bufSize int
+	if rbc.pool != nil && rbc.pool.proxy != nil {
+		bufSize = rbc.pool.proxy.bufferSize
+		maxReused = rbc.pool.proxy.maxReusedBufferSize
+	}
+	reader := NewRedisProtocolReader(rbc.conn, bufSize, maxReused)
 	defer reader.Release()
 
 	// Step 1: Sync by draining pending responses from the backend until we receive an ECHO confirmation.
@@ -174,7 +192,11 @@ func (rbc *RedisBackendConnection) ResetAndRelease() {
 		}
 
 		isEcho := bytes.Equal(item, expectedEcho)
-		ReleaseBuffer(item)
+		if rbc.pool != nil && rbc.pool.proxy != nil {
+			rbc.pool.proxy.releaseBuffer(item)
+		} else {
+			ReleaseBuffer(item)
+		}
 
 		if isEcho {
 			break
@@ -193,7 +215,13 @@ func (rbc *RedisBackendConnection) ResetAndRelease() {
 		rbc.fail(fmt.Errorf("error while reading RESET response: %w", err))
 		return
 	}
-	defer ReleaseBuffer(resp)
+	defer func() {
+		if rbc.pool != nil && rbc.pool.proxy != nil {
+			rbc.pool.proxy.releaseBuffer(resp)
+		} else {
+			ReleaseBuffer(resp)
+		}
+	}()
 
 	if !bytes.Equal(resp, []byte("+RESET\r\n")) {
 		rbc.fail(fmt.Errorf("unexpected RESET response: %q", string(resp)))
