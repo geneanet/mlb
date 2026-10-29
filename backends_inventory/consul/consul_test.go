@@ -17,6 +17,8 @@ import (
 	"github.com/hashicorp/hcl/v2"
 )
 
+var _ backend.BackendListProvider = (*BackendsInventoryConsul)(nil)
+
 // consulDummySubscriber implements backend.BackendUpdateSubscriber for testing.
 type consulDummySubscriber struct {
 	updates []backend.BackendUpdate

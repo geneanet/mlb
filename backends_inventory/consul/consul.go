@@ -263,7 +263,9 @@ func (c *BackendsInventoryConsul) fetch() (retServices consulServicesSlice, retE
 	return data, nil
 }
 
-func (c *BackendsInventoryConsul) GetBackendList() backend.BackendsList {
+var _ backend.BackendListProvider = (*BackendsInventoryConsul)(nil)
+
+func (c *BackendsInventoryConsul) GetBackendList() []*backend.Backend {
 	return c.backends.GetList()
 }
 
