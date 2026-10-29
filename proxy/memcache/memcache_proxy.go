@@ -798,12 +798,16 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 
 	requests := make([]req, 0, len(groups))
 	var wg sync.WaitGroup
+	var backendErr error
 
 	resultsChan := make(chan MemcacheResponse, len(groups))
 	for b, bKeys := range groups {
 		conn := p.backendConnectionPool.Get(b.Address)
 		if conn == nil {
 			p.log.Warn().Str("backend", b.Address).Msg("Unable to get backend connection for multi-get")
+			if backendErr == nil {
+				backendErr = fmt.Errorf("backend %s unavailable", b.Address)
+			}
 			continue
 		}
 
@@ -821,6 +825,9 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 		if err := conn.Query(bq); err != nil {
 			close(respStopChan)
 			p.log.Warn().Str("backend", b.Address).Err(err).Msg("Failed to query backend for multi-get")
+			if backendErr == nil {
+				backendErr = err
+			}
 			continue
 		}
 
@@ -868,7 +875,6 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 	}()
 
 	var combinedResponse bytes.Buffer
-	var backendErr error
 	for i := 0; i < len(requests); i++ {
 		select {
 		case resp := <-resultsChan:
@@ -906,7 +912,7 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 	}
 
 	if backendErr != nil {
-		_ = q.Reply([]byte(fmt.Sprintf("SERVER_ERROR backend failure: %v\r\n", backendErr)))
+		_ = q.Reply([]byte("SERVER_ERROR backend failure\r\n"))
 		return
 	}
 

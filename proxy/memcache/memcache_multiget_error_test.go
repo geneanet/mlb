@@ -8,6 +8,7 @@ import (
 	"mlb/backend"
 	"mlb/metrics"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -339,5 +340,149 @@ func TestMemcacheProxy_MultiGetNoBackend(t *testing.T) {
 
 	if resp != "SERVER_ERROR no backend available\r\n" {
 		t.Fatalf("expected 'SERVER_ERROR no backend available\\r\\n', got %q", resp)
+	}
+}
+
+func TestMemcacheProxy_MultiGetPartialUnreachableBackend(t *testing.T) {
+	// 1. Setup Mock Backend 1 (Healthy)
+	lBack1, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lBack1.Close()
+
+	go func() {
+		for {
+			conn, err := lBack1.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				reader := bufio.NewReader(c)
+				for {
+					line, err := reader.ReadString('\n')
+					if err != nil {
+						return
+					}
+					if bytes.HasPrefix([]byte(line), []byte("get ")) {
+						fields := bytes.Fields([]byte(line))
+						for _, k := range fields[1:] {
+							_, _ = fmt.Fprintf(c, "VALUE %s 0 2\r\nok\r\n", string(k))
+						}
+						_, _ = c.Write([]byte("END\r\n"))
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	// 2. Setup Mock Backend 2 (Unreachable: listener immediately closed)
+	lBack2, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr2 := lBack2.Addr().String()
+	_ = lBack2.Close()
+
+	// 3. Setup Proxy
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	proxy := &MemcacheProxy{
+		id:                       "test_multiget_partial_unreach",
+		log:                      zerolog.Nop(),
+		closeTimeout:             time.Second,
+		connectTimeout:           100 * time.Millisecond,
+		backendMinConnections:    1,
+		backendMaxConnections:    1,
+		backendInputQueueSize:    1024,
+		backendInflightQueueSize: 512,
+		wg:                       wg,
+		ctx:                      ctx,
+		cancel:                   cancel,
+		beMetricsCache:           make(map[string]*Metrics),
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
+		ring:      newMemcacheHashRing(),
+		backends:  backend.NewRegistry(zerolog.Nop(), false),
+		readyChan: make(chan struct{}),
+	}
+	proxy.backendConnectionPool = NewMemcacheBackendConnectionPool(proxy)
+
+	b1 := backend.NewBackend(lBack1.Addr().String(), nil)
+	b2 := backend.NewBackend(addr2, nil)
+	proxy.backends.Add(b1)
+	proxy.backends.Add(b2)
+	proxy.ring.update(proxy.backends.GetList())
+	proxy.backendConnectionPool.Update()
+
+	// Find two keys that map to different backends
+	var k1, k2 string
+	for i := 0; i < 100; i++ {
+		candidate := fmt.Sprintf("k%d", i)
+		target := proxy.ring.getBackend([]byte(candidate))
+		if target != nil {
+			if target.Address == b1.Address && k1 == "" {
+				k1 = candidate
+			} else if target.Address == b2.Address && k2 == "" {
+				k2 = candidate
+			}
+		}
+		if k1 != "" && k2 != "" {
+			break
+		}
+	}
+	if k1 == "" || k2 == "" {
+		t.Fatalf("failed to find keys mapping to both backends (k1=%q, k2=%q)", k1, k2)
+	}
+
+	lFront, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lFront.Close()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			conn, err := lFront.Accept()
+			if err != nil {
+				return
+			}
+			proxy.connectionsWG.Add(1)
+			go proxy.handleConnection(conn, &Metrics{
+				processed: metrics.FeCnxProcessed.WithLabelValues("test_part", "test_part"),
+				active:    metrics.FeActCnx.WithLabelValues("test_part", "test_part"),
+				bytesIn:   metrics.FeBytesIn.WithLabelValues("test_part", "test_part"),
+				bytesOut:  metrics.FeBytesOut.WithLabelValues("test_part", "test_part"),
+				cnxErrors: metrics.FeCnxErrors.WithLabelValues("test_part", "test_part"),
+				requests:  metrics.FeRequests.WithLabelValues("test_part", "test_part"),
+			})
+		}
+	}()
+
+	client, err := net.Dial("tcp", lFront.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	_, _ = fmt.Fprintf(client, "get %s %s\r\n", k1, k2)
+	reader := bufio.NewReader(client)
+	_ = client.SetDeadline(time.Now().Add(2 * time.Second))
+	resp, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("failed to read response: %v", err)
+	}
+
+	if !strings.HasPrefix(resp, "SERVER_ERROR") {
+		t.Fatalf("expected SERVER_ERROR response on unreachable backend, got %q", resp)
 	}
 }
