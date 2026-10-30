@@ -596,7 +596,8 @@ backends_processor "consul_kv" "test" {
 	sub := &testutil.DummySubscriber{Wg: sync.WaitGroup{}}
 	consulMod.ProvideUpdates(sub)
 
-	sub.Wg.Add(1)
+	// We expect 1 update from backend addition, and 1 from watcher updating
+	sub.Wg.Add(2)
 	dp.SendUpdate(backend.BackendUpdate{
 		Kind:    backend.UpdBackendAdded,
 		Address: upstreamBackend.Address,
