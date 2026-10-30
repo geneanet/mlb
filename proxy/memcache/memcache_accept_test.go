@@ -118,3 +118,67 @@ func TestMemcacheProxy_AcceptLoop_CancelDuringBackoff(t *testing.T) {
 		t.Fatal("acceptLoop failed to exit promptly upon context cancellation")
 	}
 }
+
+func TestMemcacheProxy_MultipleListeners_Independence(t *testing.T) {
+	ln1, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln1.Close()
+
+	ln2, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln2.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	nopLogger := zerolog.Nop()
+	p := &MemcacheProxy{
+		id:     "test-mc-multi-ln",
+		log:    nopLogger,
+		ctx:    ctx,
+		cancel: cancel,
+	}
+
+	feMetrics := &Metrics{
+		processed: prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_proc_mc_mln"}),
+		active:    prometheus.NewGauge(prometheus.GaugeOpts{Name: "fe_act_mc_mln"}),
+		bytesIn:   prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_bin_mc_mln"}),
+		bytesOut:  prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_bout_mc_mln"}),
+		cnxErrors: prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_err_mc_mln"}),
+	}
+
+	var listenersWG sync.WaitGroup
+	listenersWG.Add(2)
+	go p.acceptLoop(ln1, ln1.Addr().String(), &listenersWG, feMetrics)
+	go p.acceptLoop(ln2, ln2.Addr().String(), &listenersWG, feMetrics)
+
+	// Close ln1: acceptLoop for ln1 should exit cleanly without cancelling the proxy context
+	// or blocking/waiting prematurely on connectionsWG.
+	_ = ln1.Close()
+
+	testutil.Eventually(t, func() bool {
+		return p.ctx.Err() == nil
+	}, 100*time.Millisecond, 10*time.Millisecond)
+
+	time.Sleep(50 * time.Millisecond)
+
+	if p.ctx.Err() != nil {
+		t.Fatalf("closing one listener cancelled the entire proxy context: %v", p.ctx.Err())
+	}
+
+	// Dial ln2: should connect and accept without WaitGroup misuse panic
+	conn, err := net.Dial("tcp", ln2.Addr().String())
+	if err != nil {
+		t.Fatalf("failed to dial active listener ln2: %v", err)
+	}
+	_ = conn.Close()
+
+	cancel()
+	_ = ln2.Close()
+	listenersWG.Wait()
+}
+

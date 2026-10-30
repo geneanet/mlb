@@ -252,20 +252,38 @@ func (p *MemcacheProxy) Bind(modules module.ModulesRegistry) error {
 	}
 	m.ProvideUpdates(p)
 
+	if p.wg != nil {
+		p.wg.Add(1)
+	}
+
 	go func() {
 		module.WaitReady(p.ctx, m)
 		select {
 		case <-p.ctx.Done():
+			if p.wg != nil {
+				p.wg.Done()
+			}
 			return
 		default:
 		}
+		var listenersWG sync.WaitGroup
 		// Listening to incoming connections only makes sense after backend providers are available
 		for _, v := range p.addresses {
-			if err := p.listen(v, p.wg); err != nil {
+			if err := p.listen(v, &listenersWG); err != nil {
 				p.log.Fatal().Err(err).Str("address", v).Msg("Failed to start listener")
 			}
 		}
 		close(p.readyChan)
+
+		go func() {
+			if p.wg != nil {
+				defer p.wg.Done()
+			}
+			defer p.cancel()
+			listenersWG.Wait()
+			p.log.Debug().Msg("All frontend listeners closed, waiting for active connections to close")
+			p.connectionsWG.Wait()
+		}()
 	}()
 	return nil
 }
@@ -316,7 +334,6 @@ func (p *MemcacheProxy) acceptLoop(listener net.Listener, address string, wg *sy
 	defer p.log.Info().Str("address", address).Msg("Frontend closed")
 	defer listener.Close()
 	defer wg.Done()
-	defer p.cancel()
 
 	backoff := misc.NewExponentialBackoff(5*time.Millisecond, 1*time.Second, 2.0)
 
@@ -350,9 +367,6 @@ func (p *MemcacheProxy) acceptLoop(listener net.Listener, address string, wg *sy
 		p.log.Debug().Stringer("peer", conn.RemoteAddr()).Msg("Accepting Frontend connection")
 		go p.handleConnection(conn, feMetrics)
 	}
-
-	p.log.Debug().Str("address", address).Msg("Waiting for active connections to close")
-	p.connectionsWG.Wait()
 }
 
 // flushBackend sends a flush_all command to the backend upon connection.
