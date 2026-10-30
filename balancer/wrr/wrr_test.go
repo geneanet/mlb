@@ -526,3 +526,72 @@ func TestWRRBalancer_NoRecalculateWhenWeightUnchanged(t *testing.T) {
 		return balancer.state.Load() == initialState
 	}, 100*time.Millisecond, 10*time.Millisecond)
 }
+
+func TestWRRBalancer_GCDWeightReduction(t *testing.T) {
+	body := &hclsyntax.Body{
+		Attributes: map[string]*hclsyntax.Attribute{
+			"source": {Name: "source", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("src1")}},
+			"weight": {Name: "weight", Expr: &hclsyntax.ScopeTraversalExpr{
+				Traversal: hcl.Traversal{
+					hcl.TraverseRoot{Name: "backend"},
+					hcl.TraverseAttr{Name: "meta"},
+					hcl.TraverseAttr{Name: "wrr"},
+					hcl.TraverseAttr{Name: "weight"},
+				},
+			}},
+		},
+	}
+	cfg := &module.Config{Category: "balancer", Name: "test_gcd", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mod, err := newWRRBalancer(cfg, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+	balancer := mod.(*WRRBalancer)
+
+	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry(zerolog.Nop(), false)}
+	provider.ProvideUpdates(balancer)
+
+	// Add 3 backends with weights: A=1000, B=2000, C=3000
+	// Without GCD reduction, totalWeight is 6000 and sequence allocates 6000 elements.
+	// With GCD reduction (gcd=1000), weights are reduced to A=1, B=2, C=3, totalWeight is 6.
+	beA := backend.NewBackend("A", nil)
+	beA.Meta.Set("wrr", "weight", cty.NumberIntVal(1000))
+	beB := backend.NewBackend("B", nil)
+	beB.Meta.Set("wrr", "weight", cty.NumberIntVal(2000))
+	beC := backend.NewBackend("C", nil)
+	beC.Meta.Set("wrr", "weight", cty.NumberIntVal(3000))
+
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "A", Backend: beA})
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "B", Backend: beB})
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "C", Backend: beC})
+
+	testutil.Eventually(t, func() bool {
+		state := balancer.state.Load()
+		return state != nil && state.length > 0
+	}, 1*time.Second, 10*time.Millisecond)
+
+	state := balancer.state.Load()
+	if state.length != 6 {
+		t.Fatalf("expected sequence length to be reduced to 6 via GCD, got %d", state.length)
+	}
+
+	// Verify the 6 elements distribute in exact proportions 1:2:3
+	counts := make(map[string]int)
+	for i := 0; i < 6; i++ {
+		be, rel := balancer.GetBackend(false)
+		if be == nil {
+			t.Fatalf("GetBackend returned nil at index %d", i)
+		}
+		counts[be.Address]++
+		rel()
+	}
+
+	if counts["A"] != 1 || counts["B"] != 2 || counts["C"] != 3 {
+		t.Errorf("expected counts {A:1, B:2, C:3}, got %v", counts)
+	}
+}
+

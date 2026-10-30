@@ -171,18 +171,25 @@ func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 	return b, nil
 }
 
+// gcd calculates the Greatest Common Divisor of two integers using the Euclidean algorithm.
+func gcd(a, b int) int {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
+}
+
 // refreshSequence generates the Smooth Weighted Round-Robin sequence and updates the atomic state.
+// Weights are reduced by their Greatest Common Divisor (GCD) to optimize memory and sequence generation.
 func (b *WRRBalancer) refreshSequence(weights map[string]int) {
-	totalWeight := 0
 	addresses := make([]string, 0, len(weights))
 	for addr, w := range weights {
 		if w > 0 {
-			totalWeight += w
 			addresses = append(addresses, addr)
 		}
 	}
 
-	if totalWeight == 0 {
+	if len(addresses) == 0 {
 		b.state.Store(&swrrState{sequence: []string{}, length: 0})
 		return
 	}
@@ -190,13 +197,36 @@ func (b *WRRBalancer) refreshSequence(weights map[string]int) {
 	// Sort addresses for deterministic sequence generation
 	slices.Sort(addresses)
 
+	g := 1
+	if len(addresses) > 1 {
+		for i, addr := range addresses {
+			w := weights[addr]
+			if i == 0 {
+				g = w
+			} else {
+				g = gcd(g, w)
+			}
+		}
+		if g <= 0 {
+			g = 1
+		}
+	}
+
+	totalWeight := 0
+	reducedWeights := make([]int, len(addresses))
+	for i, addr := range addresses {
+		rw := weights[addr] / g
+		reducedWeights[i] = rw
+		totalWeight += rw
+	}
+
 	sequence := make([]string, 0, totalWeight)
 	currentWeights := make([]int, len(addresses))
 
 	for i := 0; i < totalWeight; i++ {
 		bestIdx := -1
-		for j, addr := range addresses {
-			currentWeights[j] += weights[addr]
+		for j := range addresses {
+			currentWeights[j] += reducedWeights[j]
 			if bestIdx == -1 || currentWeights[j] > currentWeights[bestIdx] {
 				bestIdx = j
 			}
