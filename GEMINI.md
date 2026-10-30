@@ -36,10 +36,10 @@ La communication entre modules repose sur les interfaces définies dans le packa
 
 | Rôle | Interface | Implémenté par | Consommé par | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| **Source d'événements** | `backend.BackendUpdateProvider` | Inventaires, Processeurs | Processeurs, Balancers, Proxies (`redis`) | Diffuse les ajouts/modifications/suppressions de backends via `ProvideUpdates(s)`. |
-| **Récepteur d'événements** | `backend.BackendUpdateSubscriber` | Processeurs, Balancers, Proxies (`redis`) | Inventaires, Processeurs | Reçoit les événements de cycle de vie via `ReceiveUpdate(u)`. |
+| **Source d'événements** | `backend.BackendUpdateProvider` | Inventaires, Processeurs | Processeurs, Balancers, Proxies (`redis`, `memcache`) | Diffuse les ajouts/modifications/suppressions de backends via `ProvideUpdates(s)`. |
+| **Récepteur d'événements** | `backend.BackendUpdateSubscriber` | Processeurs, Balancers, Proxies (`redis`, `memcache`) | Inventaires, Processeurs | Reçoit les événements de cycle de vie via `ReceiveUpdate(u)`. |
 | **Sélection unitaire** | `backend.BackendProvider` | Balancers | Proxies (`tcp`) | Fournit un backend pour une connexion cliente via `GetBackend(wait)`. |
-| **Liste complète** | `backend.BackendListProvider` | Inventaires, Balancers | Proxies (`memcache`), Dashboard | Fournit l'ensemble des cibles actives via `GetBackendList()`. |
+| **Liste complète** | `backend.BackendListProvider` | Inventaires, Balancers, Proxies (`redis`, `memcache`) | Dashboard | Fournit l'ensemble des cibles actives via `GetBackendList()`. |
 
 **Résolution des dépendances (`module.Binder`) :**
 Dans la méthode `Bind(modules module.ModulesRegistry)`, récupérer le module amont configuré par son identifiant à l'aide de la fonction générique typée :
@@ -49,6 +49,9 @@ if err != nil {
     return err
 }
 ```
+
+### Instructions spécifiques par sous-répertoire
+- **`dashboard/`** : Voir [`dashboard/GEMINI.md`](./dashboard/GEMINI.md) pour les intentions de conception du dashboard web (zéro dépendance externe, layout DAG vectoriel Sugiyama, règles d'interaction SVG, thèmes et robustesse).
 
 ---
 
@@ -138,11 +141,21 @@ Le projet applique la convention *Conventional Commits* pour l'historique Git :
 
 ---
 
-## 5. Synchronisation Configuration & Documentation
+## 5. Synchronisation Configuration, Documentation & Dashboard
 
+### Configuration HCL & Documentation
 Le système de configuration repose sur HashiCorp HCL (`hcl/v2`).
 
 Toute modification (ajout, renommage, suppression) d'un paramètre ou bloc de configuration doit être **impérativement répercutée en synchronisation** sur :
 1. Le schéma et décodeur HCL du code Go (`config/` ou module ciblé).
 2. Le fichier d'exemple global `config.example.hcl`.
 3. La documentation correspondante dans le répertoire `docs/` (`docs/configuration.md`, `docs/backends_*.md`, etc.).
+
+### Évolutions d'Architecture & Dashboard
+Le dashboard (`dashboard/`) constitue la console d'observabilité en temps réel de MLB. Tout changement d'architecture impactant le modèle de données doit être **impérativement reflété dans le dashboard** :
+- **Nouveaux types ou catégories de modules** : répercuter le type/catégorie dans l'export `/topology` (`dashboard/dashboard.go`), dans le rendu du graphe DAG et les filtres de catégories (`dashboard/index.html` - voir [`dashboard/GEMINI.md`](./dashboard/GEMINI.md)).
+- **Nouvelles métriques** : intégrer les nouvelles métriques Prometheus dans l'agrégation de `/proxy_metrics` (`dashboard/dashboard.go`) et dans les grilles de KPIs/cartes de `dashboard/index.html`.
+- **Changements structurels au niveau des backends** :
+  - Nouveaux formats de métadonnées, clés de statut ou bilans de santé : mettre à jour l'évaluation heuristique de santé (`evaluateBackendStatus`) et le rendu des badges (`renderMetaBadges`).
+  - Nouveaux modules fournissant des backends (`backend.BackendListProvider`) : vérifier leur bonne prise en compte dans `/backends` et ajouter les filtres d'affichage nécessaires.
+- **Tests de validation** : accompagner tout changement d'une mise à jour des tests dans `dashboard/dashboard_test.go`.

@@ -1449,3 +1449,39 @@ func TestMemcachePhantomResponse(t *testing.T) {
 		t.Fatalf("Expected VALUE real 0 4, got %q", line)
 	}
 }
+
+func TestMemcacheProxy_GetBackendList(t *testing.T) {
+	// Compile-time check that MemcacheProxy implements backend.BackendListProvider
+	var _ backend.BackendListProvider = (*MemcacheProxy)(nil)
+
+	// Test with nil backends registry
+	var nilProxy *MemcacheProxy
+	if got := nilProxy.GetBackendList(); got != nil {
+		t.Errorf("expected nil for nil MemcacheProxy, got %v", got)
+	}
+
+	p := &MemcacheProxy{}
+	if got := p.GetBackendList(); got != nil {
+		t.Errorf("expected nil for nil backends registry, got %v", got)
+	}
+
+	// Test with backends in registry
+	p.backends = backend.NewRegistry(zerolog.Nop(), false)
+	b1 := backend.NewBackend("127.0.0.1:11211", nil)
+	b2 := backend.NewBackend("127.0.0.1:11212", nil)
+	p.backends.Add(b1)
+	p.backends.Add(b2)
+
+	list := p.GetBackendList()
+	if len(list) != 2 {
+		t.Fatalf("expected 2 backends, got %d", len(list))
+	}
+
+	addresses := make(map[string]bool)
+	for _, b := range list {
+		addresses[b.Address] = true
+	}
+	if !addresses["127.0.0.1:11211"] || !addresses["127.0.0.1:11212"] {
+		t.Errorf("unexpected backend list: %v", list)
+	}
+}

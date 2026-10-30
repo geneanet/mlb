@@ -29,6 +29,8 @@ func init() {
 	module.RegisterFactory("proxy", "memcache", newMemcacheProxy, validateMemcacheProxyConfig)
 }
 
+var _ backend.BackendListProvider = (*MemcacheProxy)(nil)
+
 // MemcacheProxyConfig defines the HCL configuration for the Memcache proxy.
 type MemcacheProxyConfig struct {
 	ID                       string    `hcl:"id,label"`
@@ -271,6 +273,14 @@ func (p *MemcacheProxy) Bind(modules module.ModulesRegistry) error {
 // Ready returns a channel that is closed when the proxy is ready.
 func (p *MemcacheProxy) Ready() <-chan struct{} {
 	return p.readyChan
+}
+
+// GetBackendList returns a list of current active backends.
+func (p *MemcacheProxy) GetBackendList() []*backend.Backend {
+	if p == nil || p.backends == nil {
+		return nil
+	}
+	return p.backends.GetList()
 }
 
 // listen starts a TCP listener on the given address and accepts incoming connections.

@@ -28,6 +28,8 @@ func init() {
 	module.RegisterFactory("proxy", "redis", newRedisProxy, validateRedisProxyConfig)
 }
 
+var _ backend.BackendListProvider = (*RedisProxy)(nil)
+
 // RedisProxy implements a Redis protocol proxy.
 type RedisProxy struct {
 	id                       string
@@ -616,4 +618,12 @@ func (p *RedisProxy) Bind(modules module.ModulesRegistry) error {
 // Ready returns a channel that is closed when the proxy is ready.
 func (p *RedisProxy) Ready() <-chan struct{} {
 	return p.readyChan
+}
+
+// GetBackendList returns a list of current active backends.
+func (p *RedisProxy) GetBackendList() []*backend.Backend {
+	if p == nil || p.backends == nil {
+		return nil
+	}
+	return p.backends.GetList()
 }

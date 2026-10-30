@@ -8,6 +8,7 @@ import (
 	"mlb/module"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/hcl/v2"
@@ -62,7 +63,9 @@ func TestBackendsHandler(t *testing.T) {
 	ml := make(module.ModulesRegistry)
 	provider := &mockBackendListProvider{
 		backends: []*backend.Backend{
-			backend.NewBackend("1.2.3.4:80", nil),
+			backend.NewBackend("10.0.0.3:80", nil),
+			backend.NewBackend("10.0.0.1:80", nil),
+			backend.NewBackend("10.0.0.2:80", nil),
 		},
 	}
 	ml["test_provider"] = provider
@@ -91,8 +94,14 @@ func TestBackendsHandler(t *testing.T) {
 	if _, ok := res["test_provider"]; !ok {
 		t.Errorf("expected test_provider in response")
 	}
-	if len(res["test_provider"]) != 1 || res["test_provider"][0].Address != "1.2.3.4:80" {
-		t.Errorf("unexpected backend in response: %+v", res["test_provider"])
+	if len(res["test_provider"]) != 3 {
+		t.Fatalf("expected 3 backends in response, got %d", len(res["test_provider"]))
+	}
+	expectedAddrs := []string{"10.0.0.1:80", "10.0.0.2:80", "10.0.0.3:80"}
+	for i, expected := range expectedAddrs {
+		if res["test_provider"][i].Address != expected {
+			t.Errorf("expected backend[%d] = %s, got %s", i, expected, res["test_provider"][i].Address)
+		}
 	}
 }
 
@@ -206,5 +215,132 @@ func TestProxyMetricsHandler(t *testing.T) {
 	}
 	if val.Errors != 1 {
 		t.Errorf("expected 1 error, got %v", val.Errors)
+	}
+}
+
+func TestDashboardAssetsNoExternalDependencies(t *testing.T) {
+	content, err := FS.ReadFile("index.html")
+	if err != nil {
+		t.Fatalf("failed to read index.html: %v", err)
+	}
+	s := string(content)
+
+	forbidden := []string{
+		"http://",
+		"https://",
+		"//cdnjs",
+		"//cdn",
+		"//unpkg",
+		"mermaid",
+		"alpine",
+		"tailwind",
+	}
+
+	for _, token := range forbidden {
+		checkContent := s
+		if token == "http://" {
+			// Allow standard W3C XML namespaces used in SVG DOM creation
+			checkContent = strings.ReplaceAll(checkContent, "http://www.w3.org/2000/svg", "")
+		}
+		if strings.Contains(strings.ToLower(checkContent), strings.ToLower(token)) {
+			t.Errorf("index.html must not contain external dependency or library token %q", token)
+		}
+	}
+}
+
+func TestDashboardEssentialDOM(t *testing.T) {
+	content, err := FS.ReadFile("index.html")
+	if err != nil {
+		t.Fatalf("failed to read index.html: %v", err)
+	}
+	s := string(content)
+
+	requiredElements := []string{
+		`id="topology-svg"`,
+		`id="module-drawer"`,
+		`id="tab-topology"`,
+		`id="tab-backends"`,
+		`id="tab-metrics"`,
+		`id="theme-toggle"`,
+	}
+
+	for _, elem := range requiredElements {
+		if !strings.Contains(s, elem) {
+			t.Errorf("index.html is missing required DOM element %q", elem)
+		}
+	}
+}
+
+func TestDashboardCrossingReductionPresent(t *testing.T) {
+	content, err := FS.ReadFile("index.html")
+	if err != nil {
+		t.Fatalf("failed to read index.html: %v", err)
+	}
+	s := string(content)
+
+	if !strings.Contains(s, "barycenter") {
+		t.Errorf("index.html must implement crossing reduction barycenter heuristic")
+	}
+}
+
+func TestDashboardHCLSyntaxHighlighting(t *testing.T) {
+	content, err := FS.ReadFile("index.html")
+	if err != nil {
+		t.Fatalf("failed to read index.html: %v", err)
+	}
+	s := string(content)
+
+	requiredTokens := []string{
+		"highlightHCL",
+		"hcl-string",
+		"hcl-comment",
+		"hcl-bool",
+		"hcl-block",
+	}
+
+	for _, token := range requiredTokens {
+		if !strings.Contains(s, token) {
+			t.Errorf("index.html is missing HCL syntax highlighting token %q", token)
+		}
+	}
+
+	// Ensure no malformed CSS selectors with trailing comma before @media
+	if strings.Contains(s, ",\n        @media") || strings.Contains(s, ",\r\n        @media") {
+		t.Errorf("index.html contains malformed CSS with dangling comma before @media")
+	}
+}
+
+func TestDashboardFixesAndRobustness(t *testing.T) {
+	content, err := FS.ReadFile("index.html")
+	if err != nil {
+		t.Fatalf("failed to read index.html: %v", err)
+	}
+	s := string(content)
+
+	checks := []struct {
+		name     string
+		needle   string
+		expected bool
+	}{
+		{"resetGraphView active tab guard", "if (state.activeTab !== 'topology') return;", true},
+		{"pointerdown left button guard", "if (e.button !== 0) return;", true},
+		{"pointercancel listener", "svg.addEventListener('pointercancel', onPointerEnd);", true},
+		{"closeDrawer reset query", "state.drawerFilterQuery = '';", true},
+		{"drawer filter input reset", "const filterInput = document.getElementById('drawer-backend-filter');", true},
+		{"proxy filter pill", "setCategoryFilter('proxy', this)", true},
+		{"formatBytes petabytes and abs", "const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];", true},
+		{"SVG name truncation tooltip", "<title>${escapeHtml(rawName)}</title>", true},
+		{"badge CSS variables", "--badge-inventory-bg", true},
+		{"badge CSS variables for proxies", "--badge-proxy-color", true},
+		{"safe address access in drawer search", "const addr = (b.address || '').toLowerCase();", true},
+		{"tabs-nav absolute center", "transform: translateX(-50%);", true},
+		{"refresh-status min-width", "min-width: 85px;", true},
+		{"drawer default width 600px", "width: 600px;", true},
+	}
+
+	for _, c := range checks {
+		if strings.Contains(s, c.needle) != c.expected {
+			t.Errorf("check %q failed: contains %q expected %v", c.name, c.needle, c.expected)
+		}
 	}
 }

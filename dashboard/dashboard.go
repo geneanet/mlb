@@ -7,6 +7,8 @@ import (
 	"mlb/config"
 	"mlb/module"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
@@ -42,7 +44,20 @@ func RegisterHandlers(mux *http.ServeMux, ml module.ModulesRegistry, conf *confi
 				log.Warn().Err(err).Msg("Failed to get backend provider")
 				continue
 			}
-			backendsByProvider[id] = provider.GetBackendList()
+			list := slices.Clone(provider.GetBackendList())
+			slices.SortFunc(list, func(a, b *backend.Backend) int {
+				if a == nil && b == nil {
+					return 0
+				}
+				if a == nil {
+					return -1
+				}
+				if b == nil {
+					return 1
+				}
+				return strings.Compare(a.Address, b.Address)
+			})
+			backendsByProvider[id] = list
 		}
 		out, err := json.Marshal(backendsByProvider)
 		if err != nil {

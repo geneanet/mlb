@@ -763,3 +763,39 @@ func TestRedisProxy_DedicatedReaderPool_SizeIsolation(t *testing.T) {
 	r1Again.Release()
 }
 
+func TestRedisProxy_GetBackendList(t *testing.T) {
+	// Compile-time check that RedisProxy implements backend.BackendListProvider
+	var _ backend.BackendListProvider = (*RedisProxy)(nil)
+
+	// Test with nil backends registry
+	var nilProxy *RedisProxy
+	if got := nilProxy.GetBackendList(); got != nil {
+		t.Errorf("expected nil for nil RedisProxy, got %v", got)
+	}
+
+	p := &RedisProxy{}
+	if got := p.GetBackendList(); got != nil {
+		t.Errorf("expected nil for nil backends registry, got %v", got)
+	}
+
+	// Test with backends in registry
+	p.backends = backend.NewRegistry(zerolog.Nop(), false)
+	b1 := backend.NewBackend("127.0.0.1:6379", nil)
+	b2 := backend.NewBackend("127.0.0.1:6380", nil)
+	p.backends.Add(b1)
+	p.backends.Add(b2)
+
+	list := p.GetBackendList()
+	if len(list) != 2 {
+		t.Fatalf("expected 2 backends, got %d", len(list))
+	}
+
+	addresses := make(map[string]bool)
+	for _, b := range list {
+		addresses[b.Address] = true
+	}
+	if !addresses["127.0.0.1:6379"] || !addresses["127.0.0.1:6380"] {
+		t.Errorf("unexpected backend list: %v", list)
+	}
+}
+
