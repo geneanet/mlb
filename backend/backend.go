@@ -273,10 +273,10 @@ func (r *Registry) Subscribe(s BackendUpdateSubscriber) {
 // ProvideUpdates registers a subscriber and immediately provides it with the current list of backends.
 func (r *Registry) ProvideUpdates(s BackendUpdateSubscriber) {
 	r.mu.Lock()
-	r.subscribers = append(r.subscribers, s)
+	defer r.mu.Unlock()
+
 	list := slices.Collect(maps.Values(r.backends))
 	isReady := r.ready
-	r.mu.Unlock()
 
 	for _, b := range list {
 		s.ReceiveUpdate(BackendUpdate{
@@ -291,6 +291,8 @@ func (r *Registry) ProvideUpdates(s BackendUpdateSubscriber) {
 			Kind: UpdReady,
 		})
 	}
+
+	r.subscribers = append(r.subscribers, s)
 }
 
 // Publish sends a backend update to all registered subscribers.

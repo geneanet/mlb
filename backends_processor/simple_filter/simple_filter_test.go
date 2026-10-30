@@ -604,3 +604,105 @@ backends_processor "simple_filter" "test_other" {
 		})
 	})
 }
+
+type simpleFilterTestSub struct {
+	mu      sync.Mutex
+	updates []backend.BackendUpdate
+}
+
+func (s *simpleFilterTestSub) ReceiveUpdate(u backend.BackendUpdate) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updates = append(s.updates, u)
+}
+
+func (s *simpleFilterTestSub) getUpdates() []backend.BackendUpdate {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res := make([]backend.BackendUpdate, len(s.updates))
+	copy(res, s.updates)
+	return res
+}
+
+func TestSimpleFilter_ProvideUpdates_AtomicOrdering(t *testing.T) {
+	src := `
+backends_processor "simple_filter" "test_ordering" {
+	source = "foo"
+	condition = true
+	sort_by = backend.meta.test.priority
+	sort_order = "asc"
+}
+`
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg sync.WaitGroup
+	file, diags := hclsyntax.ParseConfig([]byte(src), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+
+	body := file.Body.(*hclsyntax.Body)
+	block := body.Blocks[0]
+
+	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry(zerolog.Nop(), false)}
+	dp.Backends.MarkReady()
+
+	modConfig := &module.Config{
+		Category: block.Type,
+		Type:     block.Labels[0],
+		Name:     block.Labels[1],
+		Config:   block.Body,
+		Ctx:      &hcl.EvalContext{},
+	}
+
+	mod, err := newSimpleFilter(modConfig, &wg, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filter := mod.(*SimpleFilter)
+
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("foo", dp)
+	if err := filter.Bind(modules); err != nil {
+		t.Fatal(err)
+	}
+
+	// Add 3 backends with distinct priorities
+	for _, item := range []struct {
+		addr string
+		prio int
+	}{
+		{"10.0.0.1", 30},
+		{"10.0.0.2", 10},
+		{"10.0.0.3", 20},
+	} {
+		b := backend.NewBackend(item.addr, nil)
+		b.Meta.Set("test", "priority", cty.NumberIntVal(int64(item.prio)))
+		dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: b.Address, Backend: b})
+	}
+
+	testutil.Eventually(t, func() bool {
+		return len(filter.GetBackendList()) == 3
+	}, 1*time.Second, 10*time.Millisecond)
+
+	// Test ProvideUpdates delivers sorted snapshot atomically
+	sub := &simpleFilterTestSub{}
+	filter.ProvideUpdates(sub)
+
+	// Sub should have received updates in sort order: priority 10 (10.0.0.2), 20 (10.0.0.3), 30 (10.0.0.1)
+	updates := sub.getUpdates()
+	var addrs []string
+	for _, u := range updates {
+		if u.Kind == backend.UpdBackendAdded {
+			addrs = append(addrs, u.Address)
+		}
+	}
+
+	if len(addrs) != 3 {
+		t.Fatalf("expected 3 added updates, got %d (%v)", len(addrs), addrs)
+	}
+	if addrs[0] != "10.0.0.2" || addrs[1] != "10.0.0.3" || addrs[2] != "10.0.0.1" {
+		t.Errorf("unexpected sort order in ProvideUpdates: %v", addrs)
+	}
+}

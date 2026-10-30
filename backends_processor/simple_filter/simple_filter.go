@@ -141,15 +141,10 @@ func newSimpleFilter(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 
 // ProvideUpdates registers a subscriber and sends initial updates for all currently matched backends in their sort order.
 func (f *SimpleFilter) ProvideUpdates(s backend.BackendUpdateSubscriber) {
-	f.backends.Subscribe(s)
+	f.listMu.Lock()
+	defer f.listMu.Unlock()
 
-	f.listMu.RLock()
-	list := make([]*backend.Backend, len(f.sortedList))
-	copy(list, f.sortedList)
-	isReady := f.backends.Ready()
-	f.listMu.RUnlock()
-
-	for _, b := range list {
+	for _, b := range f.sortedList {
 		s.ReceiveUpdate(backend.BackendUpdate{
 			Kind:    backend.UpdBackendAdded,
 			Address: b.Address,
@@ -158,12 +153,14 @@ func (f *SimpleFilter) ProvideUpdates(s backend.BackendUpdateSubscriber) {
 	}
 
 	select {
-	case <-isReady:
+	case <-f.backends.Ready():
 		s.ReceiveUpdate(backend.BackendUpdate{
 			Kind: backend.UpdReady,
 		})
 	default:
 	}
+
+	f.backends.Subscribe(s)
 }
 
 // Ready returns a channel that is closed when the filter is ready.
@@ -230,10 +227,10 @@ func (f *SimpleFilter) refreshBackends() {
 		newSortedList[i] = s.backend
 	}
 
-	// Update the cached sorted list
+	// Update the cached sorted list and reconcile public registry under listMu
 	f.listMu.Lock()
+	defer f.listMu.Unlock()
 	f.sortedList = newSortedList
-	f.listMu.Unlock()
 
 	// Reconcile public registry:
 	// 1. Remove backends that are no longer in the top-N list

@@ -3,6 +3,8 @@ package backend
 import (
 	"context"
 	"reflect"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -420,5 +422,62 @@ func TestRegistry_Readiness(t *testing.T) {
 	}
 	if !foundReady {
 		t.Errorf("expected late subscriber to receive initial UpdReady")
+	}
+}
+
+type interleavingSubscriber struct {
+	mu     sync.Mutex
+	active map[string]bool
+	reg    *Registry
+	first  atomic.Bool
+	seenB1 chan struct{}
+}
+
+func (s *interleavingSubscriber) ReceiveUpdate(u BackendUpdate) {
+	s.mu.Lock()
+	switch u.Kind {
+	case UpdBackendAdded:
+		s.active[u.Address] = true
+	case UpdBackendRemoved:
+		delete(s.active, u.Address)
+	}
+	s.mu.Unlock()
+
+	if u.Kind == UpdBackendAdded && u.Address == "10.0.0.1" {
+		if s.first.CompareAndSwap(false, true) {
+			s.seenB1 <- struct{}{}
+		}
+	}
+}
+
+func TestRegistry_ProvideUpdates_AtomicWithPublish(t *testing.T) {
+	reg := NewRegistry(zerolog.Nop(), false)
+	b1 := NewBackend("10.0.0.1", nil)
+	b2 := NewBackend("10.0.0.2", nil)
+	reg.Add(b1)
+	reg.Add(b2)
+
+	sub := &interleavingSubscriber{
+		active: make(map[string]bool),
+		reg:    reg,
+		seenB1: make(chan struct{}, 1),
+	}
+
+	doneGoroutine := make(chan struct{})
+	go func() {
+		<-sub.seenB1
+		reg.Remove("10.0.0.2")
+		reg.Publish(BackendUpdate{Kind: UpdBackendRemoved, Address: "10.0.0.2"})
+		close(doneGoroutine)
+	}()
+
+	reg.ProvideUpdates(sub)
+	<-doneGoroutine
+
+	// Since 10.0.0.2 was removed, the subscriber MUST NOT end up with 10.0.0.2 active!
+	sub.mu.Lock()
+	defer sub.mu.Unlock()
+	if sub.active["10.0.0.2"] {
+		t.Fatalf("subscriber ended up with removed backend 10.0.0.2 active due to ProvideUpdates interleaving")
 	}
 }
