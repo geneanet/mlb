@@ -1460,6 +1460,14 @@
             return 'neutral';
         }
 
+        // Helper to get all upstream sources for a module (supporting source or sources array)
+        function getNodeSources(node) {
+            if (!node) return [];
+            if (Array.isArray(node.sources) && node.sources.length > 0) return node.sources;
+            if (node.source) return [node.source];
+            return [];
+        }
+
         // Resolve backends for a module (including upstream resolution for proxies)
         function resolveModuleBackends(moduleId) {
             if (!moduleId) return { backends: [], resolvedFrom: null };
@@ -1471,16 +1479,23 @@
 
             // Upstream resolution if proxy or module without direct entries
             const node = state.topology.find(n => n.id === moduleId);
-            if (node && node.source) {
-                let current = node;
+            if (node) {
+                const nodeSources = getNodeSources(node);
                 const visited = new Set([moduleId]);
+                const queue = [...nodeSources];
 
-                while (current && current.source && !visited.has(current.source)) {
-                    visited.add(current.source);
-                    if (state.backends[current.source] && state.backends[current.source].length > 0) {
-                        return { backends: state.backends[current.source], resolvedFrom: current.source };
+                while (queue.length > 0) {
+                    const currId = queue.shift();
+                    if (!currId || visited.has(currId)) continue;
+                    visited.add(currId);
+
+                    if (state.backends[currId] && state.backends[currId].length > 0) {
+                        return { backends: state.backends[currId], resolvedFrom: currId };
                     }
-                    current = state.topology.find(n => n.id === current.source);
+                    const currNode = state.topology.find(n => n.id === currId);
+                    if (currNode) {
+                        queue.push(...getNodeSources(currNode));
+                    }
                 }
             }
 
@@ -1771,10 +1786,13 @@
             const adj = new Map();
             nodes.forEach(n => adj.set(n.id, []));
             nodes.forEach(n => {
-                if (n.source && nodeMap.has(n.source)) {
-                    adj.get(n.id).push(n.source);
-                    adj.get(n.source).push(n.id);
-                }
+                const srcs = getNodeSources(n);
+                srcs.forEach(src => {
+                    if (nodeMap.has(src)) {
+                        adj.get(n.id).push(src);
+                        adj.get(src).push(n.id);
+                    }
+                });
             });
 
             // 2. Discover independent connected components (disjoint service pipelines)
@@ -1833,9 +1851,13 @@
 
                     recursionStack.add(nodeId);
                     let rank = 0;
-                    if (node.source && compNodeMap.has(node.source)) {
-                        rank = getRank(node.source) + 1;
-                    }
+                    const srcs = getNodeSources(node);
+                    srcs.forEach(src => {
+                        if (compNodeMap.has(src)) {
+                            const r = getRank(src) + 1;
+                            if (r > rank) rank = r;
+                        }
+                    });
                     recursionStack.delete(nodeId);
                     ranks.set(nodeId, rank);
                     return rank;
@@ -1863,10 +1885,13 @@
                         downstream.set(n.id, []);
                     });
                     compNodes.forEach(n => {
-                        if (n.source && compNodeMap.has(n.source)) {
-                            upstream.get(n.id).push(n.source);
-                            downstream.get(n.source).push(n.id);
-                        }
+                        const srcs = getNodeSources(n);
+                        srcs.forEach(src => {
+                            if (compNodeMap.has(src)) {
+                                upstream.get(n.id).push(src);
+                                downstream.get(src).push(n.id);
+                            }
+                        });
                     });
 
                     // Forward and backward sweeps to align branches horizontally
@@ -1958,19 +1983,22 @@
             // Generate edges
             const edges = [];
             nodes.forEach(n => {
-                if (n.source && positions.has(n.source) && positions.has(n.id)) {
-                    const fromPos = positions.get(n.source);
-                    const toPos = positions.get(n.id);
+                const srcs = getNodeSources(n);
+                srcs.forEach(src => {
+                    if (positions.has(src) && positions.has(n.id)) {
+                        const fromPos = positions.get(src);
+                        const toPos = positions.get(n.id);
 
-                    edges.push({
-                        from: n.source,
-                        to: n.id,
-                        x1: fromPos.x + fromPos.width,
-                        y1: fromPos.y + fromPos.height / 2,
-                        x2: toPos.x,
-                        y2: toPos.y + toPos.height / 2
-                    });
-                }
+                        edges.push({
+                            from: src,
+                            to: n.id,
+                            x1: fromPos.x + fromPos.width,
+                            y1: fromPos.y + fromPos.height / 2,
+                            x2: toPos.x,
+                            y2: toPos.y + toPos.height / 2
+                        });
+                    }
+                });
             });
 
             return { positions, edges, width: totalWidth, height: totalHeight };
@@ -2198,42 +2226,49 @@
 
             const targetNode = nodeMap.get(nodeId);
 
-            // Direct parent
-            if (targetNode && targetNode.source && nodeMap.has(targetNode.source)) {
-                directNodeIds.add(targetNode.source);
-                directEdgeKeys.add(`${targetNode.source}->${nodeId}`);
-            }
+            // Direct parents
+            const targetSources = getNodeSources(targetNode);
+            targetSources.forEach(src => {
+                if (nodeMap.has(src)) {
+                    directNodeIds.add(src);
+                    directEdgeKeys.add(`${src}->${nodeId}`);
+                }
+            });
 
             // Direct children
-            state.topology.filter(n => n.source === nodeId).forEach(child => {
+            state.topology.filter(n => getNodeSources(n).includes(nodeId)).forEach(child => {
                 directNodeIds.add(child.id);
                 directEdgeKeys.add(`${nodeId}->${child.id}`);
             });
 
             // 1. Traverse all upstream ancestors back to root inventory
-            let currUp = targetNode ? targetNode.source : null;
-            const visitedUp = new Set([nodeId]);
-            if (currUp) visitedUp.add(currUp);
+            const queueUp = [...targetSources];
+            const visitedUp = new Set([nodeId, ...targetSources]);
+            targetSources.forEach(src => indirectNodeIds.add(src));
 
-            while (currUp && nodeMap.has(currUp)) {
-                const node = nodeMap.get(currUp);
-                if (node.source && !visitedUp.has(node.source)) {
-                    visitedUp.add(node.source);
-                    indirectNodeIds.add(node.source);
-                    indirectEdgeKeys.add(`${node.source}->${currUp}`);
-                    currUp = node.source;
-                } else {
-                    break;
+            while (queueUp.length > 0) {
+                const currId = queueUp.shift();
+                const parentNode = nodeMap.get(currId);
+                if (parentNode) {
+                    const parentSources = getNodeSources(parentNode);
+                    parentSources.forEach(pSrc => {
+                        indirectEdgeKeys.add(`${pSrc}->${currId}`);
+                        if (!visitedUp.has(pSrc)) {
+                            visitedUp.add(pSrc);
+                            indirectNodeIds.add(pSrc);
+                            queueUp.push(pSrc);
+                        }
+                    });
                 }
             }
 
             // 2. Traverse all downstream descendants to proxies
-            const queueDown = Array.from(directNodeIds).filter(id => id !== (targetNode ? targetNode.source : null));
+            const queueDown = Array.from(directNodeIds).filter(id => !targetSources.includes(id));
             const visitedDown = new Set([nodeId, ...queueDown]);
 
             while (queueDown.length > 0) {
                 const curr = queueDown.shift();
-                const children = state.topology.filter(n => n.source === curr);
+                const children = state.topology.filter(n => getNodeSources(n).includes(curr));
                 children.forEach(child => {
                     indirectEdgeKeys.add(`${curr}->${child.id}`);
                     if (!visitedDown.has(child.id)) {
@@ -2337,14 +2372,18 @@
             // Routing
             const routingEl = document.getElementById('drawer-routing');
             let routingHtml = '';
-            if (node.source) {
-                routingHtml += `<span>Amont : <a class="flow-link" data-select-node="${escapeHtml(node.source)}">${escapeHtml(node.source)}</a></span>`;
+            const nodeSources = getNodeSources(node);
+            if (nodeSources.length === 1) {
+                routingHtml += `<span>Amont : <a class="flow-link" data-select-node="${escapeHtml(nodeSources[0])}">${escapeHtml(nodeSources[0])}</a></span>`;
+            } else if (nodeSources.length > 1) {
+                const links = nodeSources.map(s => `<a class="flow-link" data-select-node="${escapeHtml(s)}">${escapeHtml(s)}</a>`).join(', ');
+                routingHtml += `<span>Amont (${nodeSources.length}) : ${links}</span>`;
             } else {
                 routingHtml += `<span style="color: var(--text-faint);">Racine (aucun amont)</span>`;
             }
 
             // Downstream consumers
-            const consumers = state.topology.filter(n => n.source === node.id);
+            const consumers = state.topology.filter(n => getNodeSources(n).includes(node.id));
             if (consumers.length > 0) {
                 const links = consumers.map(c => `<a class="flow-link" data-select-node="${escapeHtml(c.id)}">${escapeHtml(c.id)}</a>`).join(', ');
                 routingHtml += ` <span style="color: var(--text-faint); margin: 0 4px;">➔</span> <span>Aval : ${links}</span>`;
@@ -2657,7 +2696,7 @@
                                 </div>
                             </div>
                             <div style="font-size: 11px; color: var(--text-faint); display: flex; justify-content: space-between;">
-                                <span>Source : <strong>${escapeHtml(p.source || 'aucune')}</strong></span>
+                                <span>Source(s) : <strong>${escapeHtml(getNodeSources(p).join(', ') || 'aucune')}</strong></span>
                                 <a class="flow-link" onclick="switchTab('topology'); selectNode('${escapeHtml(p.id)}');">Inspecter dans le graphe</a>
                             </div>
                         </div>

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
 
 type mockBackendListProvider struct {
@@ -146,6 +147,107 @@ func TestTopologyHandler(t *testing.T) {
 		t.Errorf("unexpected node name: %s", nodes[0].Name)
 	}
 }
+
+func TestTopologyHandler_MultiSources(t *testing.T) {
+	multiHCL := `
+sources = ["balancer.wrr.app1", "balancer.wrr.app2"]
+`
+	backupHCL := `
+source = "balancer.wrr.app1"
+backup_source = "balancer.wrr.app2"
+`
+	singleHCL := `
+source = "balancer.wrr.app1"
+`
+
+	file1, diags1 := hclsyntax.ParseConfig([]byte(multiHCL), "multi.hcl", hcl.Pos{Line: 1, Column: 1})
+	if diags1.HasErrors() {
+		t.Fatal(diags1)
+	}
+	file2, diags2 := hclsyntax.ParseConfig([]byte(backupHCL), "backup.hcl", hcl.Pos{Line: 1, Column: 1})
+	if diags2.HasErrors() {
+		t.Fatal(diags2)
+	}
+	file3, diags3 := hclsyntax.ParseConfig([]byte(singleHCL), "single.hcl", hcl.Pos{Line: 1, Column: 1})
+	if diags3.HasErrors() {
+		t.Fatal(diags3)
+	}
+
+	conf := &config.Config{
+		ProxyList: []*module.Config{
+			{
+				Category: "proxy",
+				Type:     "tcp",
+				Name:     "proxy_multi",
+				RawHCL:   multiHCL,
+				Config:   file1.Body,
+				Ctx:      &hcl.EvalContext{},
+			},
+			{
+				Category: "proxy",
+				Type:     "tcp",
+				Name:     "proxy_backup",
+				RawHCL:   backupHCL,
+				Config:   file2.Body,
+				Ctx:      &hcl.EvalContext{},
+			},
+			{
+				Category: "proxy",
+				Type:     "redis",
+				Name:     "proxy_single",
+				RawHCL:   singleHCL,
+				Config:   file3.Body,
+				Ctx:      &hcl.EvalContext{},
+			},
+		},
+	}
+
+	mux := http.NewServeMux()
+	RegisterHandlers(mux, make(module.ModulesRegistry), conf)
+
+	req, err := http.NewRequest("GET", "/topology", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
+	}
+
+	var nodes []TopologyNode
+	if err := json.NewDecoder(rr.Body).Decode(&nodes); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(nodes) != 3 {
+		t.Fatalf("expected 3 nodes, got %d", len(nodes))
+	}
+
+	// proxy_multi
+	if len(nodes[0].Sources) != 2 || nodes[0].Sources[0] != "balancer.wrr.app1" || nodes[0].Sources[1] != "balancer.wrr.app2" {
+		t.Errorf("expected proxy_multi sources [balancer.wrr.app1, balancer.wrr.app2], got %v", nodes[0].Sources)
+	}
+
+	// proxy_backup
+	if len(nodes[1].Sources) != 2 || nodes[1].Sources[0] != "balancer.wrr.app1" || nodes[1].Sources[1] != "balancer.wrr.app2" {
+		t.Errorf("expected proxy_backup sources [balancer.wrr.app1, balancer.wrr.app2], got %v", nodes[1].Sources)
+	}
+	if nodes[1].Source != "balancer.wrr.app1" {
+		t.Errorf("expected proxy_backup source 'balancer.wrr.app1', got %s", nodes[1].Source)
+	}
+
+	// proxy_single
+	if nodes[2].Source != "balancer.wrr.app1" {
+		t.Errorf("expected proxy_single source 'balancer.wrr.app1', got %s", nodes[2].Source)
+	}
+	if len(nodes[2].Sources) != 0 {
+		t.Errorf("expected proxy_single sources to be empty, got %v", nodes[2].Sources)
+	}
+}
+
 
 func TestProxyMetricsHandler(t *testing.T) {
 	// Use existing metrics to avoid registration conflicts
@@ -336,6 +438,7 @@ func TestDashboardFixesAndRobustness(t *testing.T) {
 		{"tabs-nav absolute center", "transform: translateX(-50%);", true},
 		{"refresh-status min-width", "min-width: 85px;", true},
 		{"drawer default width 600px", "width: 600px;", true},
+		{"multi-sources helper", "function getNodeSources(node)", true},
 	}
 
 	for _, c := range checks {

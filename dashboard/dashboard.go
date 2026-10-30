@@ -23,12 +23,13 @@ var FS embed.FS
 
 // TopologyNode represents a node in the MLB module graph.
 type TopologyNode struct {
-	ID       string `json:"id"`
-	Category string `json:"category"`
-	Type     string `json:"type"`
-	Name     string `json:"name"`
-	Source   string `json:"source,omitempty"`
-	HCL      string `json:"hcl,omitempty"`
+	ID       string   `json:"id"`
+	Category string   `json:"category"`
+	Type     string   `json:"type"`
+	Name     string   `json:"name"`
+	Source   string   `json:"source,omitempty"`
+	Sources  []string `json:"sources,omitempty"`
+	HCL      string   `json:"hcl,omitempty"`
 }
 
 // RegisterHandlers registers the dashboard and API endpoints.
@@ -81,8 +82,10 @@ func RegisterHandlers(mux *http.ServeMux, ml module.ModulesRegistry, conf *confi
 		}
 
 		type sourceOnly struct {
-			Source string   `hcl:"source,optional"`
-			Remain hcl.Body `hcl:",remain"`
+			Source       string   `hcl:"source,optional"`
+			Sources      []string `hcl:"sources,optional"`
+			BackupSource string   `hcl:"backup_source,optional"`
+			Remain       hcl.Body `hcl:",remain"`
 		}
 
 		for _, list := range allModules {
@@ -96,7 +99,17 @@ func RegisterHandlers(mux *http.ServeMux, ml module.ModulesRegistry, conf *confi
 				}
 				var so sourceOnly
 				_ = gohcl.DecodeBody(m.Config, m.Ctx, &so)
+
+				if len(so.Sources) == 0 && so.Source != "" {
+					if so.BackupSource != "" {
+						so.Sources = []string{so.Source, so.BackupSource}
+					}
+				} else if len(so.Sources) > 0 && so.BackupSource != "" && !slices.Contains(so.Sources, so.BackupSource) {
+					so.Sources = append(so.Sources, so.BackupSource)
+				}
+
 				node.Source = so.Source
+				node.Sources = so.Sources
 				nodes = append(nodes, node)
 			}
 		}
