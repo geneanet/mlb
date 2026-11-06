@@ -6,6 +6,7 @@ import (
 	"mlb/backend"
 	"mlb/config"
 	"mlb/module"
+	"mlb/util"
 	"net/http"
 	"slices"
 	"strings"
@@ -95,7 +96,7 @@ func RegisterHandlers(mux *http.ServeMux, ml module.ModulesRegistry, conf *confi
 					Category: m.Category,
 					Type:     m.Type,
 					Name:     m.Name,
-					HCL:      m.RawHCL,
+					HCL:      util.RedactHCL(m.RawHCL),
 				}
 				var so sourceOnly
 				_ = gohcl.DecodeBody(m.Config, m.Ctx, &so)

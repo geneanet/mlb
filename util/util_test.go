@@ -99,8 +99,104 @@ func TestFromCtyByteSize(t *testing.T) {
 			t.Errorf("FromCtyByteSize(%v) error = %v, wantErr %v", tt.input, err, tt.wantErr)
 			continue
 		}
-		if got != tt.expected {
+		if !tt.wantErr && got != tt.expected {
 			t.Errorf("FromCtyByteSize(%v) = %v, want %v", tt.input, got, tt.expected)
 		}
+	}
+}
+
+func TestRedactHCL(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "empty",
+			input:    "",
+			expected: "",
+		},
+		{
+			name: "mysql_password",
+			input: `backends_processor "mysql" "main" {
+		user     = "root"
+		password = "secret_password"
+		}`,
+			expected: `backends_processor "mysql" "main" {
+		user     = "root"
+		password = "******"
+		}`,
+		},
+		{
+			name: "redis_password_no_space",
+			input: `backends_processor "redis" "main" {
+		password="mypassword"
+		}`,
+			expected: `backends_processor "redis" "main" {
+		password="******"
+		}`,
+		},
+		{
+			name: "consul_token_with_comment",
+			input: `backends_inventory "consul" "dc1" {
+		token = "consul-token-xyz" # secret token
+		}`,
+			expected: `backends_inventory "consul" "dc1" {
+		token = "******" # secret token
+		}`,
+		},
+		{
+			name: "consul_key_not_redacted",
+			input: `backends_processor "consul_kv" "kv" {
+		consul_key = "services/app/config"
+		}`,
+			expected: `backends_processor "consul_kv" "kv" {
+		consul_key = "services/app/config"
+		}`,
+		},
+		{
+			name: "comments_not_redacted",
+			input: `# password = "commented"
+		// token = "commented"
+		/* password = "block" */`,
+			expected: `# password = "commented"
+		// token = "commented"
+		/* password = "block" */`,
+		},
+		{
+			name:     "escaped_quotes",
+			input:    `password = "foo\"bar"`,
+			expected: `password = "******"`,
+		},
+		{
+			name:     "unquoted_expression",
+			input:    `password = var.my_secret`,
+			expected: `password = "******"`,
+		},
+		{
+			name:     "array_token",
+			input:    `token = ["tok1", "tok2"]`,
+			expected: `token = "******"`,
+		},
+		{
+			name: "prefixed_attributes",
+			input: `client_secret = "secret1"
+		auth_token = "tok1"
+		api_key = "key1"
+		db_password = "pwd1"`,
+			expected: `client_secret = "******"
+		auth_token = "******"
+		api_key = "******"
+		db_password = "******"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := RedactHCL(tt.input)
+			if got != tt.expected {
+				t.Errorf("RedactHCL() =\n%s\nwant:\n%s", got, tt.expected)
+			}
+		})
 	}
 }

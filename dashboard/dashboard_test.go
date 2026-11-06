@@ -151,6 +151,72 @@ func TestTopologyHandler(t *testing.T) {
 	}
 }
 
+func TestTopologyHandler_RedactsSecrets(t *testing.T) {
+	rawHCL := `backends_processor "mysql" "main" {
+  source   = "backends_inventory.static.db"
+  user     = "root"
+  password = "super_secret_db_password"
+  token    = "consul_secret_token_123"
+}`
+
+	conf := &config.Config{
+		BackendsProcessorList: []*module.Config{
+			{
+				Category: "backends_processor",
+				Type:     "mysql",
+				Name:     "main",
+				RawHCL:   rawHCL,
+				Config:   hcl.EmptyBody(),
+				Ctx:      &hcl.EvalContext{},
+			},
+		},
+	}
+
+	mux := http.NewServeMux()
+	RegisterHandlers(mux, make(module.ModulesRegistry), conf)
+
+	req, err := http.NewRequest("GET", "/topology", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if status := rr.Code; status != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", status)
+	}
+
+	var nodes []TopologyNode
+	if err := json.NewDecoder(rr.Body).Decode(&nodes); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(nodes))
+	}
+
+	nodeHCL := nodes[0].HCL
+	if strings.Contains(nodeHCL, "super_secret_db_password") {
+		t.Errorf("password was not redacted in /topology! Got:\n%s", nodeHCL)
+	}
+	if strings.Contains(nodeHCL, "consul_secret_token_123") {
+		t.Errorf("token was not redacted in /topology! Got:\n%s", nodeHCL)
+	}
+	if !strings.Contains(nodeHCL, `password = "******"`) {
+		t.Errorf("expected redacted password placeholder, got:\n%s", nodeHCL)
+	}
+	if !strings.Contains(nodeHCL, `token    = "******"`) {
+		t.Errorf("expected redacted token placeholder, got:\n%s", nodeHCL)
+	}
+
+	// Verify the raw response body does not contain secrets anywhere
+	rawBody := rr.Body.String()
+	if strings.Contains(rawBody, "super_secret_db_password") || strings.Contains(rawBody, "consul_secret_token_123") {
+		t.Errorf("secret found in raw HTTP response body")
+	}
+}
+
 func TestTopologyHandler_MultiSources(t *testing.T) {
 	multiHCL := `
 sources = ["balancer.wrr.app1", "balancer.wrr.app2"]

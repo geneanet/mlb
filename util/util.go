@@ -3,6 +3,7 @@ package util
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -121,4 +122,16 @@ func FromCtyByteSize(v cty.Value) (int, error) {
 	default:
 		return 0, fmt.Errorf("unexpected type %s for byte size", v.Type().FriendlyName())
 	}
+}
+
+var secretHCLRegex = regexp.MustCompile(
+	`(?i)(?m)^(\s*(?:[a-zA-Z0-9_]*_)?(?:password|passwd|pwd|token|secret|api_key)\s*=\s*)(?:"(?:[^"\\]|\\.)*"|\[[^\]]*\]|[^\s\r\n#/]+)`,
+)
+
+// RedactHCL redacts sensitive configuration values (passwords, tokens, secrets) from raw HCL snippets.
+func RedactHCL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	return secretHCLRegex.ReplaceAllString(raw, `${1}"******"`)
 }

@@ -177,7 +177,7 @@ func LoadConfig(path string) (*Config, hcl.Diagnostics) {
 			if r, ok := block.Body.(interface{ Range() hcl.Range }); ok {
 				endByte = r.Range().End.Byte
 			}
-			config.RawHCL = string(hclfile.Bytes[block.DefRange.Start.Byte:endByte])
+			config.RawHCL = util.RedactHCL(string(hclfile.Bytes[block.DefRange.Start.Byte:endByte]))
 		}
 		diags = append(diags, blockDiags...)
 	}
