@@ -458,3 +458,145 @@ backends_inventory "consul" "test" {
 		t.Fatal("expected config not to be nil even on error")
 	}
 }
+
+// TestConsulBackendsInventory_Passing verifies that passing_only
+// configuration option causes the Consul inventory to request only passing instances.
+func TestConsulBackendsInventory_Passing(t *testing.T) {
+	t.Run("passing_only enabled", func(t *testing.T) {
+		var receivedPassing atomic.Value
+		var callCount atomic.Int64
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callCount.Add(1)
+			receivedPassing.Store(r.URL.Query().Get("passing"))
+			w.Header().Set("X-Consul-Index", "1")
+			_ = json.NewEncoder(w).Encode(consulServicesSlice{})
+		}))
+		defer ts.Close()
+
+		src := `
+backends_inventory "consul" "test_passing" {
+	url = "` + ts.URL + `"
+	service = "my-service"
+	passing_only = true
+	period = "10ms"
+	max_period = "20ms"
+}
+`
+		block := testutil.ParseHCL(t, src)
+		ctx := &hcl.EvalContext{}
+		cfg, diags := module.DecodeConfigBlock(block, ctx, "backends_inventory")
+		if diags.HasErrors() {
+			t.Fatalf("Unexpected errors decoding config: %s", diags.Error())
+		}
+
+		diags = module.ValidateConfig(cfg, "backends_inventory")
+		if diags.HasErrors() {
+			t.Fatalf("Unexpected errors validating config: %s", diags.Error())
+		}
+
+		wg := &sync.WaitGroup{}
+		ctxBG, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mod, err := module.New(cfg, wg, ctxBG, "backends_inventory")
+		if err != nil {
+			t.Fatalf("Unexpected error creating module: %s", err)
+		}
+		_ = mod
+
+		testutil.Eventually(t, func() bool {
+			return callCount.Load() > 0
+		}, 1*time.Second, 10*time.Millisecond)
+
+		cancel()
+		wg.Wait()
+
+		val, _ := receivedPassing.Load().(string)
+		if val != "true" {
+			t.Errorf("Expected query parameter passing=true, got '%s'", val)
+		}
+	})
+
+	t.Run("default (passing_only omitted)", func(t *testing.T) {
+		var receivedPassing atomic.Value
+		var callCount atomic.Int64
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callCount.Add(1)
+			receivedPassing.Store(r.URL.Query().Get("passing"))
+			w.Header().Set("X-Consul-Index", "1")
+			_ = json.NewEncoder(w).Encode(consulServicesSlice{})
+		}))
+		defer ts.Close()
+
+		src := `
+backends_inventory "consul" "test_default" {
+	url = "` + ts.URL + `"
+	service = "my-service"
+	period = "10ms"
+	max_period = "20ms"
+}
+`
+		block := testutil.ParseHCL(t, src)
+		ctx := &hcl.EvalContext{}
+		cfg, diags := module.DecodeConfigBlock(block, ctx, "backends_inventory")
+		if diags.HasErrors() {
+			t.Fatalf("Unexpected errors decoding config: %s", diags.Error())
+		}
+
+		wg := &sync.WaitGroup{}
+		ctxBG, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mod, err := module.New(cfg, wg, ctxBG, "backends_inventory")
+		if err != nil {
+			t.Fatalf("Unexpected error creating module: %s", err)
+		}
+		_ = mod
+
+		testutil.Eventually(t, func() bool {
+			return callCount.Load() > 0
+		}, 1*time.Second, 10*time.Millisecond)
+
+		cancel()
+		wg.Wait()
+
+		val, _ := receivedPassing.Load().(string)
+		if val != "" {
+			t.Errorf("Expected query parameter passing to be empty, got '%s'", val)
+		}
+	})
+}
+
+// TestConsulBackendsInventory_ParsePassingConfig verifies parsing of passing_only.
+func TestConsulBackendsInventory_ParsePassingConfig(t *testing.T) {
+	t.Run("default is false", func(t *testing.T) {
+		src := `
+backends_inventory "consul" "test" {
+	url = "http://localhost:8500"
+	service = "test"
+}
+`
+		block := testutil.ParseHCL(t, src)
+		cfg := &module.Config{Category: "backends_inventory", Type: "consul", Name: "test", Config: block.Body, Ctx: &hcl.EvalContext{}}
+		c := parseConsulBackendsInventoryConfig(cfg)
+		if c.PassingOnly {
+			t.Errorf("expected passing_only to be false by default")
+		}
+	})
+
+	t.Run("passing_only true", func(t *testing.T) {
+		src := `
+backends_inventory "consul" "test" {
+	url = "http://localhost:8500"
+	service = "test"
+	passing_only = true
+}
+`
+		block := testutil.ParseHCL(t, src)
+		cfg := &module.Config{Category: "backends_inventory", Type: "consul", Name: "test", Config: block.Body, Ctx: &hcl.EvalContext{}}
+		c := parseConsulBackendsInventoryConfig(cfg)
+		if !c.PassingOnly {
+			t.Errorf("expected PassingOnly to be true")
+		}
+	})
+}

@@ -51,6 +51,7 @@ type BackendsInventoryConsul struct {
 	id       string
 	url      string
 	service  string
+	passing  bool
 	index    string
 	ticker   *misc.ExponentialBackoffTicker
 	ctx      context.Context
@@ -64,6 +65,7 @@ type ConsulBackendsInventoryConfig struct {
 	ID                string  `hcl:"id,label"`
 	URL               string  `hcl:"url"`
 	Service           string  `hcl:"service"`
+	PassingOnly       bool    `hcl:"passing_only,optional"`
 	Period            string  `hcl:"period,optional"`
 	MaxPeriod         string  `hcl:"max_period,optional"`
 	BackoffFactor     float64 `hcl:"backoff_factor,optional"`
@@ -106,6 +108,7 @@ func newConsulBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx conte
 		id:       config.ID,
 		url:      config.URL,
 		service:  config.Service,
+		passing:  config.PassingOnly,
 		log:      log.With().Str("id", config.ID).Logger(),
 		backends: backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
 	}
@@ -230,7 +233,12 @@ func (c *BackendsInventoryConsul) fetch() (retServices consulServicesSlice, retE
 	ctx, cancel := context.WithCancel(c.ctx)
 	defer cancel()
 
-	rq, err := http.NewRequestWithContext(ctx, "GET", c.url+"/v1/health/service/"+c.service+"?index="+c.index+"&timeout=60s", nil)
+	reqURL := fmt.Sprintf("%s/v1/health/service/%s?index=%s&timeout=60s", c.url, c.service, c.index)
+	if c.passing {
+		reqURL += "&passing=true"
+	}
+
+	rq, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return nil, err
 	}

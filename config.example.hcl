@@ -15,6 +15,7 @@ system {
 backends_inventory "consul" "mysql" {
   url = "http://localhost:8500"
   service = "mysql"
+  // passing_only = false
   // period = "1s"
   // max_period = "5s"
   // backoff_factor = 1.5
@@ -24,6 +25,7 @@ backends_inventory "consul" "mysql" {
 backends_inventory "consul" "redis" {
   url = "http://localhost:8500"
   service = "redis"
+  // passing_only = false
   // period = "1s"
   // max_period = "5s"
   // backoff_factor = 1.5

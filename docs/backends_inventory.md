@@ -23,6 +23,7 @@ The `consul` inventory discovers backends by querying the Consul Service Discove
 backends_inventory "consul" "mysql" {
   url = "http://localhost:8500"
   service = "mysql"
+  passing_only = false
   period = "1s"
   max_period = "5s"
   backoff_factor = 1.5
@@ -31,6 +32,7 @@ backends_inventory "consul" "mysql" {
 
 - `url` (string, required): The base URL of the Consul agent or cluster.
 - `service` (string, required): The name of the service to discover in Consul.
+- `passing_only` (boolean, optional): If true, only healthy instances with passing health checks are returned by adding `?passing=true` to the Consul query. Default: `false`.
 - `period` (duration string, optional): The polling period for Consul updates. Default: `1s`.
 - `max_period` (duration string, optional): The maximum polling period when backoff is applied due to errors. Default: `5s`.
 - `backoff_factor` (number, optional): The factor by which the polling period increases on error. Default: `1.5`.
