@@ -144,22 +144,27 @@ func TestTCPProxy_MultipleListeners_Independence(t *testing.T) {
 		cnxErrors: prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_err_tcp_mln"}),
 	}
 
-	var listenersWG sync.WaitGroup
-	listenersWG.Add(2)
-	go p.acceptLoop(ln1, ln1.Addr().String(), &listenersWG, feMetrics)
-	go p.acceptLoop(ln2, ln2.Addr().String(), &listenersWG, feMetrics)
+	var wg1, wg2 sync.WaitGroup
+	wg1.Add(1)
+	wg2.Add(1)
+	go p.acceptLoop(ln1, ln1.Addr().String(), &wg1, feMetrics)
+	go p.acceptLoop(ln2, ln2.Addr().String(), &wg2, feMetrics)
 
 	// Close ln1: acceptLoop for ln1 should exit cleanly without cancelling the proxy context
 	// or blocking/waiting prematurely on connectionsWG.
 	_ = ln1.Close()
 
-	testutil.Eventually(t, func() bool {
-		// ln1 should be closed, but proxy context MUST NOT be cancelled
-		return p.ctx.Err() == nil
-	}, 100*time.Millisecond, 10*time.Millisecond)
-
-	// Wait a moment for ln1's acceptLoop to exit
-	time.Sleep(50 * time.Millisecond)
+	// Wait deterministically for ln1's acceptLoop to exit
+	done1 := make(chan struct{})
+	go func() {
+		wg1.Wait()
+		close(done1)
+	}()
+	select {
+	case <-done1:
+	case <-time.After(1 * time.Second):
+		t.Fatal("ln1 acceptLoop did not exit after listener closed")
+	}
 
 	// ln2 should still be fully functional and context should remain active
 	if p.ctx.Err() != nil {
@@ -175,6 +180,5 @@ func TestTCPProxy_MultipleListeners_Independence(t *testing.T) {
 
 	cancel()
 	_ = ln2.Close()
-	listenersWG.Wait()
+	wg2.Wait()
 }
-

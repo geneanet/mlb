@@ -67,9 +67,6 @@ backends_processor "simple_filter" "test" {
 	}
 	waitSub(t, sub, "Ready update")
 
-	// Wait for goroutines to settle
-	time.Sleep(2 * time.Millisecond)
-
 	// Test 1: Add passing backend
 	b1 := backend.NewBackend("127.0.0.1:8080", nil)
 	sub.Wg.Add(1)
@@ -461,7 +458,7 @@ backends_processor "simple_filter" "test3" {
 }
 `
 
-	runTest := func(t *testing.T, src string, setup func(dp *testutil.DummyProvider), verify func(list []*backend.Backend)) {
+	runTest := func(t *testing.T, src string, setup func(dp *testutil.DummyProvider), check func(list []*backend.Backend) bool) {
 		block := testutil.ParseHCL(t, src)
 		ctx := &hcl.EvalContext{}
 		cfg, _ := module.DecodeConfigBlock(block, ctx, "backends_processor")
@@ -480,9 +477,19 @@ backends_processor "simple_filter" "test3" {
 		_ = filterMod.Bind(modules)
 
 		setup(dp)
-		// Wait a bit for processing
-		time.Sleep(10 * time.Millisecond)
-		verify(filterMod.GetBackendList())
+		var lastList []*backend.Backend
+		testutil.Eventually(t, func() bool {
+			lastList = filterMod.GetBackendList()
+			return check(lastList)
+		}, 1*time.Second, 5*time.Millisecond)
+
+		if !check(lastList) {
+			addrs := []string{}
+			for _, b := range lastList {
+				addrs = append(addrs, b.Address)
+			}
+			t.Errorf("Unexpected sort order: %v", addrs)
+		}
 	}
 
 	t.Run("AddressAsc", func(t *testing.T) {
@@ -490,14 +497,8 @@ backends_processor "simple_filter" "test3" {
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "1.1.1.1", Backend: backend.NewBackend("1.1.1.1", nil)})
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "2.2.2.2", Backend: backend.NewBackend("2.2.2.2", nil)})
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "0.0.0.0", Backend: backend.NewBackend("0.0.0.0", nil)})
-		}, func(list []*backend.Backend) {
-			if len(list) != 3 || list[0].Address != "0.0.0.0" || list[1].Address != "1.1.1.1" || list[2].Address != "2.2.2.2" {
-				addrs := []string{}
-				for _, b := range list {
-					addrs = append(addrs, b.Address)
-				}
-				t.Errorf("Unexpected sort order: %v", addrs)
-			}
+		}, func(list []*backend.Backend) bool {
+			return len(list) == 3 && list[0].Address == "0.0.0.0" && list[1].Address == "1.1.1.1" && list[2].Address == "2.2.2.2"
 		})
 	})
 
@@ -509,14 +510,8 @@ backends_processor "simple_filter" "test3" {
 			b2.Meta.Set("test", "name", cty.StringVal("alpha"))
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "a", Backend: b1})
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "b", Backend: b2})
-		}, func(list []*backend.Backend) {
-			if len(list) != 2 || list[0].Address != "b" || list[1].Address != "a" {
-				addrs := []string{}
-				for _, b := range list {
-					addrs = append(addrs, b.Address)
-				}
-				t.Errorf("Unexpected sort order: %v", addrs)
-			}
+		}, func(list []*backend.Backend) bool {
+			return len(list) == 2 && list[0].Address == "b" && list[1].Address == "a"
 		})
 	})
 
@@ -528,15 +523,9 @@ backends_processor "simple_filter" "test3" {
 			b2.Meta.Set("test", "active", cty.BoolVal(true))
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "a", Backend: b1})
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "b", Backend: b2})
-		}, func(list []*backend.Backend) {
+		}, func(list []*backend.Backend) bool {
 			// true should come before false in desc
-			if len(list) != 2 || list[0].Address != "b" || list[1].Address != "a" {
-				addrs := []string{}
-				for _, b := range list {
-					addrs = append(addrs, b.Address)
-				}
-				t.Errorf("Unexpected sort order: %v", addrs)
-			}
+			return len(list) == 2 && list[0].Address == "b" && list[1].Address == "a"
 		})
 	})
 
@@ -549,10 +538,8 @@ backends_processor "simple_filter" "test3" {
 			b2.Meta.Set("test", "name", cty.NumberIntVal(1))
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "a", Backend: b1})
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "b", Backend: b2})
-		}, func(list []*backend.Backend) {
-			if len(list) != 2 {
-				t.Errorf("Expected 2 backends")
-			}
+		}, func(list []*backend.Backend) bool {
+			return len(list) == 2
 		})
 	})
 
@@ -575,10 +562,8 @@ backends_processor "simple_filter" "test_num" {
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "a", Backend: b1})
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "b", Backend: b2})
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "c", Backend: b3})
-		}, func(list []*backend.Backend) {
-			if len(list) != 3 || list[0].Address != "b" || list[1].Address != "c" || list[2].Address != "a" {
-				t.Errorf("Unexpected sort order: %v", list)
-			}
+		}, func(list []*backend.Backend) bool {
+			return len(list) == 3 && list[0].Address == "b" && list[1].Address == "c" && list[2].Address == "a"
 		})
 	})
 
@@ -597,10 +582,8 @@ backends_processor "simple_filter" "test_other" {
 			b2.Meta.Set("test", "val", cty.ListVal([]cty.Value{cty.False}))
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "a", Backend: b1})
 			dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "b", Backend: b2})
-		}, func(list []*backend.Backend) {
-			if len(list) != 2 {
-				t.Errorf("Expected 2 backends")
-			}
+		}, func(list []*backend.Backend) bool {
+			return len(list) == 2
 		})
 	})
 }

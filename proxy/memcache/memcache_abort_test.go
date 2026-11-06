@@ -3,6 +3,7 @@ package memcache
 import (
 	"context"
 	"mlb/backend"
+	"mlb/testutil"
 	"net"
 	"testing"
 	"time"
@@ -67,8 +68,9 @@ func TestMemcacheBackendConnection_AbortInflightQueries_WithPending(t *testing.T
 	mbc.inputChan <- q3
 	mbc.inputChan <- q4
 
-	// ponytail: give background writer a chance to move them to inFlight
-	time.Sleep(10 * time.Millisecond)
+	testutil.Eventually(t, func() bool {
+		return len(mbc.inputChan) == 0 && len(mbc.inFlight) == 3
+	}, 1*time.Second, 1*time.Millisecond)
 
 	// 3. Abort all
 	count := mbc.AbortInflightQueries()

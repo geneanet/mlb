@@ -3,6 +3,7 @@ package memcache
 import (
 	"context"
 	"mlb/backend"
+	"mlb/testutil"
 	"net"
 	"sync"
 	"testing"
@@ -65,8 +66,9 @@ func TestMemcacheBackendConnection_QueryAndAbort(t *testing.T) {
 		t.Fatalf("Unexpected error querying: %v", err)
 	}
 
-	// Wait a tiny bit for it to be in-flight
-	time.Sleep(50 * time.Millisecond)
+	testutil.Eventually(t, func() bool {
+		return len(conn.inputChan) == 0
+	}, 1*time.Second, 1*time.Millisecond)
 
 	// Now abort
 	conn.AbortInflightQueries()

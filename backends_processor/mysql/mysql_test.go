@@ -354,10 +354,13 @@ func TestMySQL_Coverage(t *testing.T) {
 	// 3. StartPolling / StopPolling early returns logic (c.running = true/false)
 	_ = check.StartPolling()
 	_ = check.StartPolling()
-	time.Sleep(2 * time.Millisecond)
 	check.StopPolling()
 	check.StopPolling()
-	time.Sleep(2 * time.Millisecond) // Let StartPolling goroutine exit and run defer
+	testutil.Eventually(t, func() bool {
+		check.runningMu.Lock()
+		defer check.runningMu.Unlock()
+		return !check.running
+	}, 1*time.Second, 1*time.Millisecond)
 
 	// 4. UpdateStatus specific log branches: Known status changed
 	check.updateStatus()

@@ -336,7 +336,13 @@ func TestRedisProxy_CloseOnBackendRemoval(t *testing.T) {
 	defer conn.Close()
 
 	// Wait for the proxy to accept the connection and get a backend
-	time.Sleep(100 * time.Millisecond)
+	if _, err := conn.Write([]byte("ping\n")); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 5)
+	if _, err := io.ReadFull(conn, buf); err != nil {
+		t.Fatal(err)
+	}
 
 	// 5. Trigger removal (which cancels beCtx)
 	beCancel()
@@ -465,7 +471,13 @@ func TestRedisProxy_NotCloseOnBackendRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	time.Sleep(100 * time.Millisecond)
+	if _, err := conn.Write([]byte("ping\n")); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 5)
+	if _, err := io.ReadFull(conn, buf); err != nil {
+		t.Fatal(err)
+	}
 
 	// 5. Trigger removal
 	beCancel()
@@ -597,7 +609,13 @@ func TestRedisProxy_CloseOnBackendRemoval_NoBalancer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	time.Sleep(100 * time.Millisecond)
+	if _, err := conn.Write([]byte("ping\n")); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 5)
+	if _, err := io.ReadFull(conn, buf); err != nil {
+		t.Fatal(err)
+	}
 
 	// 5. Trigger removal
 	rp.ReceiveUpdate(backend.BackendUpdate{
@@ -763,20 +781,27 @@ func TestRedisProxy_MultipleListeners_Independence(t *testing.T) {
 		cnxErrors: prometheus.NewCounter(prometheus.CounterOpts{Name: "fe_err_redis_mln"}),
 	}
 
-	var listenersWG sync.WaitGroup
-	listenersWG.Add(2)
-	go p.acceptLoop(ln1, ln1.Addr().String(), &listenersWG, feMetrics)
-	go p.acceptLoop(ln2, ln2.Addr().String(), &listenersWG, feMetrics)
+	var wg1, wg2 sync.WaitGroup
+	wg1.Add(1)
+	wg2.Add(1)
+	go p.acceptLoop(ln1, ln1.Addr().String(), &wg1, feMetrics)
+	go p.acceptLoop(ln2, ln2.Addr().String(), &wg2, feMetrics)
 
 	// Close ln1: acceptLoop for ln1 should exit cleanly without cancelling the proxy context
 	// or blocking/waiting prematurely on connectionsWG.
 	_ = ln1.Close()
 
-	testutil.Eventually(t, func() bool {
-		return p.ctx.Err() == nil
-	}, 100*time.Millisecond, 10*time.Millisecond)
-
-	time.Sleep(50 * time.Millisecond)
+	// Wait deterministically for ln1's acceptLoop to exit
+	done1 := make(chan struct{})
+	go func() {
+		wg1.Wait()
+		close(done1)
+	}()
+	select {
+	case <-done1:
+	case <-time.After(1 * time.Second):
+		t.Fatal("ln1 acceptLoop did not exit after listener closed")
+	}
 
 	if p.ctx.Err() != nil {
 		t.Fatalf("closing one listener cancelled the entire proxy context: %v", p.ctx.Err())
@@ -791,7 +816,7 @@ func TestRedisProxy_MultipleListeners_Independence(t *testing.T) {
 
 	cancel()
 	_ = ln2.Close()
-	listenersWG.Wait()
+	wg2.Wait()
 }
 
 func TestRedisProxy_DedicatedReaderPool_SizeIsolation(t *testing.T) {
@@ -861,4 +886,3 @@ func TestRedisProxy_GetBackendList(t *testing.T) {
 		t.Errorf("unexpected backend list: %v", list)
 	}
 }
-

@@ -18,6 +18,7 @@ import (
 	"mlb/backend"
 	"mlb/metrics"
 	"mlb/module"
+	"mlb/testutil"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -371,7 +372,9 @@ func TestMemcacheProxyScatterGather(t *testing.T) {
 	proxy.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Backend: b2, Address: b2.Address})
 
 	// Wait for ring to update
-	time.Sleep(100 * time.Millisecond)
+	testutil.Eventually(t, func() bool {
+		return len(proxy.backends.GetList()) == 2
+	}, 1*time.Second, 5*time.Millisecond)
 
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer l.Close()
@@ -597,7 +600,9 @@ func TestMemcacheProxyProtocol(t *testing.T) {
 
 	proxy.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Backend: b1, Address: b1.Address})
 
-	time.Sleep(100 * time.Millisecond)
+	testutil.Eventually(t, func() bool {
+		return len(proxy.backends.GetList()) == 1
+	}, 1*time.Second, 5*time.Millisecond)
 
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer l.Close()
@@ -1270,7 +1275,9 @@ func TestMemcacheProxyRandomization(t *testing.T) {
 	proxy.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Backend: b1, Address: b1.Address})
 	proxy.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Backend: b2, Address: b2.Address})
 
-	time.Sleep(200 * time.Millisecond)
+	testutil.Eventually(t, func() bool {
+		return len(proxy.backends.GetList()) == 2
+	}, 1*time.Second, 5*time.Millisecond)
 
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer l.Close()

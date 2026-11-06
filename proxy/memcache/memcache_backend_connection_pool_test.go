@@ -3,6 +3,7 @@ package memcache
 import (
 	"context"
 	"mlb/backend"
+	"mlb/testutil"
 	"net"
 	"sync"
 	"testing"
@@ -366,15 +367,16 @@ func TestMemcacheBackendConnectionPool_NotifyFailure(t *testing.T) {
 	pool.NotifyFailure(dummyConn, context.Canceled, false)
 
 	// Wait for the background goroutine to process the failure and remove the connection
-	time.Sleep(100 * time.Millisecond)
-
-	pool.mutex.RLock()
-	defer pool.mutex.RUnlock()
-	for _, c := range pool.pools[addr] {
-		if c == dummyConn {
-			t.Errorf("dummyConn still in pool after NotifyFailure")
+	testutil.Eventually(t, func() bool {
+		pool.mutex.RLock()
+		defer pool.mutex.RUnlock()
+		for _, c := range pool.pools[addr] {
+			if c == dummyConn {
+				return false
+			}
 		}
-	}
+		return true
+	}, 1*time.Second, 5*time.Millisecond, "dummyConn still in pool after NotifyFailure")
 }
 
 func TestMemcacheBackendConnectionPool_Update_NilBackends(t *testing.T) {
