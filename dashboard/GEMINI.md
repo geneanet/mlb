@@ -18,6 +18,11 @@ Ce document détaille les principes de conception, l'architecture technique et l
 3. **Robustesse & Tolérance aux Pannes** :
    - L'interface ne doit jamais planter sur des données partielles, temporairement indisponibles ou des backends `null`.
    - Tolérance aux rechargements sans coupure (*zero-downtime reloads*) et aux déconnexions réseau avec reconnexion automatique.
+4. **Design Réactif & Ergonomie Mobile (*Responsive Design*)** :
+   - L'interface doit être parfaitement exploitable sur smartphone, tablette et écran desktop.
+   - Bannir les largeurs minimales fixes susceptibles de provoquer des débordements horizontaux sur petit écran.
+   - Gestion native des interactions tactiles : pan, zoom par pincement (*pinch-to-zoom*), et cibles tactiles confortables (≥ 36px).
+   - Prise en compte des spécificités mobiles : barre d'adresse dynamique (`height: 100dvh`) et prévention du zoom automatique iOS sur les champs de formulaire (`font-size: 16px`).
 
 ---
 
@@ -55,9 +60,14 @@ La topologie est projetée sous forme de graphe orienté acyclique (DAG) vectori
 - **Déplacement (Pan)** :
   - Restreint exclusivement au bouton gauche (`e.button === 0`). Le clic droit (menu contextuel / inspection) ne doit jamais déclencher de pan.
   - Gestion conjointe de `pointerup` et `pointercancel` pour libérer la capture du pointeur et réinitialiser `isPanning`.
+  - **Règle absolue sur les modules (`node-group`)** : la garde `if (e.target.closest('.node-group')) return;` doit impérativement précéder tout appel à `svg.setPointerCapture` dans l'écouteur `pointerdown`. Sinon, le SVG intercepte le pointeur et prive les cartes de modules de leurs événements `click`, rendant l'ouverture du drawer impossible.
+- **Support tactile & Zoom multi-doigts (*Pinch-to-zoom*)** :
+  - La balise `#topology-svg` applique `touch-action: none;` pour éviter l'interférence du défilement natif mobile.
+  - Suivi multi-points via `activePointers` (Pointer Events standard) : le pincement à 2 doigts zoome et dézoome fluidement autour du centre du geste.
+  - Calcul de cadrage automatique : sur écran étroit (`cw < 500px`), le padding de cadrage est réduit de 60px à 16px pour allouer un maximum de surface visuelle au graphe.
 - **Zoom** :
   - À la molette : centré sur la position instantanée du curseur souris, borné entre `0.25` et `3.0`.
-  - Boutons flottants `+` / `−` : centrés sur le milieu du conteneur.
+  - Boutons flottants `+` / `−` : centrés sur le milieu du conteneur, agrandis à 36×36px sur mobile pour une préhension tactile facile.
 
 ### D. Surbrillance Hiérarchique des Flux (`highlightNodeFlow`)
 Au survol d'un module :
@@ -67,6 +77,10 @@ Au survol d'un module :
 
 ### E. Panneau Latéral d'Inspection (Module Drawer)
 - Largeur par défaut fixée à **`600px`** (`max-width: 90vw;`), redimensionnable interactivement via `#drawer-resizer`.
+- **Adaptation Mobile (`@media (max-width: 768px)`)** :
+  - Le panneau devient plein écran (`width: 100% !important; max-width: 100vw !important; right: 0;`).
+  - La poignée `#drawer-resizer` est masquée (`display: none !important;`).
+  - Le bouton de fermeture est agrandi (36×36px) pour un toucher immédiat au doigt.
 - **Cycle de vie du filtre** : `state.drawerFilterQuery` et `#drawer-backend-filter.value` doivent impérativement être réinitialisés à l'ouverture (`openDrawer`) et à la fermeture (`closeDrawer`).
 - **Coloration syntaxique HCL autonome (`highlightHCL`)** :
   - Tokeniseur regex sans dépendance externe identifiant blocs, types, identifiants, chaînes, booléens, fonctions et opérateurs.
@@ -76,7 +90,9 @@ Au survol d'un module :
 - **Centrage de la barre d'onglets** :
   - `.tabs-nav` est positionné de manière absolue (`position: absolute; left: 50%; transform: translateX(-50%)`).
   - Ce centrage géométrique strict le découple complètement des variations de largeur des blocs gauche (`.header-brand`) et droite (`.header-actions`).
-  - Repasse en flux normal sous `768px` via `@media (max-width: 768px)` pour éviter les chevauchements sur petit écran.
+- **Adaptation Mobile (`@media (max-width: 768px)` et `480px`)** :
+  - Le header passe en flux multi-lignes sans hauteur fixe rigide : ligne 1 pour la marque et les actions rapides, ligne 2 pour la barre d'onglets distribuée équitablement (`flex: 1`, min. 36px de hauteur tactile).
+  - Sous 480px, masquage des libellés secondaires (`.brand-badge`, `.refresh-status`, label auto) pour préserver la compacité.
 - **Stabilisation du statut de synchronisation** :
   - `.refresh-status` possède une largeur minimale (`min-width: 85px; text-align: right; white-space: nowrap;`) pour supprimer les micro-saccades lors du changement de texte (*« à l'instant »*, *« il y a 12s »*).
 
@@ -88,6 +104,16 @@ Au survol d'un module :
   - Variables de glow : `--success-glow`, `--warning-glow`, `--danger-glow`.
 - **Règle CSS impérative** :
   - Ne **jamais** placer une directive `@media` à la suite d'un sélecteur séparé par une virgule (ex: `selecteur, @media ...`). Cela invalide tout le bloc pour le moteur CSS du navigateur. Chaque bloc `@media` doit être autonome.
+
+### H. Adaptabilité Responsive des Grilles & Formulaires
+- **Grilles sans débordement** :
+  - Remplacer les colonnes `minmax(320px/360px, 1fr)` par `grid-template-columns: 1fr` sous 768px dans `.provider-body` et `.proxies-metrics-grid`.
+  - Les KPI d'aperçu adoptent une grille 2×2 sous 768px pour une lecture synthétique sans défilement inutile.
+- **Filtres par catégories** :
+  - La barre de pilules (`.filter-pills-group`) autorise le défilement tactile horizontal (`overflow-x: auto`) sans forcer l'élargissement de l'écran.
+- **Ergonomie des formulaires** :
+  - Champs de recherche et sélecteurs calés à `font-size: 16px` sur mobile pour parer au zoom automatique d'iOS Safari.
+  - Utilisation de `height: 100dvh` sur `body` pour suivre la rétraction de la barre d'URL des navigateurs mobiles.
 
 ---
 
@@ -121,3 +147,6 @@ Au survol d'un module :
    - Si une nouvelle catégorie de module fournit des backends (comme les proxies récents), s'assurer que les filtres de la barre de boutons (pills) disposent du bouton correspondant (`setCategoryFilter('proxy', this)`).
 4. **Tests de non-régression (`dashboard/dashboard_test.go`)** :
    - Toute modification de structure DOM ou de logique critique doit être accompagnée d'une vérification dans `dashboard_test.go` (`TestDashboardEssentialDOM`, `TestDashboardFixesAndRobustness`).
+5. **Validation de la réactivité mobile** :
+   - Toute modification CSS ou d'interaction JS doit préserver l'ergonomie mobile : aucune largeur minimale rigide cassant les petits écrans, maintien de `touch-action: none;` et respect de la garde `node-group` avant toute capture de pointeur.
+   - Les règles de responsivité sont validées par `TestDashboardMobileResponsiveness`.

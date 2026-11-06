@@ -248,7 +248,6 @@ source = "balancer.wrr.app1"
 	}
 }
 
-
 func TestProxyMetricsHandler(t *testing.T) {
 	// Use existing metrics to avoid registration conflicts
 	metrics.FeActCnx.WithLabelValues("127.0.0.1", "test_proxy").Set(42)
@@ -439,11 +438,49 @@ func TestDashboardFixesAndRobustness(t *testing.T) {
 		{"refresh-status min-width", "min-width: 85px;", true},
 		{"drawer default width 600px", "width: 600px;", true},
 		{"multi-sources helper", "function getNodeSources(node)", true},
+		{"pointerdown node guard before capture", "if (e.target.closest('.node-group')) return;", true},
 	}
 
 	for _, c := range checks {
 		if strings.Contains(s, c.needle) != c.expected {
 			t.Errorf("check %q failed: contains %q expected %v", c.name, c.needle, c.expected)
+		}
+	}
+
+	// Ensure node guard in pointerdown is executed before svg.setPointerCapture
+	nodeGuardIdx := strings.Index(s, "if (e.target.closest('.node-group')) return;")
+	captureIdx := strings.Index(s, "svg.setPointerCapture")
+	if nodeGuardIdx == -1 || captureIdx == -1 || nodeGuardIdx > captureIdx {
+		t.Errorf("pointerdown node-group guard must precede svg.setPointerCapture to ensure click events reach module cards")
+	}
+}
+
+func TestDashboardMobileResponsiveness(t *testing.T) {
+	content, err := FS.ReadFile("index.html")
+	if err != nil {
+		t.Fatalf("failed to read index.html: %v", err)
+	}
+	s := string(content)
+
+	responsiveChecks := []struct {
+		name   string
+		needle string
+	}{
+		{"viewport meta tag", `<meta name="viewport" content="width=device-width, initial-scale=1.0">`},
+		{"dynamic viewport height", "height: 100dvh;"},
+		{"svg touch-action none", "touch-action: none;"},
+		{"media query 768px", "@media (max-width: 768px)"},
+		{"mobile drawer full width", "width: 100% !important;"},
+		{"hide drawer resizer on mobile", "#drawer-resizer"},
+		{"mobile provider body single column", "grid-template-columns: 1fr;"},
+		{"mobile proxies grid single column", ".proxies-metrics-grid"},
+		{"multi-touch pointer tracking", "activePointers"},
+		{"pinch to zoom support", "Math.hypot"},
+	}
+
+	for _, c := range responsiveChecks {
+		if !strings.Contains(s, c.needle) {
+			t.Errorf("mobile responsiveness check %q failed: missing %q", c.name, c.needle)
 		}
 	}
 }

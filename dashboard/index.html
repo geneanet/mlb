@@ -229,6 +229,7 @@
             background-color: var(--bg-primary);
             color: var(--text-main);
             height: 100vh;
+            height: 100dvh;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -319,13 +320,6 @@
             border-radius: 8px;
             border: 1px solid var(--border);
             z-index: 1;
-        }
-
-        @media (max-width: 768px) {
-            .tabs-nav {
-                position: static;
-                transform: none;
-            }
         }
 
         .tab-btn {
@@ -471,6 +465,7 @@
             display: block;
             cursor: grab;
             user-select: none;
+            touch-action: none;
         }
 
         #topology-svg:active {
@@ -1144,6 +1139,292 @@
             color: var(--text-muted);
             font-size: 13px;
             font-style: italic;
+        }
+
+        /* ==========================================================================
+           Responsive Design: Mobile & Tablet Adaptations
+           ========================================================================== */
+        @media (max-width: 768px) {
+            header {
+                height: auto;
+                min-height: 48px;
+                padding: 8px 12px;
+                flex-wrap: wrap;
+                row-gap: 8px;
+            }
+
+            .header-brand {
+                order: 1;
+                flex: 1;
+                min-width: 0;
+            }
+
+            .header-actions {
+                order: 2;
+                gap: 6px;
+            }
+
+            .tabs-nav {
+                order: 3;
+                position: static;
+                transform: none;
+                width: 100%;
+                display: flex;
+                justify-content: space-between;
+                box-sizing: border-box;
+            }
+
+            .tab-btn {
+                flex: 1;
+                justify-content: center;
+                padding: 7px 4px;
+                font-size: 11px;
+                gap: 4px;
+                min-height: 36px;
+            }
+
+            .tab-btn svg {
+                width: 13px;
+                height: 13px;
+                flex-shrink: 0;
+            }
+
+            .tab-badge {
+                font-size: 9px;
+                padding: 0 4px;
+            }
+
+            .floating-controls {
+                bottom: 12px;
+                left: 12px;
+                gap: 6px;
+                padding: 4px;
+            }
+
+            .floating-controls button {
+                width: 36px;
+                height: 36px;
+                font-size: 16px;
+            }
+
+            .floating-controls button.reset-btn {
+                width: auto;
+                padding: 0 10px;
+                font-size: 11px;
+            }
+
+            .topology-legend {
+                top: 8px;
+                left: 8px;
+                padding: 4px 8px;
+                gap: 6px;
+                font-size: 10px;
+                border-radius: 8px;
+                flex-wrap: wrap;
+                max-width: calc(100% - 16px);
+            }
+
+            .legend-item {
+                gap: 4px;
+            }
+
+            .legend-dot {
+                width: 6px;
+                height: 6px;
+            }
+
+            #module-drawer {
+                width: 100% !important;
+                max-width: 100vw !important;
+                right: 0;
+            }
+
+            #drawer-resizer {
+                display: none !important;
+            }
+
+            .drawer-header {
+                padding: 10px 14px;
+            }
+
+            .drawer-close-btn {
+                width: 36px;
+                height: 36px;
+                padding: 6px;
+            }
+
+            .drawer-content {
+                padding: 12px;
+                gap: 14px;
+            }
+
+            .hcl-code-box {
+                max-height: 180px;
+                font-size: 10px;
+                padding: 8px;
+            }
+
+            .routing-flow-box {
+                padding: 6px 10px;
+                font-size: 11px;
+                flex-wrap: wrap;
+            }
+
+            #view-backends {
+                padding: 10px;
+                gap: 10px;
+            }
+
+            .backends-toolbar {
+                padding: 10px;
+                gap: 8px;
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .backends-toolbar > div:first-child {
+                max-width: 100% !important;
+            }
+
+            .filter-pills-group {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                width: 100%;
+                padding-bottom: 2px;
+                scrollbar-width: none;
+            }
+
+            .filter-pills-group::-webkit-scrollbar {
+                display: none;
+            }
+
+            .pill-btn {
+                white-space: nowrap;
+                flex-shrink: 0;
+                padding: 6px 10px;
+                font-size: 11px;
+                min-height: 32px;
+            }
+
+            .provider-group-header {
+                padding: 8px 10px;
+            }
+
+            .provider-name {
+                font-size: 12px;
+                flex-wrap: wrap;
+            }
+
+            .provider-body {
+                padding: 10px;
+                grid-template-columns: 1fr;
+                gap: 8px;
+            }
+
+            .backend-card {
+                padding: 8px 10px;
+            }
+
+            .backend-address {
+                font-size: 11px;
+                word-break: break-all;
+            }
+
+            #view-metrics {
+                padding: 10px;
+                gap: 12px;
+            }
+
+            .metrics-overview-row {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 8px;
+            }
+
+            .kpi-card {
+                padding: 10px;
+                gap: 2px;
+            }
+
+            .kpi-title {
+                font-size: 9px;
+            }
+
+            .kpi-value {
+                font-size: 17px;
+            }
+
+            .proxies-metrics-grid {
+                grid-template-columns: 1fr;
+                gap: 12px;
+            }
+
+            .proxy-card-header {
+                padding: 10px 12px;
+            }
+
+            .proxy-card-body {
+                padding: 10px;
+            }
+
+            .filter-input, select.form-select {
+                font-size: 16px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            header {
+                padding: 6px 10px;
+                row-gap: 6px;
+            }
+
+            .brand-badge {
+                display: none;
+            }
+
+            .brand-title {
+                font-size: 14px;
+            }
+
+            .refresh-status {
+                display: none;
+            }
+
+            .auto-refresh-wrapper label {
+                display: none;
+            }
+
+            select.form-select {
+                padding: 3px 6px;
+            }
+
+            .btn-icon {
+                width: 28px;
+                height: 28px;
+            }
+
+            .metrics-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 6px;
+            }
+
+            .metric-card {
+                padding: 6px 8px;
+            }
+
+            .metric-value {
+                font-size: 13px;
+            }
+        }
+
+        @media (max-width: 360px) {
+            .metrics-overview-row {
+                grid-template-columns: 1fr;
+            }
+
+            .tab-btn {
+                padding: 6px 2px;
+                font-size: 10px;
+            }
         }
     </style>
 </head>
@@ -2126,25 +2407,77 @@
         function setupPanZoom() {
             const svg = document.getElementById('topology-svg');
             const viewport = document.getElementById('svg-viewport');
+            const activePointers = new Map();
+            let lastPinchDistance = null;
+            let lastPinchCenter = null;
 
             svg.addEventListener('pointerdown', (e) => {
                 if (e.button !== 0) return;
                 if (e.target.closest('.node-group')) return;
-                state.isPanning = true;
-                state.panStart = { x: e.clientX - state.transform.x, y: e.clientY - state.transform.y };
-                svg.setPointerCapture(e.pointerId);
+
+                activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                try { svg.setPointerCapture(e.pointerId); } catch (_) {}
+
+                if (activePointers.size === 1) {
+                    state.isPanning = true;
+                    state.panStart = { x: e.clientX - state.transform.x, y: e.clientY - state.transform.y };
+                } else if (activePointers.size === 2) {
+                    state.isPanning = false;
+                    const pts = Array.from(activePointers.values());
+                    lastPinchDistance = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+                    const rect = svg.getBoundingClientRect();
+                    lastPinchCenter = {
+                        x: (pts[0].x + pts[1].x) / 2 - rect.left,
+                        y: (pts[0].y + pts[1].y) / 2 - rect.top
+                    };
+                }
             });
 
             svg.addEventListener('pointermove', (e) => {
-                if (!state.isPanning) return;
-                state.transform.x = e.clientX - state.panStart.x;
-                state.transform.y = e.clientY - state.panStart.y;
-                applyTransform();
+                if (!activePointers.has(e.pointerId)) return;
+                activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+                if (activePointers.size === 1 && state.isPanning) {
+                    state.transform.x = e.clientX - state.panStart.x;
+                    state.transform.y = e.clientY - state.panStart.y;
+                    applyTransform();
+                } else if (activePointers.size === 2 && lastPinchDistance && lastPinchCenter) {
+                    const pts = Array.from(activePointers.values());
+                    const currentDistance = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+                    if (currentDistance > 0 && lastPinchDistance > 0) {
+                        const factor = currentDistance / lastPinchDistance;
+                        const newScale = Math.min(Math.max(state.transform.scale * factor, 0.15), 3.0);
+                        const rect = svg.getBoundingClientRect();
+                        const currentCenter = {
+                            x: (pts[0].x + pts[1].x) / 2 - rect.left,
+                            y: (pts[0].y + pts[1].y) / 2 - rect.top
+                        };
+                        const scaleRatio = newScale / state.transform.scale;
+                        state.transform.x = currentCenter.x - (currentCenter.x - state.transform.x) * scaleRatio + (currentCenter.x - lastPinchCenter.x);
+                        state.transform.y = currentCenter.y - (currentCenter.y - state.transform.y) * scaleRatio + (currentCenter.y - lastPinchCenter.y);
+                        state.transform.scale = newScale;
+                        lastPinchDistance = currentDistance;
+                        lastPinchCenter = currentCenter;
+                        applyTransform();
+                    }
+                }
             });
 
             const onPointerEnd = (e) => {
-                state.isPanning = false;
+                activePointers.delete(e.pointerId);
                 try { svg.releasePointerCapture(e.pointerId); } catch (_) {}
+
+                if (activePointers.size === 0) {
+                    state.isPanning = false;
+                    lastPinchDistance = null;
+                    lastPinchCenter = null;
+                } else if (activePointers.size === 1) {
+                    lastPinchDistance = null;
+                    lastPinchCenter = null;
+                    const remaining = activePointers.values().next().value;
+                    state.isPanning = true;
+                    state.panStart = { x: remaining.x - state.transform.x, y: remaining.y - state.transform.y };
+                }
             };
 
             svg.addEventListener('pointerup', onPointerEnd);
@@ -2201,12 +2534,12 @@
             }
 
             const layout = computeDAGLayout(state.topology);
-            const padding = 60;
+            const padding = cw < 500 ? 16 : 60;
             const scaleX = (cw - padding * 2) / Math.max(layout.width, 1);
             const scaleY = (ch - padding * 2) / Math.max(layout.height, 1);
             const scale = Math.min(Math.min(scaleX, scaleY), 1.05);
 
-            state.transform.scale = Math.max(scale, 0.25);
+            state.transform.scale = Math.max(scale, 0.15);
             state.transform.x = (cw - layout.width * state.transform.scale) / 2;
             state.transform.y = (ch - layout.height * state.transform.scale) / 2;
             applyTransform();
