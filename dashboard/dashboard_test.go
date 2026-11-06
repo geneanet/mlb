@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"io/fs"
 	"mlb/backend"
 	"mlb/config"
 	"mlb/metrics"
@@ -319,13 +320,31 @@ func TestProxyMetricsHandler(t *testing.T) {
 	}
 }
 
-func TestDashboardAssetsNoExternalDependencies(t *testing.T) {
-	content, err := FS.ReadFile("index.html")
+func loadAllAssets(t *testing.T) string {
+	t.Helper()
+	var b strings.Builder
+	err := fs.WalkDir(FS, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		content, err := FS.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		b.WriteString("\n/* --- FILE: " + path + " --- */\n")
+		b.Write(content)
+		return nil
+	})
 	if err != nil {
-		t.Fatalf("failed to read index.html: %v", err)
+		t.Fatalf("failed to walk and read assets: %v", err)
 	}
-	s := string(content)
+	return b.String()
+}
 
+func TestDashboardAssetsNoExternalDependencies(t *testing.T) {
 	forbidden := []string{
 		"http://",
 		"https://",
@@ -337,15 +356,33 @@ func TestDashboardAssetsNoExternalDependencies(t *testing.T) {
 		"tailwind",
 	}
 
-	for _, token := range forbidden {
-		checkContent := s
-		if token == "http://" {
-			// Allow standard W3C XML namespaces used in SVG DOM creation
-			checkContent = strings.ReplaceAll(checkContent, "http://www.w3.org/2000/svg", "")
+	err := fs.WalkDir(FS, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-		if strings.Contains(strings.ToLower(checkContent), strings.ToLower(token)) {
-			t.Errorf("index.html must not contain external dependency or library token %q", token)
+		if d.IsDir() {
+			return nil
 		}
+		content, err := FS.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		s := string(content)
+
+		for _, token := range forbidden {
+			checkContent := s
+			if token == "http://" {
+				// Allow standard W3C XML namespaces used in SVG DOM creation
+				checkContent = strings.ReplaceAll(checkContent, "http://www.w3.org/2000/svg", "")
+			}
+			if strings.Contains(strings.ToLower(checkContent), strings.ToLower(token)) {
+				t.Errorf("file %q must not contain external dependency or library token %q", path, token)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("failed to scan assets: %v", err)
 	}
 }
 
@@ -357,6 +394,13 @@ func TestDashboardEssentialDOM(t *testing.T) {
 	s := string(content)
 
 	requiredElements := []string{
+		`link rel="stylesheet" href="css/variables.css"`,
+		`link rel="stylesheet" href="css/base.css"`,
+		`link rel="stylesheet" href="css/topology.css"`,
+		`link rel="stylesheet" href="css/drawer.css"`,
+		`link rel="stylesheet" href="css/views.css"`,
+		`link rel="stylesheet" href="css/responsive.css"`,
+		`script type="module" src="js/app.js"`,
 		`id="topology-svg"`,
 		`id="module-drawer"`,
 		`id="tab-topology"`,
@@ -377,23 +421,19 @@ func TestDashboardEssentialDOM(t *testing.T) {
 }
 
 func TestDashboardCrossingReductionPresent(t *testing.T) {
-	content, err := FS.ReadFile("index.html")
+	content, err := FS.ReadFile("js/dag.js")
 	if err != nil {
-		t.Fatalf("failed to read index.html: %v", err)
+		t.Fatalf("failed to read js/dag.js: %v", err)
 	}
 	s := string(content)
 
 	if !strings.Contains(s, "barycenter") {
-		t.Errorf("index.html must implement crossing reduction barycenter heuristic")
+		t.Errorf("js/dag.js must implement crossing reduction barycenter heuristic")
 	}
 }
 
 func TestDashboardHCLSyntaxHighlighting(t *testing.T) {
-	content, err := FS.ReadFile("index.html")
-	if err != nil {
-		t.Fatalf("failed to read index.html: %v", err)
-	}
-	s := string(content)
+	s := loadAllAssets(t)
 
 	requiredTokens := []string{
 		"highlightHCL",
@@ -405,22 +445,18 @@ func TestDashboardHCLSyntaxHighlighting(t *testing.T) {
 
 	for _, token := range requiredTokens {
 		if !strings.Contains(s, token) {
-			t.Errorf("index.html is missing HCL syntax highlighting token %q", token)
+			t.Errorf("dashboard assets are missing HCL syntax highlighting token %q", token)
 		}
 	}
 
 	// Ensure no malformed CSS selectors with trailing comma before @media
 	if strings.Contains(s, ",\n        @media") || strings.Contains(s, ",\r\n        @media") {
-		t.Errorf("index.html contains malformed CSS with dangling comma before @media")
+		t.Errorf("dashboard assets contain malformed CSS with dangling comma before @media")
 	}
 }
 
 func TestDashboardFixesAndRobustness(t *testing.T) {
-	content, err := FS.ReadFile("index.html")
-	if err != nil {
-		t.Fatalf("failed to read index.html: %v", err)
-	}
-	s := string(content)
+	s := loadAllAssets(t)
 
 	checks := []struct {
 		name     string
@@ -456,25 +492,26 @@ func TestDashboardFixesAndRobustness(t *testing.T) {
 	}
 
 	// Ensure node guard in pointerdown is executed before svg.setPointerCapture
-	nodeGuardIdx := strings.Index(s, "if (e.target.closest('.node-group')) return;")
-	captureIdx := strings.Index(s, "svg.setPointerCapture")
+	topContent, err := FS.ReadFile("js/topology.js")
+	if err != nil {
+		t.Fatalf("failed to read js/topology.js: %v", err)
+	}
+	topStr := string(topContent)
+	nodeGuardIdx := strings.Index(topStr, "if (e.target.closest('.node-group')) return;")
+	captureIdx := strings.Index(topStr, "svg.setPointerCapture")
 	if nodeGuardIdx == -1 || captureIdx == -1 || nodeGuardIdx > captureIdx {
 		t.Errorf("pointerdown node-group guard must precede svg.setPointerCapture to ensure click events reach module cards")
 	}
 }
 
 func TestDashboardMobileResponsiveness(t *testing.T) {
-	content, err := FS.ReadFile("index.html")
-	if err != nil {
-		t.Fatalf("failed to read index.html: %v", err)
-	}
-	s := string(content)
+	s := loadAllAssets(t)
 
 	responsiveChecks := []struct {
 		name   string
 		needle string
 	}{
-		{"viewport meta tag", `<meta name="viewport" content="width=device-width, initial-scale=1.0">`},
+		{"viewport meta tag", `<meta name="viewport" content="width=device-width, initial-scale=1.0`},
 		{"dynamic viewport height", "height: 100dvh;"},
 		{"svg touch-action none", "touch-action: none;"},
 		{"media query 768px", "@media (max-width: 768px)"},
@@ -490,5 +527,24 @@ func TestDashboardMobileResponsiveness(t *testing.T) {
 		if !strings.Contains(s, c.needle) {
 			t.Errorf("mobile responsiveness check %q failed: missing %q", c.name, c.needle)
 		}
+	}
+}
+
+func TestDashboardCacheControlHeader(t *testing.T) {
+	ml := make(module.ModulesRegistry)
+	conf := &config.Config{}
+	mux := http.NewServeMux()
+	RegisterHandlers(mux, ml, conf)
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+	cc := rr.Header().Get("Cache-Control")
+	if cc != "no-cache" {
+		t.Errorf("expected Cache-Control: no-cache, got %q", cc)
 	}
 }

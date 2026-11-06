@@ -1,0 +1,181 @@
+/* ==========================================================================
+   MLB Dashboard — Global Backends & Proxy Metrics Views
+   ========================================================================== */
+
+/* ==========================================================================
+   TAB 2: GLOBAL BACKENDS VIEW
+   ========================================================================== */
+#view-backends {
+    padding: 20px;
+    overflow-y: auto;
+    gap: 16px;
+}
+
+.backends-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: var(--bg-surface);
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+}
+
+.filter-pills-group {
+    display: flex;
+    gap: 6px;
+}
+
+.pill-btn {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.pill-btn:hover {
+    color: var(--text-main);
+    background: var(--bg-surface-hover);
+}
+
+.pill-btn.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.global-backends-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.provider-group-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.provider-group-header {
+    padding: 10px 14px;
+    background: var(--bg-surface-elevated);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.provider-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.provider-body {
+    padding: 14px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+}
+
+/* ==========================================================================
+   TAB 3: PROXY METRICS VIEW
+   ========================================================================== */
+#view-metrics {
+    padding: 20px;
+    overflow-y: auto;
+    gap: 16px;
+}
+
+.metrics-overview-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+}
+
+.kpi-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.kpi-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-faint);
+}
+
+.kpi-value {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--text-main);
+    font-family: var(--font-mono);
+}
+
+.kpi-value.danger {
+    color: var(--danger);
+}
+
+.kpi-subvalue {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    margin-top: 2px;
+}
+
+.proxies-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 16px;
+}
+
+.proxy-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.proxy-card-header {
+    padding: 12px 14px;
+    background: var(--bg-surface-elevated);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.proxy-card-body {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Empty state styling */
+.empty-placeholder {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-muted);
+    font-size: 13px;
+    font-style: italic;
+}

@@ -1,0 +1,212 @@
+/* ==========================================================================
+   MLB Dashboard — CSS Variables & Theme Palettes
+   ========================================================================== */
+
+:root {
+    /* Default Dark Palette (Infrastructure & Observability standard) */
+    --bg-primary: #090d16;
+    --bg-surface: #111726;
+    --bg-surface-elevated: #172033;
+    --bg-surface-hover: #1f2b45;
+    --border: #1e293b;
+    --border-subtle: #172033;
+    --border-highlight: #38bdf8;
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+    --text-faint: #64748b;
+
+    --accent: #0284c7;
+    --accent-glow: rgba(2, 132, 199, 0.25);
+    --accent-hover: #0369a1;
+    --accent-text: #38bdf8;
+
+    --success: #10b981;
+    --success-glow: rgba(16, 185, 129, 0.2);
+    --warning: #f59e0b;
+    --warning-glow: rgba(245, 158, 11, 0.2);
+    --danger: #ef4444;
+    --danger-glow: rgba(239, 68, 68, 0.2);
+    --neutral-dot: #64748b;
+
+    /* Category Colors */
+    --cat-inventory: #0284c7;
+    --cat-processor: #10b981;
+    --cat-balancer: #f59e0b;
+    --cat-proxy: #8b5cf6;
+
+    /* Category Badge Colors */
+    --badge-inventory-bg: rgba(2, 132, 199, 0.2);
+    --badge-inventory-color: #38bdf8;
+    --badge-inventory-border: rgba(2, 132, 199, 0.35);
+
+    --badge-processor-bg: rgba(16, 185, 129, 0.2);
+    --badge-processor-color: #34d399;
+    --badge-processor-border: rgba(16, 185, 129, 0.35);
+
+    --badge-balancer-bg: rgba(245, 158, 11, 0.2);
+    --badge-balancer-color: #fbbf24;
+    --badge-balancer-border: rgba(245, 158, 11, 0.35);
+
+    --badge-proxy-bg: rgba(139, 92, 246, 0.2);
+    --badge-proxy-color: #c084fc;
+    --badge-proxy-border: rgba(139, 92, 246, 0.35);
+
+    /* Module Cases Styling (Dark Mode: slightly lighter card background, deeper headers) */
+    --bg-node: #19243a;
+    --cat-inventory-header: #0369a1;
+    --cat-processor-header: #047857;
+    --cat-balancer-header: #b45309;
+    --cat-proxy-header: #6d28d9;
+
+    /* Bucket Colors */
+    --bucket-mysql-bg: rgba(245, 158, 11, 0.15);
+    --bucket-mysql-border: rgba(245, 158, 11, 0.35);
+    --bucket-mysql-text: #fbbf24;
+
+    --bucket-redis-bg: rgba(239, 68, 68, 0.15);
+    --bucket-redis-border: rgba(239, 68, 68, 0.35);
+    --bucket-redis-text: #f87171;
+
+    --bucket-consul-bg: rgba(139, 92, 246, 0.15);
+    --bucket-consul-border: rgba(139, 92, 246, 0.35);
+    --bucket-consul-text: #c084fc;
+
+    --bucket-default-bg: rgba(148, 163, 184, 0.12);
+    --bucket-default-border: rgba(148, 163, 184, 0.25);
+    --bucket-default-text: #cbd5e1;
+
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+/* Explicit Light Theme override */
+html.theme-light {
+    --bg-primary: #f8fafc;
+    --bg-surface: #ffffff;
+    --bg-surface-elevated: #f1f5f9;
+    --bg-surface-hover: #e2e8f0;
+    --border: #cbd5e1;
+    --border-subtle: #e2e8f0;
+    --border-highlight: #0284c7;
+    --text-main: #0f172a;
+    --text-muted: #475569;
+    --text-faint: #94a3b8;
+
+    --accent: #0284c7;
+    --accent-glow: rgba(2, 132, 199, 0.15);
+    --accent-hover: #0369a1;
+    --accent-text: #0369a1;
+
+    --success: #059669;
+    --success-glow: rgba(5, 150, 105, 0.15);
+    --warning: #d97706;
+    --warning-glow: rgba(217, 119, 6, 0.15);
+    --danger: #dc2626;
+    --danger-glow: rgba(220, 38, 38, 0.15);
+    --neutral-dot: #94a3b8;
+
+    --bg-node: #ffffff;
+    --cat-inventory-header: #0284c7;
+    --cat-processor-header: #10b981;
+    --cat-balancer-header: #f59e0b;
+    --cat-proxy-header: #8b5cf6;
+
+    --bucket-mysql-bg: #fef3c7;
+    --bucket-mysql-border: #fcd34d;
+    --bucket-mysql-text: #92400e;
+
+    --bucket-redis-bg: #fee2e2;
+    --bucket-redis-border: #fca5a5;
+    --bucket-redis-text: #991b1b;
+
+    --bucket-consul-bg: #f3e8ff;
+    --bucket-consul-border: #d8b4fe;
+    --bucket-consul-text: #6b21a8;
+
+    --bucket-default-bg: #f1f5f9;
+    --bucket-default-border: #cbd5e1;
+    --bucket-default-text: #334155;
+
+    --badge-inventory-bg: #e0f2fe;
+    --badge-inventory-color: #0369a1;
+    --badge-inventory-border: #bae6fd;
+
+    --badge-processor-bg: #d1fae5;
+    --badge-processor-color: #047857;
+    --badge-processor-border: #a7f3d0;
+
+    --badge-balancer-bg: #fef3c7;
+    --badge-balancer-color: #b45309;
+    --badge-balancer-border: #fde68a;
+
+    --badge-proxy-bg: #ede9fe;
+    --badge-proxy-color: #6d28d9;
+    --badge-proxy-border: #ddd6fe;
+}
+
+/* Auto Theme preference */
+@media (prefers-color-scheme: light) {
+    html.theme-auto {
+        --bg-primary: #f8fafc;
+        --bg-surface: #ffffff;
+        --bg-surface-elevated: #f1f5f9;
+        --bg-surface-hover: #e2e8f0;
+        --border: #cbd5e1;
+        --border-subtle: #e2e8f0;
+        --border-highlight: #0284c7;
+        --text-main: #0f172a;
+        --text-muted: #475569;
+        --text-faint: #94a3b8;
+
+        --accent: #0284c7;
+        --accent-glow: rgba(2, 132, 199, 0.15);
+        --accent-hover: #0369a1;
+        --accent-text: #0369a1;
+
+        --success: #059669;
+        --success-glow: rgba(5, 150, 105, 0.15);
+        --warning: #d97706;
+        --warning-glow: rgba(217, 119, 6, 0.15);
+        --danger: #dc2626;
+        --danger-glow: rgba(220, 38, 38, 0.15);
+        --neutral-dot: #94a3b8;
+
+        --bg-node: #ffffff;
+        --cat-inventory-header: #0284c7;
+        --cat-processor-header: #10b981;
+        --cat-balancer-header: #f59e0b;
+        --cat-proxy-header: #8b5cf6;
+
+        --bucket-mysql-bg: #fef3c7;
+        --bucket-mysql-border: #fcd34d;
+        --bucket-mysql-text: #92400e;
+
+        --bucket-redis-bg: #fee2e2;
+        --bucket-redis-border: #fca5a5;
+        --bucket-redis-text: #991b1b;
+
+        --bucket-consul-bg: #f3e8ff;
+        --bucket-consul-border: #d8b4fe;
+        --bucket-consul-text: #6b21a8;
+
+        --bucket-default-bg: #f1f5f9;
+        --bucket-default-border: #cbd5e1;
+        --bucket-default-text: #334155;
+
+        --badge-inventory-bg: #e0f2fe;
+        --badge-inventory-color: #0369a1;
+        --badge-inventory-border: #bae6fd;
+
+        --badge-processor-bg: #d1fae5;
+        --badge-processor-color: #047857;
+        --badge-processor-border: #a7f3d0;
+
+        --badge-balancer-bg: #fef3c7;
+        --badge-balancer-color: #b45309;
+        --badge-balancer-border: #fde68a;
+
+        --badge-proxy-bg: #ede9fe;
+        --badge-proxy-color: #6d28d9;
+        --badge-proxy-border: #ddd6fe;
+    }
+}

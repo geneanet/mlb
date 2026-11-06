@@ -13,8 +13,13 @@ Ce document détaille les principes de conception, l'architecture technique et l
    - Aucune police ou ressource externe (aucun appel CDN Google Fonts, FontAwesome, etc.).
    - Le dashboard doit fonctionner parfaitement sur des serveurs isolés ou en environnement *air-gapped* sans accès Internet.
    - Les tests unitaires Go (`TestDashboardAssetsNoExternalDependencies`) veillent à l'absence stricte de CDN ou bibliothèques tierces.
-2. **Single-File Asset Embarqué** :
-   - L'interface complète (HTML, styles CSS, scripts JS, icônes vectorielles SVG) réside dans un fichier unique `dashboard/index.html` embarqué dans le binaire Go via `//go:embed index.html`.
+2. **Assets Modulaires Embarqués** :
+   - L'interface est découpée en fichiers modulaires hautement maintenables sous `dashboard/` :
+     - `index.html` : squelette DOM épuré (~250 lignes).
+     - `css/` : 6 feuilles de style granulaires (`variables.css`, `base.css`, `topology.css`, `drawer.css`, `views.css`, `responsive.css`).
+     - `js/` : 8 modules ES6 natifs (`state.js`, `theme.js`, `api.js`, `dag.js`, `topology.js`, `drawer.js`, `views.js`, et `app.js` point d'entrée).
+   - Les assets sont embarqués dans le binaire Go via `//go:embed index.html css/*.css js/*.js` et servis avec `Cache-Control: no-cache` pour garantir la fraîcheur immédiate après un rechargement sans coupure (*zero-downtime reload*).
+   - Architecture ES6 découplée : flux de données unidirectionnel, `api.js` notifie les vues via `onDataReceived`, et `app.js` expose les fonctions requises sur `window` pour les interactions HTML.
 3. **Robustesse & Tolérance aux Pannes** :
    - L'interface ne doit jamais planter sur des données partielles, temporairement indisponibles ou des backends `null`.
    - Tolérance aux rechargements sans coupure (*zero-downtime reloads*) et aux déconnexions réseau avec reconnexion automatique.
@@ -26,7 +31,7 @@ Ce document détaille les principes de conception, l'architecture technique et l
 
 ---
 
-## 2. Architecture Frontend (`dashboard/index.html`)
+## 2. Architecture Frontend Modulaire (`dashboard/index.html`, `dashboard/css/`, `dashboard/js/`)
 
 ### A. État Global (`state`)
 L'état de l'application est centralisé dans un objet unique `state` :

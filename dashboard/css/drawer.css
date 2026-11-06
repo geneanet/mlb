@@ -1,0 +1,378 @@
+/* ==========================================================================
+   MLB Dashboard — Module Drawer (Inspection Sidebar) & HCL Syntax Highlighting
+   ========================================================================== */
+
+#module-drawer {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 600px;
+    max-width: 90vw;
+    background: var(--bg-surface);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 30;
+    box-shadow: -8px 0 24px rgba(0,0,0,0.3);
+}
+
+#module-drawer.open {
+    transform: translateX(0);
+}
+
+#drawer-resizer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    cursor: col-resize;
+    background: transparent;
+    transition: background 0.2s;
+}
+
+#drawer-resizer:hover, #drawer-resizer.resizing {
+    background: var(--accent);
+}
+
+.drawer-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg-surface-elevated);
+}
+
+.drawer-title-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.drawer-module-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-main);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.drawer-badges {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.03em;
+}
+
+.badge-cat-inventory { background: var(--badge-inventory-bg); color: var(--badge-inventory-color); border: 1px solid var(--badge-inventory-border); }
+.badge-cat-processor { background: var(--badge-processor-bg); color: var(--badge-processor-color); border: 1px solid var(--badge-processor-border); }
+.badge-cat-balancer  { background: var(--badge-balancer-bg);  color: var(--badge-balancer-color);  border: 1px solid var(--badge-balancer-border); }
+.badge-cat-proxy     { background: var(--badge-proxy-bg);     color: var(--badge-proxy-color);     border: 1px solid var(--badge-proxy-border); }
+
+.drawer-close-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.drawer-close-btn:hover {
+    color: var(--text-main);
+    background: var(--bg-surface-hover);
+}
+
+.drawer-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.drawer-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.drawer-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    letter-spacing: 0.05em;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.routing-flow-box {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.flow-link {
+    color: var(--accent-text);
+    text-decoration: underline;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+/* HCL Code Box & Syntax Highlighting */
+.hcl-code-box {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--text-main);
+    overflow-x: auto;
+    max-height: 220px;
+}
+
+.hcl-comment { color: var(--text-faint); font-style: italic; }
+.hcl-string  { color: #38bdf8; }
+.hcl-bool    { color: #f43f5e; font-weight: 600; }
+.hcl-number  { color: #fbbf24; }
+.hcl-block   { color: #c084fc; font-weight: 700; }
+.hcl-func    { color: #60a5fa; font-weight: 600; }
+.hcl-ident   { color: var(--text-main); font-weight: 600; }
+.hcl-ref     { color: #a78bfa; font-weight: 500; }
+.hcl-op      { color: var(--text-muted); }
+
+/* Light Theme Syntax Highlighting adjustments */
+@media (prefers-color-scheme: light) {
+    html.theme-auto .hcl-string { color: #0284c7; }
+    html.theme-auto .hcl-bool   { color: #e11d48; }
+    html.theme-auto .hcl-number { color: #d97706; }
+    html.theme-auto .hcl-block  { color: #7c3aed; }
+    html.theme-auto .hcl-func   { color: #2563eb; }
+    html.theme-auto .hcl-ref    { color: #6d28d9; }
+    html.theme-auto .hcl-op     { color: #475569; }
+}
+html.theme-light .hcl-string { color: #0284c7; }
+html.theme-light .hcl-bool   { color: #e11d48; }
+html.theme-light .hcl-number { color: #d97706; }
+html.theme-light .hcl-block  { color: #7c3aed; }
+html.theme-light .hcl-func   { color: #2563eb; }
+html.theme-light .hcl-ref    { color: #6d28d9; }
+html.theme-light .hcl-op     { color: #475569; }
+
+/* Proxy Metrics Grid */
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+
+.metric-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.metric-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-faint);
+}
+
+.metric-value {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-main);
+    font-family: var(--font-mono);
+}
+
+.metric-value.has-error {
+    color: var(--danger);
+}
+
+.metric-subvalue {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+}
+
+/* Backend Cards & Badges */
+.backend-card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.backend-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: border-color 0.15s ease;
+}
+
+.backend-card:hover {
+    border-color: var(--border-highlight);
+}
+
+.backend-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.backend-address-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.status-dot.ok {
+    background: var(--success);
+    box-shadow: 0 0 6px var(--success-glow);
+}
+
+.status-dot.err {
+    background: var(--danger);
+    box-shadow: 0 0 6px var(--danger-glow);
+}
+
+.status-dot.neutral {
+    background: var(--neutral-dot);
+}
+
+.backend-address {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.backend-weight-pill {
+    font-size: 10px;
+    font-weight: 600;
+    background: var(--accent-subtle, rgba(2, 132, 199, 0.15));
+    color: var(--accent-text);
+    padding: 2px 7px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+}
+
+.backend-buckets {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 2px;
+}
+
+.bucket-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.bucket-name-tag {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    min-width: 48px;
+}
+
+.badge-bucket {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid transparent;
+    word-break: break-all;
+}
+
+.badge-bucket.mysql {
+    background: var(--bucket-mysql-bg);
+    border-color: var(--bucket-mysql-border);
+    color: var(--bucket-mysql-text);
+}
+
+.badge-bucket.redis {
+    background: var(--bucket-redis-bg);
+    border-color: var(--bucket-redis-border);
+    color: var(--bucket-redis-text);
+}
+
+.badge-bucket.consul {
+    background: var(--bucket-consul-bg);
+    border-color: var(--bucket-consul-border);
+    color: var(--bucket-consul-text);
+}
+
+.badge-bucket.default {
+    background: var(--bucket-default-bg);
+    border-color: var(--bucket-default-border);
+    color: var(--bucket-default-text);
+}
+
+.filter-input {
+    width: 100%;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    color: var(--text-main);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 11px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.filter-input:focus {
+    border-color: var(--accent);
+}

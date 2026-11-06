@@ -18,7 +18,7 @@ import (
 
 // FS contains the dashboard static assets.
 //
-//go:embed index.html
+//go:embed index.html css/*.css js/*.js
 var FS embed.FS
 
 // TopologyNode represents a node in the MLB module graph.
@@ -187,7 +187,11 @@ func RegisterHandlers(mux *http.ServeMux, ml module.ModulesRegistry, conf *confi
 	})
 
 	// Dashboard
-	mux.Handle("/dashboard/", http.StripPrefix("/dashboard/", http.FileServer(http.FS(FS))))
+	fileServer := http.FileServer(http.FS(FS))
+	mux.Handle("/dashboard/", http.StripPrefix("/dashboard/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		fileServer.ServeHTTP(w, r)
+	})))
 	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/dashboard/", http.StatusMovedPermanently)
 	})
