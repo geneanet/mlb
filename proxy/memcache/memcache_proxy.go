@@ -71,6 +71,7 @@ type MemcacheProxy struct {
 	ring                     *memcacheHashRing
 	backendUpdatesChan       chan backend.BackendUpdate
 	backendUpdatesChanClosed chan struct{}
+	backendFlushedChan       chan *backend.Backend
 	backendConnectionPool    *MemcacheBackendConnectionPool
 
 	bufferSize               int
@@ -175,6 +176,7 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 		ring:                     newMemcacheHashRing(),
 		backendUpdatesChan:       make(chan backend.BackendUpdate, 100),
 		backendUpdatesChanClosed: make(chan struct{}),
+		backendFlushedChan:       make(chan *backend.Backend, 100),
 		fieldsPool: &sync.Pool{
 			New: func() any {
 				f := make([][]byte, 0, config.MaxFieldsPerCommand)
@@ -217,6 +219,8 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 		defer p.cancel()
 		defer close(p.backendUpdatesChanClosed)
 
+		flushing := make(map[string]*backend.Backend)
+
 	mainloop:
 		for {
 			select {
@@ -224,16 +228,49 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 				switch upd.Kind {
 				case backend.UpdBackendAdded:
 					if p.flushBackendWhenAdded {
-						go p.flushBackend(upd.Backend)
+						if _, ok := flushing[upd.Backend.Address]; ok {
+							flushing[upd.Backend.Address] = upd.Backend.Clone()
+							continue
+						}
+						flushing[upd.Backend.Address] = upd.Backend.Clone()
+						go func(b *backend.Backend) {
+							p.flushBackend(b)
+							select {
+							case p.backendFlushedChan <- b:
+							case <-p.ctx.Done():
+							}
+						}(upd.Backend)
+						continue
 					}
 					p.backends.Add(upd.Backend.Clone())
 				case backend.UpdBackendModified:
+					if p.flushBackendWhenAdded {
+						if _, ok := flushing[upd.Backend.Address]; ok {
+							flushing[upd.Backend.Address] = upd.Backend.Clone()
+							continue
+						}
+					}
 					p.backends.Add(upd.Backend.Clone())
 				case backend.UpdBackendRemoved:
+					if p.flushBackendWhenAdded {
+						delete(flushing, upd.Address)
+					}
 					p.backends.Remove(upd.Address)
 				}
 				p.ring.update(p.backends.GetList())
-				go p.backendConnectionPool.Update()
+				if p.backendConnectionPool != nil {
+					go p.backendConnectionPool.Update()
+				}
+
+			case flushed := <-p.backendFlushedChan:
+				if pending, ok := flushing[flushed.Address]; ok {
+					delete(flushing, flushed.Address)
+					p.backends.Add(pending)
+					p.ring.update(p.backends.GetList())
+					if p.backendConnectionPool != nil {
+						go p.backendConnectionPool.Update()
+					}
+				}
 
 			case <-p.ctx.Done():
 				break mainloop
@@ -371,17 +408,25 @@ func (p *MemcacheProxy) acceptLoop(listener net.Listener, address string, wg *sy
 
 // flushBackend sends a flush_all command to the backend upon connection.
 func (p *MemcacheProxy) flushBackend(b *backend.Backend) {
-	conn, err := net.DialTimeout("tcp", b.Address, p.connectTimeout)
+	timeout := p.connectTimeout
+	if timeout == 0 {
+		timeout = 5 * time.Second
+	}
+
+	ctx := p.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var d net.Dialer
+	d.Timeout = timeout
+	conn, err := d.DialContext(ctx, "tcp", b.Address)
 	if err != nil {
 		p.log.Warn().Err(err).Str("peer", b.Address).Msg("Unable to connect to backend for auto-flush")
 		return
 	}
 	defer conn.Close()
 
-	timeout := p.connectTimeout
-	if timeout == 0 {
-		timeout = 5 * time.Second
-	}
 	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
 		p.log.Warn().Err(err).Str("peer", b.Address).Msg("Failed to set deadline for auto-flush")
 		return
@@ -916,9 +961,8 @@ func (p *MemcacheProxy) handleMultiGet(q MemcacheQuery, cmd string, keys [][]byt
 					}
 				} else if bytes.HasPrefix(resp.item, []byte("VALUE ")) || bytes.HasPrefix(resp.item, []byte("STAT ")) || bytes.HasPrefix(resp.item, []byte("ITEM ")) || bytes.HasPrefix(resp.item, []byte("VA ")) || bytes.HasPrefix(resp.item, []byte("HD ")) {
 					// Strip the END\r\n from intermediate responses to combine them properly
-					idx := bytes.LastIndex(resp.item, []byte("END\r\n"))
-					if idx != -1 {
-						combinedResponse.Write(resp.item[:idx])
+					if bytes.HasSuffix(resp.item, []byte("END\r\n")) {
+						combinedResponse.Write(resp.item[:len(resp.item)-5])
 					} else {
 						combinedResponse.Write(resp.item)
 					}

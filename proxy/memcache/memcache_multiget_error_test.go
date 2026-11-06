@@ -159,10 +159,10 @@ func TestMemcacheProxy_MultiGetPartialFailure(t *testing.T) {
 	// 1. Both succeed (unlikely here as b2 fails)
 	// 2. b1 succeeds, b2 fails -> VALUE k1...END (b2 treated as miss)
 	// 3. Command fails entirely -> SERVER_ERROR...
-	
+
 	// INVALID outcome:
 	// "VALUE k1 0 2\r\nv1\r\nSERVER_ERROR backend failure\r\nEND\r\n"
-	
+
 	if bytes.Contains(output.Bytes(), []byte("SERVER_ERROR")) && bytes.Contains(output.Bytes(), []byte("VALUE")) {
 		t.Errorf("PROTOCOL VIOLATION: Mixed data and error in multi-get: %q", result)
 	}
@@ -463,5 +463,179 @@ func TestMemcacheProxy_MultiGetPartialUnreachableBackend(t *testing.T) {
 
 	if !strings.HasPrefix(resp, "SERVER_ERROR") {
 		t.Fatalf("expected SERVER_ERROR response on unreachable backend, got %q", resp)
+	}
+}
+
+func TestMemcacheProxy_MultiGetDelimiterInPayload(t *testing.T) {
+	// Setup Mock Backend 1: returns payload containing END\r\n
+	lBack1, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lBack1.Close()
+
+	go func() {
+		for {
+			conn, err := lBack1.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				reader := bufio.NewReader(c)
+				for {
+					line, err := reader.ReadString('\n')
+					if err != nil {
+						return
+					}
+					if strings.HasPrefix(line, "get ") {
+						_, _ = c.Write([]byte("VALUE k1 0 14\r\nvalEND\r\nue_one\r\nEND\r\n"))
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	// Setup Mock Backend 2
+	lBack2, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lBack2.Close()
+
+	go func() {
+		for {
+			conn, err := lBack2.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				reader := bufio.NewReader(c)
+				for {
+					line, err := reader.ReadString('\n')
+					if err != nil {
+						return
+					}
+					if strings.HasPrefix(line, "get ") {
+						_, _ = c.Write([]byte("VALUE k2 0 3\r\nfoo\r\nEND\r\n"))
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	proxy := &MemcacheProxy{
+		id:                       "test_multiget_delim",
+		source:                   "mock",
+		addresses:                []string{"127.0.0.1:0"},
+		ctx:                      ctx,
+		cancel:                   cancel,
+		wg:                       wg,
+		connectTimeout:           time.Second,
+		closeTimeout:             time.Second,
+		backendMinConnections:    1,
+		backendMaxConnections:    2,
+		backendInputQueueSize:    1024,
+		backendInflightQueueSize: 512,
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
+		ring:                     newMemcacheHashRing(),
+		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
+		beMetricsCache:           make(map[string]*Metrics),
+		fieldsPool: &sync.Pool{
+			New: func() any {
+				f := make([][]byte, 0, 16)
+				return &f
+			},
+		},
+		readyChan: make(chan struct{}),
+	}
+	proxy.backendConnectionPool = NewMemcacheBackendConnectionPool(proxy)
+
+	b1 := backend.NewBackend(lBack1.Addr().String(), nil)
+	b2 := backend.NewBackend(lBack2.Addr().String(), nil)
+	proxy.backends.Add(b1)
+	proxy.backends.Add(b2)
+	proxy.ring.update(proxy.backends.GetList())
+	proxy.backendConnectionPool.Update()
+
+	var k1, k2 string
+	for i := 0; i < 1000; i++ {
+		key := fmt.Sprintf("key_%d", i)
+		be := proxy.ring.getBackend([]byte(key))
+		if be.Address == b1.Address && k1 == "" {
+			k1 = key
+		} else if be.Address == b2.Address && k2 == "" {
+			k2 = key
+		}
+		if k1 != "" && k2 != "" {
+			break
+		}
+	}
+	if k1 == "" || k2 == "" {
+		t.Fatalf("failed to find keys mapping to both backends (k1=%q, k2=%q)", k1, k2)
+	}
+
+	lFront, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lFront.Close()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			conn, err := lFront.Accept()
+			if err != nil {
+				return
+			}
+			proxy.connectionsWG.Add(1)
+			go proxy.handleConnection(conn, &Metrics{
+				processed: metrics.FeCnxProcessed.WithLabelValues("test_delim", "test_delim"),
+				active:    metrics.FeActCnx.WithLabelValues("test_delim", "test_delim"),
+				bytesIn:   metrics.FeBytesIn.WithLabelValues("test_delim", "test_delim"),
+				bytesOut:  metrics.FeBytesOut.WithLabelValues("test_delim", "test_delim"),
+				cnxErrors: metrics.FeCnxErrors.WithLabelValues("test_delim", "test_delim"),
+				requests:  metrics.FeRequests.WithLabelValues("test_delim", "test_delim"),
+			})
+		}
+	}()
+
+	client, err := net.Dial("tcp", lFront.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	_, _ = fmt.Fprintf(client, "get %s %s\r\n", k1, k2)
+	_ = client.SetDeadline(time.Now().Add(2 * time.Second))
+	reader := bufio.NewReader(client)
+
+	var fullResp bytes.Buffer
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("failed reading line: %v", err)
+		}
+		fullResp.WriteString(line)
+		if line == "END\r\n" {
+			break
+		}
+	}
+
+	respStr := fullResp.String()
+	if !strings.Contains(respStr, "valEND\r\nue_one") {
+		t.Fatalf("Response truncated payload containing END\\r\\n! Got: %q", respStr)
+	}
+	if !strings.Contains(respStr, "foo") {
+		t.Fatalf("Response missing foo! Got: %q", respStr)
+	}
+	if !strings.HasSuffix(respStr, "END\r\n") {
+		t.Fatalf("Response does not end with END\\r\\n! Got: %q", respStr)
 	}
 }

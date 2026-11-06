@@ -1119,7 +1119,8 @@ func TestMemcacheProxyFlushOnConnectFunctional(t *testing.T) {
 	}
 	defer b1L.Close()
 
-	flushReceived := make(chan bool, 1)
+	allowFlushResponse := make(chan struct{})
+	flushReceived := make(chan struct{})
 	go func() {
 		conn, err := b1L.Accept()
 		if err != nil {
@@ -1129,61 +1130,122 @@ func TestMemcacheProxyFlushOnConnectFunctional(t *testing.T) {
 		reader := bufio.NewReader(conn)
 		line, _ := reader.ReadString('\n')
 		if line == "flush_all\r\n" {
+			close(flushReceived)
+			<-allowFlushResponse
 			_, _ = conn.Write([]byte("OK\r\n"))
-			flushReceived <- true
 		}
 	}()
 
-	b1 := backend.NewBackend(b1L.Addr().String(), nil)
+	configStr := `
+		source = "dummy"
+		flush_backend_when_added = true
+	`
+	f, diags := hclsyntax.ParseConfig([]byte(configStr), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		t.Fatalf("Parse failed: %v", diags)
+	}
+	tc := &module.Config{Config: f.Body, Ctx: &hcl.EvalContext{}}
 
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	proxy := &MemcacheProxy{
-		id:                       "test_proxy",
-		source:                   "mock",
-		log:                      zerolog.Nop(),
-		ctx:                      ctx,
-		cancel:                   cancel,
-		wg:                       wg,
-		connectTimeout:           time.Second,
-		flushBackendWhenAdded:    true,
-		backendInputQueueSize:    1024,
-		backendInflightQueueSize: 512,
-		backends:                 backend.NewRegistry(zerolog.Nop(), false),
-		ring:                     newMemcacheHashRing(),
-		backendUpdatesChan:       make(chan backend.BackendUpdate, 10),
-		backendUpdatesChanClosed: make(chan struct{}),
-		beMetricsCache:           make(map[string]*Metrics),
-		readyChan:                make(chan struct{}),
+	mod, err := newMemcacheProxy(tc, wg, ctx)
+	if err != nil {
+		t.Fatalf("failed to create proxy: %v", err)
+	}
+	proxy := mod.(*MemcacheProxy)
+
+	b1 := backend.NewBackend(b1L.Addr().String(), nil)
+	proxy.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Backend: b1, Address: b1.Address})
+
+	// Wait until flush_all command is received by backend
+	select {
+	case <-flushReceived:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for flush_all")
 	}
 
+	// While flush response has not been sent yet, backend must NOT be in backends or ring
+	if len(proxy.backends.GetList()) != 0 {
+		t.Fatalf("Backend should not be in proxy.backends while flush is in progress")
+	}
+	if proxy.ring.getBackend([]byte("anykey")) != nil {
+		t.Fatalf("Backend should not be in proxy.ring while flush is in progress")
+	}
+
+	// Allow flush response to complete
+	close(allowFlushResponse)
+
+	// After flush completes, backend must be present in backends and ring
+	testutil.Eventually(t, func() bool {
+		return len(proxy.backends.GetList()) == 1 && proxy.ring.getBackend([]byte("anykey")) != nil
+	}, 2*time.Second, 10*time.Millisecond, "Backend not registered after flush completed")
+}
+
+func TestMemcacheProxyFlushOnConnect_RemovedWhileFlushing(t *testing.T) {
+	b1L, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	defer b1L.Close()
+
+	allowFlushResponse := make(chan struct{})
+	flushReceived := make(chan struct{})
 	go func() {
-		for {
-			select {
-			case <-proxy.ctx.Done():
-				return
-			case upd := <-proxy.backendUpdatesChan:
-				switch upd.Kind {
-				case backend.UpdBackendAdded:
-					if proxy.flushBackendWhenAdded {
-						proxy.flushBackend(upd.Backend)
-					}
-					proxy.backends.Add(upd.Backend.Clone())
-				}
-			}
+		conn, err := b1L.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		reader := bufio.NewReader(conn)
+		line, _ := reader.ReadString('\n')
+		if line == "flush_all\r\n" {
+			close(flushReceived)
+			<-allowFlushResponse
+			_, _ = conn.Write([]byte("OK\r\n"))
 		}
 	}()
 
+	configStr := `
+		source = "dummy"
+		flush_backend_when_added = true
+	`
+	f, diags := hclsyntax.ParseConfig([]byte(configStr), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		t.Fatalf("Parse failed: %v", diags)
+	}
+	tc := &module.Config{Config: f.Body, Ctx: &hcl.EvalContext{}}
+
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mod, err := newMemcacheProxy(tc, wg, ctx)
+	if err != nil {
+		t.Fatalf("failed to create proxy: %v", err)
+	}
+	proxy := mod.(*MemcacheProxy)
+
+	b1 := backend.NewBackend(b1L.Addr().String(), nil)
 	proxy.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Backend: b1, Address: b1.Address})
 
 	select {
 	case <-flushReceived:
-		// success
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for flush_all")
 	}
+
+	// Remove backend while flush is in flight
+	proxy.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: b1.Address})
+
+	// Release flush response
+	close(allowFlushResponse)
+
+	// Ensure backend is never registered
+	testutil.Consistently(t, func() bool {
+		return len(proxy.backends.GetList()) == 0 && proxy.ring.getBackend([]byte("anykey")) == nil
+	}, 200*time.Millisecond, 20*time.Millisecond, "Backend should never be registered if removed while flushing")
 }
 
 func TestMemcacheProxyRandomization(t *testing.T) {
