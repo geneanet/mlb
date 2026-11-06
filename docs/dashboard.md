@@ -11,10 +11,10 @@ MLB exports a variety of metrics in Prometheus format. If configured via the [`m
 - `mlb_frontend_connections_processed`: Total number of client connections handled.
 - `mlb_frontend_active_connections`: Number of currently active client connections.
 - `mlb_frontend_requests_total`: Total number of requests processed (for Redis and Memcache).
-- `mlb_frontend_bytes_in` / `mlb_frontend_bytes_out`: Network throughput at the frontend.
+- `mlb_frontend_bytes_in` / `mlb_frontend_bytes_out`: Cumulative bytes received from / sent to frontend clients.
 - `mlb_backend_connections_processed`: Total number of connections made to backends.
 - `mlb_backend_active_connections`: Current active connections to backends.
-- `mlb_backend_bytes_in` / `mlb_backend_bytes_out`: Network throughput at the backend.
+- `mlb_backend_bytes_in` / `mlb_backend_bytes_out`: Cumulative bytes received from / sent to backends.
 - `mlb_connection_errors`: Counter for various connection and proxy errors.
 
 All metrics are labeled with `proxy` (the ID of the proxy module) and `address` (frontend or backend address).
@@ -25,7 +25,7 @@ MLB includes a web-based dashboard that provides:
 
 1.  **Topology View:** A visual representation of your MLB configuration, showing how inventories, processors, balancers, and proxies are connected.
 2.  **Backends Status:** A real-time view of all discovered backends, their health status, and metadata.
-3.  **Live Metrics:** Basic traffic statistics for each configured proxy.
+3.  **Live Metrics:** Real-time traffic statistics for each configured proxy, displaying instantaneous network throughput (`B/s`, `KB/s`, `MB/s`) computed from byte deltas alongside total cumulative transferred volume (`Total : X MB`).
 
 The dashboard is available at `/dashboard` (or simply `/` which redirects to the dashboard) on the address configured in the `metrics` block.
 

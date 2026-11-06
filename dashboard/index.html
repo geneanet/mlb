@@ -825,6 +825,16 @@
             color: var(--danger);
         }
 
+        .metric-subvalue {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 2px;
+        }
+
         /* Backend Cards & Badges */
         .backend-card-list {
             display: flex;
@@ -1101,6 +1111,14 @@
             color: var(--danger);
         }
 
+        .kpi-subvalue {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            white-space: nowrap;
+            margin-top: 2px;
+        }
+
         .proxies-metrics-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
@@ -1353,6 +1371,10 @@
                 font-size: 17px;
             }
 
+            .kpi-subvalue {
+                font-size: 11px;
+            }
+
             .proxies-metrics-grid {
                 grid-template-columns: 1fr;
                 gap: 12px;
@@ -1413,6 +1435,14 @@
 
             .metric-value {
                 font-size: 13px;
+            }
+
+            .metric-subvalue {
+                font-size: 10px;
+            }
+
+            .kpi-subvalue {
+                font-size: 10px;
             }
         }
 
@@ -1570,11 +1600,13 @@
                             </div>
                             <div class="metric-card">
                                 <span class="metric-label">Débit Entrant</span>
-                                <span class="metric-value" id="drawer-metric-bytes-in">0 B</span>
+                                <span class="metric-value" id="drawer-metric-bytes-in">0 B/s</span>
+                                <span class="metric-subvalue" id="drawer-metric-total-in">Total : 0 B</span>
                             </div>
                             <div class="metric-card">
                                 <span class="metric-label">Débit Sortant</span>
-                                <span class="metric-value" id="drawer-metric-bytes-out">0 B</span>
+                                <span class="metric-value" id="drawer-metric-bytes-out">0 B/s</span>
+                                <span class="metric-subvalue" id="drawer-metric-total-out">Total : 0 B</span>
                             </div>
                         </div>
                     </div>
@@ -1641,11 +1673,13 @@
                 </div>
                 <div class="kpi-card">
                     <span class="kpi-title">Trafic Entrant</span>
-                    <span class="kpi-value" id="kpi-bytes-in">0 B</span>
+                    <span class="kpi-value" id="kpi-bytes-in">0 B/s</span>
+                    <span class="kpi-subvalue" id="kpi-total-bytes-in">Total : 0 B</span>
                 </div>
                 <div class="kpi-card">
                     <span class="kpi-title">Trafic Sortant</span>
-                    <span class="kpi-value" id="kpi-bytes-out">0 B</span>
+                    <span class="kpi-value" id="kpi-bytes-out">0 B/s</span>
+                    <span class="kpi-subvalue" id="kpi-total-bytes-out">Total : 0 B</span>
                 </div>
             </div>
 
@@ -1684,7 +1718,14 @@
 
             // Drawer resizer state
             drawerWidth: 600,
-            isResizingDrawer: false
+            isResizingDrawer: false,
+
+            // Metrics rate calculation
+            prevProxyMetrics: null,
+            prevMetricsTime: null,
+            proxyRates: {},
+            totalRateIn: 0,
+            totalRateOut: 0
         };
 
         /* ==========================================================================
@@ -1698,6 +1739,11 @@
             const i = Math.min(Math.floor(Math.log(absBytes) / Math.log(k)), sizes.length - 1);
             const sign = bytes < 0 ? '-' : '';
             return sign + parseFloat((absBytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function formatRate(bytesPerSec) {
+            if (!bytesPerSec || isNaN(bytesPerSec) || bytesPerSec <= 0) return '0 B/s';
+            return formatBytes(bytesPerSec) + '/s';
         }
 
         function formatNumber(num) {
@@ -1959,8 +2005,43 @@
                 state.topology = await topRes.json();
                 state.backends = await beRes.json();
                 state.proxyMetrics = await metRes.json();
-                state.lastRefreshTime = Date.now();
+
+                const now = Date.now();
+                state.lastRefreshTime = now;
                 state.fetchError = false;
+
+                // Compute instantaneous throughput rates
+                if (state.prevMetricsTime && state.prevProxyMetrics) {
+                    const dt = (now - state.prevMetricsTime) / 1000;
+                    if (dt >= 0.1) {
+                        state.proxyRates = {};
+                        let sumRateIn = 0;
+                        let sumRateOut = 0;
+                        for (const proxyId in state.proxyMetrics) {
+                            const curr = state.proxyMetrics[proxyId] || {};
+                            const prev = state.prevProxyMetrics[proxyId];
+                            if (!prev) {
+                                state.proxyRates[proxyId] = { rate_in: 0, rate_out: 0 };
+                                continue;
+                            }
+                            const dIn = Math.max(0, (curr.bytes_in || 0) - (prev.bytes_in || 0));
+                            const dOut = Math.max(0, (curr.bytes_out || 0) - (prev.bytes_out || 0));
+                            const rIn = dIn / dt;
+                            const rOut = dOut / dt;
+                            state.proxyRates[proxyId] = { rate_in: rIn, rate_out: rOut };
+                            sumRateIn += rIn;
+                            sumRateOut += rOut;
+                        }
+                        state.totalRateIn = sumRateIn;
+                        state.totalRateOut = sumRateOut;
+                    }
+                } else {
+                    state.proxyRates = {};
+                    state.totalRateIn = 0;
+                    state.totalRateOut = 0;
+                }
+                state.prevProxyMetrics = JSON.parse(JSON.stringify(state.proxyMetrics));
+                state.prevMetricsTime = now;
 
                 document.getElementById('reconnecting-banner').style.display = 'none';
 
@@ -2747,8 +2828,11 @@
                 if (met.errors > 0) errEl.classList.add('has-error');
                 else errEl.classList.remove('has-error');
 
-                document.getElementById('drawer-metric-bytes-in').textContent = formatBytes(met.bytes_in);
-                document.getElementById('drawer-metric-bytes-out').textContent = formatBytes(met.bytes_out);
+                const rates = state.proxyRates[node.id] || { rate_in: 0, rate_out: 0 };
+                document.getElementById('drawer-metric-bytes-in').textContent = formatRate(rates.rate_in);
+                document.getElementById('drawer-metric-total-in').textContent = `Total : ${formatBytes(met.bytes_in)}`;
+                document.getElementById('drawer-metric-bytes-out').textContent = formatRate(rates.rate_out);
+                document.getElementById('drawer-metric-total-out').textContent = `Total : ${formatBytes(met.bytes_out)}`;
             } else {
                 metricsSec.style.display = 'none';
             }
@@ -2984,6 +3068,7 @@
                     bytes_in: 0,
                     bytes_out: 0
                 };
+                const rates = state.proxyRates[p.id] || { rate_in: 0, rate_out: 0 };
 
                 totalActive += met.active_connections;
                 totalProcessed += met.processed_connections;
@@ -3021,11 +3106,13 @@
                                 </div>
                                 <div class="metric-card">
                                     <span class="metric-label">Débit Entrant</span>
-                                    <span class="metric-value">${formatBytes(met.bytes_in)}</span>
+                                    <span class="metric-value">${formatRate(rates.rate_in)}</span>
+                                    <span class="metric-subvalue">Total : ${formatBytes(met.bytes_in)}</span>
                                 </div>
                                 <div class="metric-card">
                                     <span class="metric-label">Débit Sortant</span>
-                                    <span class="metric-value">${formatBytes(met.bytes_out)}</span>
+                                    <span class="metric-value">${formatRate(rates.rate_out)}</span>
+                                    <span class="metric-subvalue">Total : ${formatBytes(met.bytes_out)}</span>
                                 </div>
                             </div>
                             <div style="font-size: 11px; color: var(--text-faint); display: flex; justify-content: space-between;">
@@ -3047,8 +3134,10 @@
             if (totalErrors > 0) errKpi.classList.add('danger');
             else errKpi.classList.remove('danger');
 
-            document.getElementById('kpi-bytes-in').textContent = formatBytes(totalBytesIn);
-            document.getElementById('kpi-bytes-out').textContent = formatBytes(totalBytesOut);
+            document.getElementById('kpi-bytes-in').textContent = formatRate(state.totalRateIn);
+            document.getElementById('kpi-total-bytes-in').textContent = `Total : ${formatBytes(totalBytesIn)}`;
+            document.getElementById('kpi-bytes-out').textContent = formatRate(state.totalRateOut);
+            document.getElementById('kpi-total-bytes-out').textContent = `Total : ${formatBytes(totalBytesOut)}`;
 
             if (proxies.length === 0) {
                 cardsContainer.innerHTML = '<div class="empty-placeholder">Aucun proxy configuré</div>';

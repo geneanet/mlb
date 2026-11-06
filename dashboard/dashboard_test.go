@@ -363,6 +363,10 @@ func TestDashboardEssentialDOM(t *testing.T) {
 		`id="tab-backends"`,
 		`id="tab-metrics"`,
 		`id="theme-toggle"`,
+		`id="kpi-total-bytes-in"`,
+		`id="kpi-total-bytes-out"`,
+		`id="drawer-metric-total-in"`,
+		`id="drawer-metric-total-out"`,
 	}
 
 	for _, elem := range requiredElements {
@@ -439,6 +443,10 @@ func TestDashboardFixesAndRobustness(t *testing.T) {
 		{"drawer default width 600px", "width: 600px;", true},
 		{"multi-sources helper", "function getNodeSources(node)", true},
 		{"pointerdown node guard before capture", "if (e.target.closest('.node-group')) return;", true},
+		{"metric subvalue CSS class", ".metric-subvalue", true},
+		{"kpi subvalue CSS class", ".kpi-subvalue", true},
+		{"formatRate function", "function formatRate(bytesPerSec)", true},
+		{"rate computation in state", "state.proxyRates", true},
 	}
 
 	for _, c := range checks {
