@@ -17,7 +17,7 @@ backends_inventory "static" "my_backends" {
 
 ## Consul Inventory
 
-The `consul` inventory discovers backends by querying the Consul Service Discovery API.
+The `consul` inventory discovers backends by querying the Consul Service Discovery API. The backend address is constructed from `Service.Address:Service.Port`, falling back to `Node.Address` if `Service.Address` is empty.
 
 ```hcl
 backends_inventory "consul" "mysql" {

@@ -29,7 +29,8 @@ func init() {
 
 type consulService struct {
 	Node struct {
-		Node string
+		Node    string
+		Address string
 	}
 	Service struct {
 		Tags    []string
@@ -281,7 +282,11 @@ func consulServicesSliceToMap(services consulServicesSlice) consulServicesMap {
 	index := consulServicesMap{}
 
 	for _, s := range services {
-		address := fmt.Sprintf("%s:%d", s.Service.Address, s.Service.Port)
+		host := s.Service.Address
+		if host == "" {
+			host = s.Node.Address
+		}
+		address := fmt.Sprintf("%s:%d", host, s.Service.Port)
 		index[address] = s
 	}
 

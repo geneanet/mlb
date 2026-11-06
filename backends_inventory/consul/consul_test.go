@@ -53,7 +53,10 @@ func TestConsulBackendsInventory_All(t *testing.T) {
 			// First call: service node1 with tag1
 			services = consulServicesSlice{
 				{
-					Node: struct{ Node string }{"node1"},
+					Node: struct {
+						Node    string
+						Address string
+					}{"node1", "127.0.0.1"},
 					Service: struct {
 						Tags    []string
 						Address string
@@ -79,7 +82,10 @@ func TestConsulBackendsInventory_All(t *testing.T) {
 			// Second call: service node1 with changed tag and index
 			services = consulServicesSlice{
 				{
-					Node: struct{ Node string }{"node1"},
+					Node: struct {
+						Node    string
+						Address string
+					}{"node1", "127.0.0.1"},
 					Service: struct {
 						Tags    []string
 						Address string
@@ -359,7 +365,10 @@ func TestConsulBackendsInventory_ProvideUpdates(t *testing.T) {
 		w.Header().Set("X-Consul-Index", "1")
 		services := consulServicesSlice{
 			{
-				Node: struct{ Node string }{"node1"},
+				Node: struct {
+					Node    string
+					Address string
+				}{"node1", "127.0.0.1"},
 				Service: struct {
 					Tags    []string
 					Address string
@@ -599,4 +608,94 @@ backends_inventory "consul" "test" {
 			t.Errorf("expected PassingOnly to be true")
 		}
 	})
+}
+
+// TestConsulBackendsInventory_NodeAddressFallback verifies that when Service.Address is empty,
+// the backend address falls back to Node.Address.
+func TestConsulBackendsInventory_NodeAddressFallback(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Consul-Index", "1")
+		resp := `[
+			{
+				"Node": {
+					"Node": "node42",
+					"Address": "192.168.1.42"
+				},
+				"Service": {
+					"Tags": ["prod"],
+					"Address": "",
+					"Port": 8080,
+					"Weights": {
+						"Passing": 1,
+						"Warning": 0
+					},
+					"ModifyIndex": 1
+				}
+			}
+		]`
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(resp))
+	}))
+	defer ts.Close()
+
+	src := `
+backends_inventory "consul" "test_fallback" {
+	url = "` + ts.URL + `"
+	service = "my-service"
+	period = "10ms"
+	max_period = "20ms"
+}
+`
+	block := testutil.ParseHCL(t, src)
+	ctx := &hcl.EvalContext{}
+	cfg, diags := module.DecodeConfigBlock(block, ctx, "backends_inventory")
+	if diags.HasErrors() {
+		t.Fatalf("Unexpected errors: %s", diags.Error())
+	}
+
+	wg := &sync.WaitGroup{}
+	ctxBG, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mod, err := module.New(cfg, wg, ctxBG, "backends_inventory")
+	if err != nil {
+		t.Fatalf("Unexpected error creating module: %s", err)
+	}
+	consulMod := mod.(*BackendsInventoryConsul)
+
+	sub := &consulDummySubscriber{}
+	consulMod.ProvideUpdates(sub)
+
+	// Wait for the backend to be discovered
+	testutil.Eventually(t, func() bool {
+		sub.mu.Lock()
+		defer sub.mu.Unlock()
+		return len(sub.updates) > 0
+	}, 1*time.Second, 10*time.Millisecond)
+
+	cancel()
+	wg.Wait()
+
+	list := consulMod.GetBackendList()
+	if len(list) != 1 {
+		t.Fatalf("Expected 1 backend in registry, got %d", len(list))
+	}
+	if list[0].Address != "192.168.1.42:8080" {
+		t.Errorf("Expected backend address 192.168.1.42:8080, got %s", list[0].Address)
+	}
+
+	sub.mu.Lock()
+	defer sub.mu.Unlock()
+	foundAdded := false
+	for _, u := range sub.updates {
+		if u.Kind == backend.UpdBackendAdded {
+			foundAdded = true
+			if u.Address != "192.168.1.42:8080" {
+				t.Errorf("Expected update address 192.168.1.42:8080, got %s", u.Address)
+			}
+		}
+	}
+	if !foundAdded {
+		t.Errorf("Expected UpdBackendAdded update")
+	}
 }
