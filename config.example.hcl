@@ -15,6 +15,7 @@ system {
 backends_inventory "consul" "mysql" {
   url = "http://localhost:8500"
   service = "mysql"
+  // token = "s3cr3t-t0k3n"
   // passing_only = false
   // period = "1s"
   // max_period = "5s"
@@ -25,6 +26,7 @@ backends_inventory "consul" "mysql" {
 backends_inventory "consul" "redis" {
   url = "http://localhost:8500"
   service = "redis"
+  // token = "s3cr3t-t0k3n"
   // passing_only = false
   // period = "1s"
   // max_period = "5s"
@@ -45,6 +47,7 @@ backends_inventory "static" "mysql_static" {
 backends_processor "consul_kv" "sqlweight" {
   source = backends_inventory.consul.mysql
   url = "http://localhost:8500"
+  // token = "s3cr3t-t0k3n"
   // period = "500ms"
   // max_period = "2s"
   // backoff_factor = 1.5

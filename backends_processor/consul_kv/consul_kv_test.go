@@ -404,7 +404,7 @@ func TestConsulKV_FetchErrors(t *testing.T) {
 	mu.Lock()
 	responseBody = `invalid json`
 	mu.Unlock()
-	w := newConsulKVWatcher(backend.NewBackend("foo", nil), "id", ts.URL, "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, make(chan *consulKVWatcherMessage, 10), ctx, log.Logger)
+	w := newConsulKVWatcher(backend.NewBackend("foo", nil), "id", ts.URL, "", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, make(chan *consulKVWatcherMessage, 10), ctx, log.Logger)
 	_, err := w.fetch()
 	if err == nil {
 		t.Errorf("Expected error for invalid json")
@@ -420,7 +420,7 @@ func TestConsulKV_FetchErrors(t *testing.T) {
 	}
 
 	// Case 3: Invalid URL scheme
-	w = newConsulKVWatcher(backend.NewBackend("foo", nil), "id", "httpxx://invalid", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, make(chan *consulKVWatcherMessage, 10), ctx, log.Logger)
+	w = newConsulKVWatcher(backend.NewBackend("foo", nil), "id", "httpxx://invalid", "", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, make(chan *consulKVWatcherMessage, 10), ctx, log.Logger)
 	_, err = w.fetch()
 	if err == nil {
 		t.Errorf("Expected error for invalid scheme")
@@ -430,7 +430,7 @@ func TestConsulKV_FetchErrors(t *testing.T) {
 	mu.Lock()
 	responseBody = `[]`
 	mu.Unlock()
-	w = newConsulKVWatcher(backend.NewBackend("foo", nil), "id", ts.URL, "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, make(chan *consulKVWatcherMessage, 10), ctx, log.Logger)
+	w = newConsulKVWatcher(backend.NewBackend("foo", nil), "id", ts.URL, "", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, make(chan *consulKVWatcherMessage, 10), ctx, log.Logger)
 	_, err = w.fetch()
 	if err == nil {
 		t.Errorf("Expected error for empty JSON array response")
@@ -451,7 +451,7 @@ func TestConsulKV_WatcherCoverage(t *testing.T) {
 
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	ch := make(chan *consulKVWatcherMessage, 10)
-	newConsulKVWatcher(backend.NewBackend("foo1", nil), "id", ts1.URL, "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, ch, ctx1, log.Logger)
+	newConsulKVWatcher(backend.NewBackend("foo1", nil), "id", ts1.URL, "", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, ch, ctx1, log.Logger)
 
 
 	// Ensure request starts
@@ -471,7 +471,7 @@ func TestConsulKV_WatcherCoverage(t *testing.T) {
 	defer ts2.Close()
 
 	ctx2, cancel2 := context.WithCancel(context.Background())
-	newConsulKVWatcher(backend.NewBackend("foo2", nil), "id", ts2.URL, "key", 500*time.Millisecond, 1*time.Second, 1.5, ch, ctx2, log.Logger)
+	newConsulKVWatcher(backend.NewBackend("foo2", nil), "id", ts2.URL, "", "key", 500*time.Millisecond, 1*time.Second, 1.5, ch, ctx2, log.Logger)
 
 	// Give it time to execute its first request and fall into sleep
 	testutil.Eventually(t, func() bool {
@@ -523,7 +523,7 @@ func TestConsulKV_Watcher_CancelBlockedOnChannel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := make(chan *consulKVWatcherMessage)
 
-	w := newConsulKVWatcher(backend.NewBackend("foo", nil), "id", ts.URL, "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, ch, ctx, log.Logger)
+	w := newConsulKVWatcher(backend.NewBackend("foo", nil), "id", ts.URL, "", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, ch, ctx, log.Logger)
 
 	// Wait until the watcher has fetched the key from the server
 	testutil.Eventually(t, func() bool {
@@ -612,4 +612,162 @@ backends_processor "consul_kv" "test" {
 
 	cancel()
 	wg.Wait()
+}
+
+// TestConsulKV_Token verifies that the token configuration option
+// causes the Consul KV processor to send the X-Consul-Token HTTP header.
+func TestConsulKV_Token(t *testing.T) {
+	t.Run("token configured", func(t *testing.T) {
+		var receivedToken atomic.Value
+		var callCount atomic.Int64
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callCount.Add(1)
+			receivedToken.Store(r.Header.Get("X-Consul-Token"))
+			w.Header().Set("X-Consul-Index", "1")
+			val := base64.StdEncoding.EncodeToString([]byte("10"))
+			resp := []consulKVValue{{Key: "foo", Value: val}}
+			_ = json.NewEncoder(w).Encode(resp)
+		}))
+		defer ts.Close()
+
+		src := `
+backends_processor "consul_kv" "test_token" {
+	source = "foo"
+	url = "` + ts.URL + `"
+	token = "my-secret-kv-token"
+	period = "10ms"
+	max_period = "20ms"
+
+	value "weight" {
+		consul_key = "foo"
+		default = "1"
+	}
+}
+`
+		block := testutil.ParseHCL(t, src)
+		ctx := &hcl.EvalContext{}
+		cfg, diags := module.DecodeConfigBlock(block, ctx, "backends_processor")
+		if diags.HasErrors() {
+			t.Fatalf("Unexpected errors decoding config: %s", diags.Error())
+		}
+
+		diags = module.ValidateConfig(cfg, "backends_processor")
+		if diags.HasErrors() {
+			t.Fatalf("Unexpected errors validating config: %s", diags.Error())
+		}
+
+		wg := &sync.WaitGroup{}
+		ctxBG, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mod, err := module.New(cfg, wg, ctxBG, "backends_processor")
+		if err != nil {
+			t.Fatalf("Unexpected error creating module: %s", err)
+		}
+		consulMod := mod.(*ConsulKV)
+
+		dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry(zerolog.Nop(), false)}
+		modules := make(module.ModulesRegistry)
+		modules.AddModule("foo", dp)
+		_ = consulMod.Bind(modules)
+
+		sub := &testutil.DummySubscriber{Wg: sync.WaitGroup{}}
+		consulMod.ProvideUpdates(sub)
+
+		sub.Wg.Add(2)
+		b := backend.NewBackend("127.0.0.1:8080", backend.NewMetaMap(nil))
+		dp.SendUpdate(backend.BackendUpdate{
+			Kind:    backend.UpdBackendAdded,
+			Address: b.Address,
+			Backend: b,
+		})
+
+		waitSub(t, sub, "ReceiveUpdate")
+
+		testutil.Eventually(t, func() bool {
+			return callCount.Load() > 0
+		}, 1*time.Second, 10*time.Millisecond)
+
+		cancel()
+		wg.Wait()
+
+		val, _ := receivedToken.Load().(string)
+		if val != "my-secret-kv-token" {
+			t.Errorf("Expected header X-Consul-Token 'my-secret-kv-token', got '%s'", val)
+		}
+	})
+
+	t.Run("token omitted", func(t *testing.T) {
+		var receivedToken atomic.Value
+		var callCount atomic.Int64
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callCount.Add(1)
+			receivedToken.Store(r.Header.Get("X-Consul-Token"))
+			w.Header().Set("X-Consul-Index", "1")
+			val := base64.StdEncoding.EncodeToString([]byte("10"))
+			resp := []consulKVValue{{Key: "foo", Value: val}}
+			_ = json.NewEncoder(w).Encode(resp)
+		}))
+		defer ts.Close()
+
+		src := `
+backends_processor "consul_kv" "test_no_token" {
+	source = "foo"
+	url = "` + ts.URL + `"
+	period = "10ms"
+	max_period = "20ms"
+
+	value "weight" {
+		consul_key = "foo"
+		default = "1"
+	}
+}
+`
+		block := testutil.ParseHCL(t, src)
+		ctx := &hcl.EvalContext{}
+		cfg, diags := module.DecodeConfigBlock(block, ctx, "backends_processor")
+		if diags.HasErrors() {
+			t.Fatalf("Unexpected errors decoding config: %s", diags.Error())
+		}
+
+		wg := &sync.WaitGroup{}
+		ctxBG, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mod, err := module.New(cfg, wg, ctxBG, "backends_processor")
+		if err != nil {
+			t.Fatalf("Unexpected error creating module: %s", err)
+		}
+		consulMod := mod.(*ConsulKV)
+
+		dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry(zerolog.Nop(), false)}
+		modules := make(module.ModulesRegistry)
+		modules.AddModule("foo", dp)
+		_ = consulMod.Bind(modules)
+
+		sub := &testutil.DummySubscriber{Wg: sync.WaitGroup{}}
+		consulMod.ProvideUpdates(sub)
+
+		sub.Wg.Add(2)
+		b := backend.NewBackend("127.0.0.1:8080", backend.NewMetaMap(nil))
+		dp.SendUpdate(backend.BackendUpdate{
+			Kind:    backend.UpdBackendAdded,
+			Address: b.Address,
+			Backend: b,
+		})
+
+		waitSub(t, sub, "ReceiveUpdate")
+
+		testutil.Eventually(t, func() bool {
+			return callCount.Load() > 0
+		}, 1*time.Second, 10*time.Millisecond)
+
+		cancel()
+		wg.Wait()
+
+		val, _ := receivedToken.Load().(string)
+		if val != "" {
+			t.Errorf("Expected header X-Consul-Token to be empty, got '%s'", val)
+		}
+	})
 }

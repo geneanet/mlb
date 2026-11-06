@@ -32,6 +32,7 @@ backends_inventory "consul" "mysql" {
 
 - `url` (string, required): The base URL of the Consul agent or cluster.
 - `service` (string, required): The name of the service to discover in Consul.
+- `token` (string, optional): An optional Consul ACL token transmitted via the `X-Consul-Token` HTTP header.
 - `passing_only` (boolean, optional): If true, only healthy instances with passing health checks are returned by adding `?passing=true` to the Consul query. Default: `false`.
 - `period` (duration string, optional): The polling period for Consul updates. Default: `1s`.
 - `max_period` (duration string, optional): The maximum polling period when backoff is applied due to errors. Default: `5s`.

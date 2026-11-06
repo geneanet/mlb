@@ -96,6 +96,7 @@ backends_processor "consul_kv" "weights" {
 
 - `source` (string, required): The ID of the backend provider.
 - `url` (string, required): Consul URL.
+- `token` (string, optional): An optional Consul ACL token transmitted via the `X-Consul-Token` HTTP header.
 - `period` (duration string, optional): The polling period for Consul updates. Default: `500ms`.
 - `max_period` (duration string, optional): The maximum polling period when backoff is applied due to errors. Default: `2s`.
 - `backoff_factor` (number, optional): The factor by which the polling period increases on error. Default: `1.5`.

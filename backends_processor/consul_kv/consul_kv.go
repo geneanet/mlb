@@ -30,6 +30,7 @@ func init() {
 type ConsulKV struct {
 	id              string
 	url             string
+	token           string
 	defaultPeriod   time.Duration
 	maxPeriod       time.Duration
 	backoffFactor   float64
@@ -53,6 +54,7 @@ type ConsulKVConfig struct {
 	ID                string                `hcl:"id,label"`
 	Source            string                `hcl:"source"`
 	URL               string                `hcl:"url"`
+	Token             string                `hcl:"token,optional"`
 	Period            string                `hcl:"period,optional"`
 	MaxPeriod         string                `hcl:"max_period,optional"`
 	BackoffFactor     float64               `hcl:"backoff_factor,optional"`
@@ -102,6 +104,7 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 	c := &ConsulKV{
 		id:              config.ID,
 		url:             config.URL,
+		token:           config.Token,
 		backoffFactor:   config.BackoffFactor,
 		log:             log.With().Str("id", config.ID).Logger(),
 		updChan:         make(chan backend.BackendUpdate, 100),
@@ -218,7 +221,7 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 							if !c.upstreamReady && upd.Kind == backend.UpdBackendAdded {
 								c.initialWatchers[upd.Address+":"+v.ID] = true
 							}
-							w := newConsulKVWatcher(c.backends.Get(upd.Address), v.ID, c.url, consulKey, c.defaultPeriod, c.maxPeriod, c.backoffFactor, watcherChan, c.ctx, c.log)
+							w := newConsulKVWatcher(c.backends.Get(upd.Address), v.ID, c.url, c.token, consulKey, c.defaultPeriod, c.maxPeriod, c.backoffFactor, watcherChan, c.ctx, c.log)
 							c.watchers[upd.Address] = append(c.watchers[upd.Address], w)
 						}
 					}
@@ -311,6 +314,7 @@ type consulKVWatcher struct {
 	backend *backend.Backend
 	id      string
 	url     string
+	token   string
 	key     string
 	channel chan *consulKVWatcherMessage
 	ctx     context.Context
@@ -328,11 +332,12 @@ type consulKVValue struct {
 }
 
 // newConsulKVWatcher creates and starts a new consulKVWatcher.
-func newConsulKVWatcher(backend *backend.Backend, id string, url string, key string, defaultPeriod time.Duration, maxPeriod time.Duration, backoffFactor float64, channel chan *consulKVWatcherMessage, ctx context.Context, log zerolog.Logger) *consulKVWatcher {
+func newConsulKVWatcher(backend *backend.Backend, id string, url string, token string, key string, defaultPeriod time.Duration, maxPeriod time.Duration, backoffFactor float64, channel chan *consulKVWatcherMessage, ctx context.Context, log zerolog.Logger) *consulKVWatcher {
 	w := &consulKVWatcher{
 		backend: backend,
 		id:      id,
 		url:     url,
+		token:   token,
 		key:     key,
 		channel: channel,
 		log:     log.With().Str("backend", backend.Address).Str("key", key).Logger(),
@@ -423,6 +428,10 @@ func (w *consulKVWatcher) fetch() (retValue cty.Value, retError error) {
 	rq, err := http.NewRequestWithContext(ctx, "GET", w.url+"/v1/kv/"+w.key+"?index="+w.index+"&timeout=60s", nil)
 	if err != nil {
 		return cty.UnknownVal(cty.String), err
+	}
+
+	if w.token != "" {
+		rq.Header.Set("X-Consul-Token", w.token)
 	}
 
 	resp, err := http.DefaultClient.Do(rq)

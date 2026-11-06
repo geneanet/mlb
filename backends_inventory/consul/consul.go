@@ -52,6 +52,7 @@ type BackendsInventoryConsul struct {
 	id       string
 	url      string
 	service  string
+	token    string
 	passing  bool
 	index    string
 	ticker   *misc.ExponentialBackoffTicker
@@ -66,6 +67,7 @@ type ConsulBackendsInventoryConfig struct {
 	ID                string  `hcl:"id,label"`
 	URL               string  `hcl:"url"`
 	Service           string  `hcl:"service"`
+	Token             string  `hcl:"token,optional"`
 	PassingOnly       bool    `hcl:"passing_only,optional"`
 	Period            string  `hcl:"period,optional"`
 	MaxPeriod         string  `hcl:"max_period,optional"`
@@ -109,6 +111,7 @@ func newConsulBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx conte
 		id:       config.ID,
 		url:      config.URL,
 		service:  config.Service,
+		token:    config.Token,
 		passing:  config.PassingOnly,
 		log:      log.With().Str("id", config.ID).Logger(),
 		backends: backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
@@ -242,6 +245,10 @@ func (c *BackendsInventoryConsul) fetch() (retServices consulServicesSlice, retE
 	rq, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return nil, err
+	}
+
+	if c.token != "" {
+		rq.Header.Set("X-Consul-Token", c.token)
 	}
 
 	resp, err := http.DefaultClient.Do(rq)

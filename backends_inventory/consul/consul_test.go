@@ -699,3 +699,111 @@ backends_inventory "consul" "test_fallback" {
 		t.Errorf("Expected UpdBackendAdded update")
 	}
 }
+
+// TestConsulBackendsInventory_Token verifies that the token configuration option
+// causes the Consul inventory to send the X-Consul-Token HTTP header.
+func TestConsulBackendsInventory_Token(t *testing.T) {
+	t.Run("token configured", func(t *testing.T) {
+		var receivedToken atomic.Value
+		var callCount atomic.Int64
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callCount.Add(1)
+			receivedToken.Store(r.Header.Get("X-Consul-Token"))
+			w.Header().Set("X-Consul-Index", "1")
+			_ = json.NewEncoder(w).Encode(consulServicesSlice{})
+		}))
+		defer ts.Close()
+
+		src := `
+backends_inventory "consul" "test_token" {
+	url = "` + ts.URL + `"
+	service = "my-service"
+	token = "my-secret-token"
+	period = "10ms"
+	max_period = "20ms"
+}
+`
+		block := testutil.ParseHCL(t, src)
+		ctx := &hcl.EvalContext{}
+		cfg, diags := module.DecodeConfigBlock(block, ctx, "backends_inventory")
+		if diags.HasErrors() {
+			t.Fatalf("Unexpected errors decoding config: %s", diags.Error())
+		}
+
+		diags = module.ValidateConfig(cfg, "backends_inventory")
+		if diags.HasErrors() {
+			t.Fatalf("Unexpected errors validating config: %s", diags.Error())
+		}
+
+		wg := &sync.WaitGroup{}
+		ctxBG, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mod, err := module.New(cfg, wg, ctxBG, "backends_inventory")
+		if err != nil {
+			t.Fatalf("Unexpected error creating module: %s", err)
+		}
+		_ = mod
+
+		testutil.Eventually(t, func() bool {
+			return callCount.Load() > 0
+		}, 1*time.Second, 10*time.Millisecond)
+
+		cancel()
+		wg.Wait()
+
+		val, _ := receivedToken.Load().(string)
+		if val != "my-secret-token" {
+			t.Errorf("Expected header X-Consul-Token 'my-secret-token', got '%s'", val)
+		}
+	})
+
+	t.Run("token omitted", func(t *testing.T) {
+		var receivedToken atomic.Value
+		var callCount atomic.Int64
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callCount.Add(1)
+			receivedToken.Store(r.Header.Get("X-Consul-Token"))
+			w.Header().Set("X-Consul-Index", "1")
+			_ = json.NewEncoder(w).Encode(consulServicesSlice{})
+		}))
+		defer ts.Close()
+
+		src := `
+backends_inventory "consul" "test_no_token" {
+	url = "` + ts.URL + `"
+	service = "my-service"
+	period = "10ms"
+	max_period = "20ms"
+}
+`
+		block := testutil.ParseHCL(t, src)
+		ctx := &hcl.EvalContext{}
+		cfg, diags := module.DecodeConfigBlock(block, ctx, "backends_inventory")
+		if diags.HasErrors() {
+			t.Fatalf("Unexpected errors decoding config: %s", diags.Error())
+		}
+
+		wg := &sync.WaitGroup{}
+		ctxBG, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mod, err := module.New(cfg, wg, ctxBG, "backends_inventory")
+		if err != nil {
+			t.Fatalf("Unexpected error creating module: %s", err)
+		}
+		_ = mod
+
+		testutil.Eventually(t, func() bool {
+			return callCount.Load() > 0
+		}, 1*time.Second, 10*time.Millisecond)
+
+		cancel()
+		wg.Wait()
+
+		val, _ := receivedToken.Load().(string)
+		if val != "" {
+			t.Errorf("Expected header X-Consul-Token to be empty, got '%s'", val)
+		}
+	})
+}
