@@ -428,3 +428,47 @@ func TestWLCBalancer_ModifiedBackendPreservesCanonicalBackendAndCancellation(t *
 		t.Fatal("selected backend context was not cancelled when backend was removed")
 	}
 }
+
+func TestWLC_MetaPreservation(t *testing.T) {
+	body := &hclsyntax.Body{
+		Attributes: map[string]*hclsyntax.Attribute{
+			"source": {Name: "source", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("src1")}},
+			"weight": {Name: "weight", Expr: &hclsyntax.LiteralValueExpr{Val: cty.NumberIntVal(1)}},
+		},
+	}
+	cfg := &module.Config{Category: "balancer", Name: "test_meta", Type: "wlc", Config: body, Ctx: &hcl.EvalContext{}}
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mod, err := newWLCBalancer(cfg, wg, ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+	balancer := mod.(*WLCBalancer)
+
+	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry(zerolog.Nop(), false)}
+	provider.ProvideUpdates(balancer)
+
+	be := backend.NewBackend("127.0.0.1:8080", nil)
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: be.Address, Backend: be})
+
+	testutil.Eventually(t, func() bool {
+		return len(balancer.GetBackendList()) == 1
+	}, 1*time.Second, 10*time.Millisecond)
+
+	// Set custom metadata in the wlc bucket on the canonical registered backend
+	canonical := balancer.backends.Get(be.Address)
+	canonical.Meta.Set("wlc", "custom_key", cty.StringVal("preserved_val"))
+
+	// Upstream sends an UpdBackendModified without the wlc bucket
+	beMod := backend.NewBackend(be.Address, nil)
+	beMod.Meta.Set("other", "foo", cty.StringVal("bar"))
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: be.Address, Backend: beMod})
+
+	// Verify the wlc bucket's custom key is preserved after the update
+	testutil.Eventually(t, func() bool {
+		val, ok := canonical.Meta.Get("wlc", "custom_key")
+		return ok && val.IsKnown() && val.AsString() == "preserved_val"
+	}, 1*time.Second, 10*time.Millisecond, "wlc metadata bucket was wiped during backend update")
+}

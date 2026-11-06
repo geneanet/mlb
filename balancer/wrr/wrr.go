@@ -138,7 +138,7 @@ func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 						shouldRefresh = true
 					} else {
 						b.log.Debug().Str("address", upd.Address).Int("weight", weight).Msg("Updating backend in WRR balancer")
-						b.backends.Update(upd.Backend.Clone())
+						b.backends.Update(upd.Backend.Clone(), "wrr")
 						oldWeight, exists := weights[upd.Address]
 						if !exists || oldWeight != weight {
 							shouldRefresh = true

@@ -131,7 +131,7 @@ func newWLCBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 						b.backends.Add(clone)
 					} else {
 						b.log.Debug().Str("address", upd.Address).Int64("weight", weight).Msg("Updating backend in WLC balancer")
-						b.backends.Update(clone)
+						b.backends.Update(clone, "wlc")
 					}
 
 					canonical := b.backends.Get(upd.Address)
