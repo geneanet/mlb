@@ -1,5 +1,6 @@
 metrics {
   address = ":2112"
+  // enable_pprof = false
 }
 
 system {

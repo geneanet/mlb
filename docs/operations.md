@@ -70,7 +70,7 @@ Enable verbose logging with the `-debug` flag to see detailed module instantiati
 
 ### Performance Profiling (pprof)
 
-MLB includes Go's `pprof` tool for performance analysis. It is automatically enabled on the same address as the metrics and dashboard server.
+MLB includes Go's `pprof` tool for performance analysis. It can be enabled on the metrics and dashboard server by setting `enable_pprof = true` in the `metrics` configuration block (disabled by default for security).
 
 You can access profiling data using the `go tool pprof` command:
 

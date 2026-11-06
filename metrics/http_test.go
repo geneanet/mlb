@@ -31,20 +31,87 @@ func parseHCL(t *testing.T, src string) *hcl.Block {
 
 // TestDecodeConfigBlock verifies the decoding of metrics configuration blocks.
 func TestDecodeConfigBlock(t *testing.T) {
-	src := `
+	t.Run("Default (no enable_pprof)", func(t *testing.T) {
+		src := `
 metrics {
 	address = "127.0.0.1:9090"
 }
 `
-	block := parseHCL(t, src)
-	ctx := &hcl.EvalContext{}
+		block := parseHCL(t, src)
+		ctx := &hcl.EvalContext{}
 
-	cfg, diags := DecodeConfigBlock(block, ctx)
-	if diags.HasErrors() {
-		t.Fatalf("Unexpected errors: %s", diags.Error())
+		cfg, diags := DecodeConfigBlock(block, ctx)
+		if diags.HasErrors() {
+			t.Fatalf("Unexpected errors: %s", diags.Error())
+		}
+		if cfg.Address != "127.0.0.1:9090" {
+			t.Errorf("Expected address to be 127.0.0.1:9090, got %s", cfg.Address)
+		}
+		if cfg.EnablePprof {
+			t.Errorf("Expected EnablePprof to be false by default, got true")
+		}
+	})
+
+	t.Run("enable_pprof = true", func(t *testing.T) {
+		src := `
+metrics {
+	address = "127.0.0.1:9090"
+	enable_pprof = true
+}
+`
+		block := parseHCL(t, src)
+		ctx := &hcl.EvalContext{}
+
+		cfg, diags := DecodeConfigBlock(block, ctx)
+		if diags.HasErrors() {
+			t.Fatalf("Unexpected errors: %s", diags.Error())
+		}
+		if !cfg.EnablePprof {
+			t.Errorf("Expected EnablePprof to be true, got false")
+		}
+	})
+
+	t.Run("enable_pprof = false", func(t *testing.T) {
+		src := `
+metrics {
+	address = "127.0.0.1:9090"
+	enable_pprof = false
+}
+`
+		block := parseHCL(t, src)
+		ctx := &hcl.EvalContext{}
+
+		cfg, diags := DecodeConfigBlock(block, ctx)
+		if diags.HasErrors() {
+			t.Fatalf("Unexpected errors: %s", diags.Error())
+		}
+		if cfg.EnablePprof {
+			t.Errorf("Expected EnablePprof to be false, got true")
+		}
+	})
+}
+
+// TestRegisterPprof verifies that RegisterPprof registers pprof endpoints on the mux.
+func TestRegisterPprof(t *testing.T) {
+	mux := http.NewServeMux()
+	RegisterPprof(mux)
+
+	endpoints := []string{
+		"/debug/pprof/",
+		"/debug/pprof/cmdline",
+		"/debug/pprof/symbol",
+		"/debug/pprof/heap",
+		"/debug/pprof/goroutine",
 	}
-	if cfg.Address != "127.0.0.1:9090" {
-		t.Errorf("Expected address to be 127.0.0.1:9090, got %s", cfg.Address)
+
+	for _, endpoint := range endpoints {
+		req := httptest.NewRequest("GET", endpoint, nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status 200 for %s, got %d", endpoint, w.Code)
+		}
 	}
 }
 
@@ -53,8 +120,9 @@ func TestHTTPServer_Lifecycle(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 
+	mux := http.NewServeMux()
 	// Use port 0 to let the OS assign a free port
-	err := NewHTTPServer("127.0.0.1:0", wg, ctx)
+	err := NewHTTPServer("127.0.0.1:0", mux, wg, ctx)
 	if err != nil {
 		t.Fatalf("Failed to start server: %s", err)
 	}
@@ -87,7 +155,7 @@ func TestHTTPServer_StartError(t *testing.T) {
 	defer cancel()
 
 	// Use an invalid address (missing port)
-	err := NewHTTPServer("invalid-address", wg, ctx)
+	err := NewHTTPServer("invalid-address", nil, wg, ctx)
 	if err == nil {
 		t.Errorf("Expected error for invalid address")
 	}

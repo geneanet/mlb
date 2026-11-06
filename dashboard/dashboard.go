@@ -196,6 +196,10 @@ func RegisterHandlers(mux *http.ServeMux, ml module.ModulesRegistry, conf *confi
 		http.Redirect(w, r, "/dashboard/", http.StatusMovedPermanently)
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/dashboard/", http.StatusMovedPermanently)
+		if r.URL.Path == "/" {
+			http.Redirect(w, r, "/dashboard/", http.StatusMovedPermanently)
+			return
+		}
+		http.NotFound(w, r)
 	})
 }

@@ -33,8 +33,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sys/unix"
-
-	_ "net/http/pprof"
 )
 
 // main is the entry point of the application.
@@ -147,14 +145,16 @@ func main() {
 		}
 	}
 
-	// Metrics
-	http.Handle("/metrics", metrics.HttpLogWrapper(promhttp.Handler()))
-
-	// Dashboard and API handlers
-	dashboard.RegisterHandlers(http.DefaultServeMux, ml, conf)
+	// Metrics and Dashboard
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", metrics.HttpLogWrapper(promhttp.Handler()))
+	dashboard.RegisterHandlers(mux, ml, conf)
 
 	if conf.Metrics != nil {
-		if err := metrics.NewHTTPServer(conf.Metrics.Address, &wg, ctx); err != nil {
+		if conf.Metrics.EnablePprof {
+			metrics.RegisterPprof(mux)
+		}
+		if err := metrics.NewHTTPServer(conf.Metrics.Address, mux, &wg, ctx); err != nil {
 			log.Fatal().Err(err).Msg("Failed to start metrics HTTP server")
 		}
 	}

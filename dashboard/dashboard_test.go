@@ -42,6 +42,8 @@ func TestRegisterHandlers(t *testing.T) {
 		{"Dashboard", "/dashboard", http.StatusMovedPermanently},
 		{"DashboardSlash", "/dashboard/", http.StatusOK},
 		{"Root", "/", http.StatusMovedPermanently},
+		{"PprofWhenDisabled", "/debug/pprof/", http.StatusNotFound},
+		{"NotFound", "/nonexistent", http.StatusNotFound},
 	}
 
 	for _, tt := range tests {

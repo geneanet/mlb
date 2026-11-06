@@ -65,6 +65,7 @@ proxy "redis" "prox2" {
 }
 metrics {
 	address = "127.0.0.1:9090"
+	enable_pprof = true
 }
 system {
 	pid_file = "/tmp/mlb.pid"
@@ -97,6 +98,12 @@ system {
 		}
 		if cfg.System.GoMaxProcs != 4 {
 			t.Errorf("Expected GoMaxProcs 4, got %d", cfg.System.GoMaxProcs)
+		}
+		if cfg.Metrics == nil {
+			t.Fatalf("Expected Metrics config to be parsed")
+		}
+		if !cfg.Metrics.EnablePprof {
+			t.Errorf("Expected Metrics.EnablePprof to be true, got false")
 		}
 	})
 

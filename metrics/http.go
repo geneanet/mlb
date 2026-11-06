@@ -5,6 +5,7 @@ import (
 	"errors"
 	"mlb/system"
 	"net/http"
+	"net/http/pprof"
 	"sync"
 
 	"github.com/hashicorp/hcl/v2"
@@ -14,7 +15,8 @@ import (
 
 // MetricsConfig defines the HCL configuration for the metrics server.
 type MetricsConfig struct {
-	Address string `hcl:"address"`
+	Address     string `hcl:"address"`
+	EnablePprof bool   `hcl:"enable_pprof,optional"`
 }
 
 // DecodeConfigBlock decodes an HCL block into a MetricsConfig.
@@ -22,6 +24,15 @@ func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*MetricsConfig, 
 	c := &MetricsConfig{}
 	diag := gohcl.DecodeBody(block.Body, ctx, c)
 	return c, diag
+}
+
+// RegisterPprof registers the Go standard pprof endpoints onto the provided ServeMux.
+func RegisterPprof(mux *http.ServeMux) {
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 }
 
 // HttpLogWrapper wraps an http.Handler to log details of each request.
@@ -41,8 +52,10 @@ func HttpLogWrapper(originalHandler http.Handler) http.Handler {
 }
 
 // NewHTTPServer creates and starts a new HTTP server managed by tableflip.
-func NewHTTPServer(address string, wg *sync.WaitGroup, ctx context.Context) error {
-	srv := http.Server{}
+func NewHTTPServer(address string, handler http.Handler, wg *sync.WaitGroup, ctx context.Context) error {
+	srv := http.Server{
+		Handler: handler,
+	}
 
 	// Shutdown the server if the context is closed
 	wg.Add(1)

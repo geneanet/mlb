@@ -18,10 +18,12 @@ The `metrics` block configures the internal HTTP server used for Prometheus metr
 ```hcl
 metrics {
   address = ":2112"
+  enable_pprof = false
 }
 ```
 
 - `address` (string, required): The listening address for the metrics and dashboard server (e.g., `:2112` or `127.0.0.1:2112`).
+- `enable_pprof` (boolean, optional): Enables Go runtime profiling endpoints under `/debug/pprof/`. Defaults to `false` for security.
 
 Metrics are available at `/metrics` in Prometheus format. The dashboard is available at `/dashboard`.
 
