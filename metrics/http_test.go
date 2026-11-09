@@ -1,15 +1,19 @@
 package metrics
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 // parseHCL is a test helper that parses an HCL string into an hcl.Block.
@@ -161,8 +165,13 @@ func TestHTTPServer_StartError(t *testing.T) {
 	}
 }
 
-// TestHttpLogWrapper verifies that the HTTP log wrapper executes the wrapped handler.
+// TestHttpLogWrapper verifies that the HTTP log wrapper executes the wrapped handler and logs at Debug level.
 func TestHttpLogWrapper(t *testing.T) {
+	var buf bytes.Buffer
+	oldLog := log.Logger
+	log.Logger = zerolog.New(&buf).Level(zerolog.DebugLevel)
+	defer func() { log.Logger = oldLog }()
+
 	handlerCalled := false
 	mockHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handlerCalled = true
@@ -181,5 +190,13 @@ func TestHttpLogWrapper(t *testing.T) {
 	}
 	if w.Code != http.StatusOK {
 		t.Errorf("Expected status OK, got %d", w.Code)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, `"level":"debug"`) {
+		t.Errorf("Expected log level debug, got: %s", output)
+	}
+	if !strings.Contains(output, `"uri":"/metrics"`) {
+		t.Errorf("Expected uri /metrics in log, got: %s", output)
 	}
 }

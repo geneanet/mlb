@@ -46,7 +46,7 @@ func HttpLogWrapper(originalHandler http.Handler) http.Handler {
 		originalHandler.ServeHTTP(rw, r)
 
 		// Log the details
-		log.Info().Str("uri", uri).Str("method", method).Str("peer", peer).Msg("HTTP Request")
+		log.Debug().Str("uri", uri).Str("method", method).Str("peer", peer).Msg("HTTP Request")
 	}
 	return http.HandlerFunc(logFn)
 }
