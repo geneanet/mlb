@@ -45,7 +45,6 @@ func init() {
 type MySQLChecker struct {
 	id                 string
 	checks             map[string]*MySQLCheck
-	checksMtex         sync.RWMutex
 	user               string
 	password           string
 	defaultPeriod      time.Duration
@@ -251,7 +250,6 @@ func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 				checkReadiness()
 
 			case upd := <-c.updChan: // Backend changed
-				c.checksMtex.Lock()
 				switch upd.Kind {
 				case backend.UpdBackendAdded, backend.UpdBackendModified:
 					// Track backends added before the source is ready as "initial"
@@ -320,7 +318,6 @@ func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 					c.upstreamReady = true
 					checkReadiness()
 				}
-				c.checksMtex.Unlock()
 
 			case <-c.ctx.Done(): // Context cancelled
 				return
@@ -333,9 +330,6 @@ func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 
 // stopChecks stops all active MySQL health checks.
 func (c *MySQLChecker) stopChecks() {
-	c.checksMtex.RLock()
-	defer c.checksMtex.RUnlock()
-
 	// Stop backend checks
 	for _, backend := range c.checks {
 		backend.StopPolling()

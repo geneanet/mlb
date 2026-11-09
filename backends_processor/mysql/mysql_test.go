@@ -228,20 +228,18 @@ func TestMySQL(t *testing.T) {
 	mysqlChecker.ProvideUpdates(subscriber)
 
 	testutil.Eventually(t, func() bool {
-		mysqlChecker.checksMtex.RLock()
-		defer mysqlChecker.checksMtex.RUnlock()
-		_, ok := mysqlChecker.checks["127.0.0.1:3306"]
-		return ok
+		list := mysqlChecker.GetBackendList()
+		return len(list) == 1 && list[0].Address == "127.0.0.1:3306"
 	}, 1*time.Second, 10*time.Millisecond)
 
 	// Modified backend
 	b.Meta.Set("test", "test", cty.StringVal("test"))
 	// Set a custom value in the mysql bucket to verify it's preserved
 	// We use "test_preserve" instead of "status" to avoid race conditions with the running checker
-	mysqlChecker.checksMtex.RLock()
-	check := mysqlChecker.checks["127.0.0.1:3306"]
-	check.backend.Meta.Set("mysql", "test_preserve", cty.StringVal("preserved"))
-	mysqlChecker.checksMtex.RUnlock()
+	list := mysqlChecker.GetBackendList()
+	if len(list) > 0 {
+		list[0].Meta.Set("mysql", "test_preserve", cty.StringVal("preserved"))
+	}
 
 	mysqlChecker.ReceiveUpdate(backend.BackendUpdate{
 		Kind:    backend.UpdBackendModified,
@@ -250,17 +248,15 @@ func TestMySQL(t *testing.T) {
 	})
 
 	testutil.Eventually(t, func() bool {
-		mysqlChecker.checksMtex.RLock()
-		defer mysqlChecker.checksMtex.RUnlock()
-		check, ok := mysqlChecker.checks["127.0.0.1:3306"]
-		if !ok {
+		list := mysqlChecker.GetBackendList()
+		if len(list) == 0 {
 			return false
 		}
-		val, ok := check.backend.Meta.Get("test", "test")
+		val, ok := list[0].Meta.Get("test", "test")
 		if !ok || val.AsString() != "test" {
 			return false
 		}
-		val, ok = check.backend.Meta.Get("mysql", "test_preserve")
+		val, ok = list[0].Meta.Get("mysql", "test_preserve")
 		return ok && val.AsString() == "preserved"
 	}, 1*time.Second, 10*time.Millisecond)
 
@@ -271,10 +267,17 @@ func TestMySQL(t *testing.T) {
 	})
 
 	testutil.Eventually(t, func() bool {
-		mysqlChecker.checksMtex.RLock()
-		defer mysqlChecker.checksMtex.RUnlock()
-		_, ok := mysqlChecker.checks["127.0.0.1:3306"]
-		return !ok
+		return len(mysqlChecker.GetBackendList()) == 0
+	}, 1*time.Second, 10*time.Millisecond)
+
+	// Add backend again to verify stopChecks on shutdown
+	mysqlChecker.ReceiveUpdate(backend.BackendUpdate{
+		Kind:    backend.UpdBackendAdded,
+		Address: "127.0.0.1:3306",
+		Backend: b,
+	})
+	testutil.Eventually(t, func() bool {
+		return len(mysqlChecker.GetBackendList()) == 1
 	}, 1*time.Second, 10*time.Millisecond)
 
 	// Test directly some checks to cover panic cases and fetch logic
@@ -342,9 +345,6 @@ func TestMySQL_Coverage(t *testing.T) {
 	check := NewMySQLCheck(b, "ok", 1*time.Millisecond, 10*time.Millisecond, 2.0, 1*time.Millisecond, 10*time.Millisecond, 2.0, 1, time.Minute*5, statusChan, true)
 	check.db, _ = sql.Open("mysql_mock", "ok")
 	check.ticker = misc.NewExponentialBackoffTicker(1*time.Millisecond, 10*time.Millisecond, 2.0)
-	mysqlChecker.checksMtex.Lock()
-	mysqlChecker.checks["127.0.0.1:3307"] = check
-	mysqlChecker.checksMtex.Unlock()
 
 	mysqlChecker.GetBackendList()
 	mysqlChecker.ProvideUpdates(&mockSubscriber{})

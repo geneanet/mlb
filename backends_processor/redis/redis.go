@@ -29,7 +29,6 @@ func init() {
 type RedisChecker struct {
 	id                 string
 	checks             map[string]*RedisCheck
-	checksMtex         sync.RWMutex
 	password           string
 	defaultPeriod      time.Duration
 	maxPeriod          time.Duration
@@ -220,7 +219,6 @@ func newRedisChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 				checkReadiness()
 
 			case upd := <-c.updChan:
-				c.checksMtex.Lock()
 				switch upd.Kind {
 				case backend.UpdBackendAdded, backend.UpdBackendModified:
 					// Track backends added before the source is ready as "initial"
@@ -279,7 +277,6 @@ func newRedisChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 					c.upstreamReady = true
 					checkReadiness()
 				}
-				c.checksMtex.Unlock()
 
 			case <-c.ctx.Done():
 				return
@@ -291,9 +288,6 @@ func newRedisChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 }
 
 func (c *RedisChecker) stopChecks() {
-	c.checksMtex.RLock()
-	defer c.checksMtex.RUnlock()
-
 	for _, backend := range c.checks {
 		backend.StopPolling()
 	}
