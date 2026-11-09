@@ -43,7 +43,7 @@ type ConsulKV struct {
 	updChanStop     chan struct{}
 	source          string
 	evalCtx         *hcl.EvalContext
-	watchers        map[string][]*consulKVWatcher
+	watchers        map[string]map[string]*consulKVWatcher
 	initialWatchers map[string]bool
 	initialChecked  map[string]bool
 	upstreamReady   bool
@@ -113,7 +113,7 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 		backends:        backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
 		defaultValues:   make(map[string]cty.Value),
 		evalCtx:         tc.Ctx,
-		watchers:        make(map[string][]*consulKVWatcher),
+		watchers:        make(map[string]map[string]*consulKVWatcher),
 		initialWatchers: make(map[string]bool),
 		initialChecked:  make(map[string]bool),
 	}
@@ -196,17 +196,16 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 						}
 					}
 
-					// First, cancel every watcher we may have for the backend
-					if _, ok := c.watchers[upd.Address]; ok {
-						for _, w := range c.watchers[upd.Address] {
-							w.cancel()
-							delete(c.initialWatchers, upd.Address+":"+w.id)
-							delete(c.initialChecked, upd.Address+":"+w.id)
-						}
-						delete(c.watchers, upd.Address)
+					watchersForAddr, ok := c.watchers[upd.Address]
+					if !ok {
+						watchersForAddr = make(map[string]*consulKVWatcher)
+						c.watchers[upd.Address] = watchersForAddr
 					}
 
-					// Start a watcher for every requested value
+					// Track which value IDs are currently active
+					activeValues := make(map[string]struct{}, len(config.Values))
+
+					// Check or start a watcher for every requested value
 					for _, v := range config.Values {
 						var consulKey string
 						known, diags := upd.Backend.ResolveExpression(v.ConsulKey, c.evalCtx, &consulKey)
@@ -214,15 +213,34 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 							c.log.Error().Msg(diags.Error())
 						}
 						if known {
-							if _, ok := c.watchers[upd.Address]; !ok {
-								c.watchers[upd.Address] = []*consulKVWatcher{}
+							activeValues[v.ID] = struct{}{}
+							if existing, exists := watchersForAddr[v.ID]; exists {
+								if existing.key == consulKey {
+									// Key evaluation has not changed: preserve existing watcher and its polling state/index
+									continue
+								}
+								// Key evaluation changed: cancel old watcher before replacing
+								existing.cancel()
+								delete(c.initialWatchers, upd.Address+":"+v.ID)
+								delete(c.initialChecked, upd.Address+":"+v.ID)
 							}
+
 							// Track watchers started before the source is ready as "initial"
 							if !c.upstreamReady && upd.Kind == backend.UpdBackendAdded {
 								c.initialWatchers[upd.Address+":"+v.ID] = true
 							}
 							w := newConsulKVWatcher(c.backends.Get(upd.Address), v.ID, c.url, c.token, consulKey, c.defaultPeriod, c.maxPeriod, c.backoffFactor, watcherChan, c.ctx, c.log)
-							c.watchers[upd.Address] = append(c.watchers[upd.Address], w)
+							watchersForAddr[v.ID] = w
+						}
+					}
+
+					// Cancel any watchers for values that are no longer known or configured
+					for valID, w := range watchersForAddr {
+						if _, active := activeValues[valID]; !active {
+							w.cancel()
+							delete(c.initialWatchers, upd.Address+":"+valID)
+							delete(c.initialChecked, upd.Address+":"+valID)
+							delete(watchersForAddr, valID)
 						}
 					}
 
@@ -236,8 +254,8 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 					// If we actually have the backend
 					if c.backends.Has(upd.Address) {
 						// Cancel every watcher we may have for the backend
-						if _, ok := c.watchers[upd.Address]; ok {
-							for _, w := range c.watchers[upd.Address] {
+						if watchersForAddr, ok := c.watchers[upd.Address]; ok {
+							for _, w := range watchersForAddr {
 								w.cancel()
 								delete(c.initialWatchers, upd.Address+":"+w.id)
 								delete(c.initialChecked, upd.Address+":"+w.id)

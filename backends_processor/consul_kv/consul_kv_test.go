@@ -173,8 +173,8 @@ backends_processor "consul_kv" "test" {
 		t.Errorf("Expected 'newval', got %v", valMeta)
 	}
 
-	// Test Update backend (should recreate watchers)
-	sub.Wg.Add(2)
+	// Test Update backend (should NOT recreate watchers when key hasn't changed)
+	sub.Wg.Add(1)
 	b1Updated := b1Mod.Clone()
 	// Add some other metadata to verify it's updated
 	b1Updated.Meta.Set("other", "foo", cty.StringVal("bar"))
@@ -452,7 +452,6 @@ func TestConsulKV_WatcherCoverage(t *testing.T) {
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	ch := make(chan *consulKVWatcherMessage, 10)
 	newConsulKVWatcher(backend.NewBackend("foo1", nil), "id", ts1.URL, "", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, ch, ctx1, log.Logger)
-
 
 	// Ensure request starts
 	testutil.Eventually(t, func() bool {
@@ -770,4 +769,153 @@ backends_processor "consul_kv" "test_no_token" {
 			t.Errorf("Expected header X-Consul-Token to be empty, got '%s'", val)
 		}
 	})
+}
+
+// TestConsulKV_WatcherNotRecreatedOnUnrelatedMeta verifies that:
+// 1. An UpdBackendModified event with unrelated metadata does NOT cancel and recreate existing watchers (index remains initialized, no new index="" request).
+// 2. An UpdBackendModified event that changes the resolved consul_key DOES cancel the old watcher and start a new one for the new key.
+func TestConsulKV_WatcherNotRecreatedOnUnrelatedMeta(t *testing.T) {
+	var emptyIndexRequests atomic.Int32
+	var requestsForKey sync.Map // key path -> count of index="" requests
+
+	// Channel to keep blocking queries pending
+	unblockLongPoll := make(chan struct{})
+	defer close(unblockLongPoll)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		idx := r.URL.Query().Get("index")
+		if idx == "" {
+			emptyIndexRequests.Add(1)
+			val, _ := requestsForKey.LoadOrStore(r.URL.Path, new(atomic.Int32))
+			val.(*atomic.Int32).Add(1)
+
+			w.Header().Set("X-Consul-Index", "10")
+			res := []consulKVValue{
+				{
+					Key:   r.URL.Path,
+					Value: base64.StdEncoding.EncodeToString([]byte("val")),
+				},
+			}
+			b, _ := json.Marshal(res)
+			_, _ = w.Write(b)
+			return
+		}
+
+		// Blocking query: wait for cancellation or test completion
+		select {
+		case <-r.Context().Done():
+		case <-unblockLongPoll:
+			w.Header().Set("X-Consul-Index", "11")
+			res := []consulKVValue{
+				{
+					Key:   r.URL.Path,
+					Value: base64.StdEncoding.EncodeToString([]byte("val")),
+				},
+			}
+			b, _ := json.Marshal(res)
+			_, _ = w.Write(b)
+		}
+	}))
+	defer ts.Close()
+
+	src := fmt.Sprintf(`
+backends_processor "consul_kv" "test_recreate" {
+	source = "foo"
+	url = "%s"
+	period = "50ms"
+	max_period = "200ms"
+	value "static_key" {
+		consul_key = "services/${backend.address}"
+		default = "default"
+	}
+	value "dynamic_key" {
+		consul_key = "clusters/${backend.meta.mycluster.tag}"
+		default = "default"
+	}
+}
+`, ts.URL)
+
+	block := testutil.ParseHCL(t, src)
+	ctx := &hcl.EvalContext{}
+
+	cfg, diags := module.DecodeConfigBlock(block, ctx, "backends_processor")
+	if diags.HasErrors() {
+		t.Fatalf("Unexpected errors: %s", diags.Error())
+	}
+
+	wg := &sync.WaitGroup{}
+	ctxBG, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mod, err := module.New(cfg, wg, ctxBG, "backends_processor")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+	consulMod := mod.(*ConsulKV)
+
+	dp := &testutil.DummyProvider{ID: "foo", Backends: backend.NewRegistry(zerolog.Nop(), false)}
+	modules := make(module.ModulesRegistry)
+	modules.AddModule("foo", dp)
+	_ = consulMod.Bind(modules)
+
+	sub := &testutil.DummySubscriber{Wg: sync.WaitGroup{}}
+	consulMod.ProvideUpdates(sub)
+
+	sub.Wg.Add(1)
+	dp.Backends.MarkReady()
+	waitSub(t, sub, "Wait for initial UpdReady")
+
+	// Initial backend addition with mycluster.tag = "blue"
+	b := backend.NewBackend("10.0.0.1:8080", nil)
+	b.Meta.Set("mycluster", "tag", cty.StringVal("blue"))
+
+	// We expect 1 update for add, plus 2 updates when the 2 initial watchers fetch data
+	sub.Wg.Add(3)
+	dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: b.Address, Backend: b})
+	waitSub(t, sub, "Wait for backend add and initial fetches")
+
+	// Both initial watchers should have fetched with index="" exactly once
+	testutil.Eventually(t, func() bool {
+		return emptyIndexRequests.Load() == 2
+	}, 1*time.Second, 10*time.Millisecond)
+
+	// Case 1: Send UpdBackendModified with UNRELATED metadata (mycluster.tag and address unchanged)
+	bUnrelated := b.Clone()
+	bUnrelated.Meta.Set("healthcheck", "status", cty.StringVal("passing"))
+
+	sub.Wg.Add(1)
+	dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: bUnrelated.Address, Backend: bUnrelated})
+	waitSub(t, sub, "Wait for unrelated metadata update")
+
+	// Give a brief moment to ensure no new watcher starts
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify that NO new watcher was created (emptyIndexRequests must still be 2)
+	if got := emptyIndexRequests.Load(); got != 2 {
+		t.Errorf("watchers were recreated on unrelated metadata update: expected 2 index=\"\" requests, got %d", got)
+	}
+
+	// Case 2: Send UpdBackendModified where dynamic_key's resolved key changes (tag: blue -> green)
+	bKeyChange := bUnrelated.Clone()
+	bKeyChange.Meta.Set("mycluster", "tag", cty.StringVal("green"))
+
+	// Expect 1 update for backend modification + 1 update when the new dynamic watcher fetches "clusters/green"
+	sub.Wg.Add(2)
+	dp.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: bKeyChange.Address, Backend: bKeyChange})
+	waitSub(t, sub, "Wait for key change update and new watcher fetch")
+
+	// Verify that ONLY ONE new watcher was created (for clusters/green, bringing total emptyIndexRequests to 3)
+	if got := emptyIndexRequests.Load(); got != 3 {
+		t.Errorf("expected 3 total index=\"\" requests after key change, got %d", got)
+	}
+
+	// Verify static_key was NOT refetched
+	if staticVal, ok := requestsForKey.Load("/v1/kv/services/10.0.0.1:8080"); !ok || staticVal.(*atomic.Int32).Load() != 1 {
+		t.Errorf("static_key watcher should not have been recreated")
+	}
+
+	// Verify clusters/green was fetched
+	if greenVal, ok := requestsForKey.Load("/v1/kv/clusters/green"); !ok || greenVal.(*atomic.Int32).Load() != 1 {
+		t.Errorf("expected new watcher to fetch clusters/green")
+	}
 }
