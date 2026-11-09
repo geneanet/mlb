@@ -993,3 +993,130 @@ func TestTCPProxy_Readiness(t *testing.T) {
 		return false
 	}, 1*time.Second, 10*time.Millisecond)
 }
+
+type pipeTrackingConn struct {
+	net.Conn
+	closeCalled chan struct{}
+	readExited  chan struct{}
+}
+
+func (c *pipeTrackingConn) Close() error {
+	select {
+	case <-c.closeCalled:
+	default:
+		close(c.closeCalled)
+	}
+	return c.Conn.Close()
+}
+
+func (c *pipeTrackingConn) Read(b []byte) (int, error) {
+	n, err := c.Conn.Read(b)
+	select {
+	case <-c.closeCalled:
+		// Simulate network poller / goroutine cleanup delay after Close()
+		time.Sleep(50 * time.Millisecond)
+	default:
+	}
+	select {
+	case <-c.readExited:
+	default:
+		close(c.readExited)
+	}
+	return n, err
+}
+
+// TestTCP_GoroutinesCleanupOnDisconnect verifies that handleConnection waits for both
+// pipe goroutines to exit before decrementing connectionsWG and returning.
+func TestTCP_GoroutinesCleanupOnDisconnect(t *testing.T) {
+	// Backend closes connection immediately upon accept
+	backendListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = backendListener.Close() }()
+
+	go func() {
+		for {
+			conn, err := backendListener.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+
+	frontListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = frontListener.Close() }()
+
+	clientConn, err := net.Dial("tcp", frontListener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = clientConn.Close() }()
+
+	serverConn, err := frontListener.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	trackedConn := &pipeTrackingConn{
+		Conn:        serverConn,
+		closeCalled: make(chan struct{}),
+		readExited:  make(chan struct{}),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p := &ProxyTCP{
+		id:             "proxy.tcp.test_cleanup",
+		log:            zerolog.Nop(),
+		bufferSize:     32768,
+		ctx:            ctx,
+		cancel:         cancel,
+		connectTimeout: 5 * time.Second,
+		clientTimeout:  5 * time.Second,
+		serverTimeout:  5 * time.Second,
+		closeTimeout:   5 * time.Second,
+		timeoutMargin:  1 * time.Second,
+		bufferPool: sync.Pool{
+			New: func() any { return &bufferWrapper{buf: make([]byte, 32768)} },
+		},
+		beMetricsCache: make(map[string]*Metrics),
+	}
+
+	provider := &mockBackendProvider{id: "test_backend", backendAddress: backendListener.Addr().String()}
+	p.backendProviders = []backend.BackendProvider{provider}
+
+	feMetrics := &Metrics{
+		processed: metrics.FeCnxProcessed.WithLabelValues("test", p.id),
+		active:    metrics.FeActCnx.WithLabelValues("test", p.id),
+		bytesIn:   metrics.FeBytesIn.WithLabelValues("test", p.id),
+		bytesOut:  metrics.FeBytesOut.WithLabelValues("test", p.id),
+		cnxErrors: metrics.FeCnxErrors.WithLabelValues("test", p.id),
+	}
+
+	p.connectionsWG.Add(1)
+	go p.handleConnection(trackedConn, feMetrics)
+
+	wgDone := make(chan struct{})
+	go func() {
+		p.connectionsWG.Wait()
+		close(wgDone)
+	}()
+
+	select {
+	case <-wgDone:
+		select {
+		case <-trackedConn.readExited:
+			// Pipe goroutine finished before connectionsWG.Done()
+		default:
+			t.Fatal("connectionsWG.Done() was called before the frontend-to-backend pipe goroutine exited")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for connectionsWG to be marked done")
+	}
+}

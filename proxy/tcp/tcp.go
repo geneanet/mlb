@@ -479,6 +479,10 @@ func (p *ProxyTCP) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	// Ensure both ends are closed so both pipes will exit
 	_ = connFront.Close()
 	_ = connBack.Close()
+
+	// Wait for pipes to finish
+	<-doneFrontBack
+	<-doneBackFront
 }
 
 func (p *ProxyTCP) Bind(modules module.ModulesRegistry) error {
