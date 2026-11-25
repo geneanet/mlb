@@ -5,13 +5,14 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"io"
 	"mlb/backend"
-	"mlb/misc"
 	"mlb/module"
 	"mlb/testutil"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -283,8 +284,8 @@ func TestMySQL(t *testing.T) {
 	// Test directly some checks to cover panic cases and fetch logic
 	runTestCheck := func(name string) {
 		c := NewMySQLCheck(b, name, time.Millisecond, time.Millisecond, 1.0, time.Millisecond, time.Millisecond, 1.0, 1, time.Minute*5, make(chan *backend.Backend, 1), true)
-		c.ticker = misc.NewExponentialBackoffTicker(time.Millisecond, time.Millisecond, 1.0)
 		c.db, _ = sql.Open("mysql_mock", name)
+		defer c.db.Close()
 		_, _, _, _ = c.fetchStatus()
 	}
 
@@ -303,7 +304,6 @@ func TestMySQL(t *testing.T) {
 	setMySQLDriverName("mysql_mock")
 	lifecycleCheck.StopPolling()  // Try to stop not running
 	lifecycleCheck.running = true // Force running to true
-	lifecycleCheck.ticker = misc.NewExponentialBackoffTicker(time.Millisecond, time.Millisecond, 1.0)
 	lifecycleCheck.db, _ = sql.Open("mysql_mock", "error")
 	lifecycleCheck.StopPolling()
 
@@ -344,7 +344,6 @@ func TestMySQL_Coverage(t *testing.T) {
 	}()
 	check := NewMySQLCheck(b, "ok", 1*time.Millisecond, 10*time.Millisecond, 2.0, 1*time.Millisecond, 10*time.Millisecond, 2.0, 1, time.Minute*5, statusChan, true)
 	check.db, _ = sql.Open("mysql_mock", "ok")
-	check.ticker = misc.NewExponentialBackoffTicker(1*time.Millisecond, 10*time.Millisecond, 2.0)
 
 	mysqlChecker.GetBackendList()
 	mysqlChecker.ProvideUpdates(&mockSubscriber{})
@@ -373,20 +372,18 @@ func TestMySQL_Coverage(t *testing.T) {
 	check.db, _ = sql.Open("mysql_mock", "err_replica")
 	check.updateStatus() // Triggers err != nil
 
-	// 5. fetchStatus reopen error handling branch inside recovery block
+	// 5. Panic recovery and repeated fetch failures.
 	check.dsn = "error" // sql.Open("mysql_mock", "error") evaluates to an error mock
 	check.db, _ = sql.Open("mysql_mock", "panic_readonly")
-	setMySQLDriverName("invalid_driver")
 	_, _, _, _ = check.fetchStatus()
-	setMySQLDriverName("mysql_mock")
 
-	// Hit Reset update == true in fetchStatus
+	// A successful cycle resets the backoff.
 	check.dsn = "ok"
 	check.db, _ = sql.Open("mysql_mock", "ok")
-	check.ticker.ApplyBackoff()      // Force it to backoff state
-	_, _, _, _ = check.fetchStatus() // Should succeed and call Reset() -> true
+	check.backoff.Get()
+	check.updateStatus()
 
-	// Hit Reset update == false in fetchStatus
+	// Repeated successful fetches remain healthy.
 	_, _, _, _ = check.fetchStatus()
 
 	// Hit checkReplica == false in fetchStatus
@@ -399,12 +396,12 @@ func TestMySQL_Coverage(t *testing.T) {
 	check.dsn = "panic_readonly"
 	_, _, _, _ = check.fetchStatus()
 
-	// Hit ApplyBackoff update == false in fetchStatus error
+	// Repeated failures do not require reopening the pool.
 	check.dsn = "panic_readonly"
 	check.db, _ = sql.Open("mysql_mock", "panic_readonly")
-	// Call it many times to reach max backoff, so ApplyBackoff returns false
+	// Advance the backoff to its maximum.
 	for i := 0; i < 10; i++ {
-		check.ticker.ApplyBackoff()
+		check.backoff.Get()
 	}
 	_, _, _, _ = check.fetchStatus()
 
@@ -469,21 +466,342 @@ func TestMySQL_FetchReplicaLatency_FallbackToSlaveStatus(t *testing.T) {
 	c := NewMySQLCheck(b, "fallback_slave", time.Second, time.Second, 1.0, time.Millisecond, time.Millisecond, 1.0, 1, time.Minute*5, make(chan *backend.Backend, 1), true)
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	defer c.cancel()
-	c.ticker = misc.NewExponentialBackoffTicker(time.Millisecond, time.Millisecond, 1.0)
 	var err error
 	c.db, err = sql.Open("mysql_mock", "fallback_slave")
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	defer c.db.Close()
 	val, err := c.fetchReplicaLatency()
 	if err != nil {
 		t.Fatalf("expected nil error on fallback, got %v", err)
 	}
-
 	bf := val.AsBigFloat()
 	intVal, _ := bf.Int64()
 	if intVal != 42 {
 		t.Fatalf("expected replica_latency 42, got %d", intVal)
+	}
+}
+
+type checkDriver struct {
+	query func(context.Context, string) (driver.Rows, error)
+}
+
+func (d *checkDriver) Open(string) (driver.Conn, error) {
+	return &checkConn{query: d.query}, nil
+}
+
+func (d *checkDriver) Connect(context.Context) (driver.Conn, error) {
+	return d.Open("")
+}
+
+func (d *checkDriver) Driver() driver.Driver { return d }
+
+type checkConn struct {
+	mockConn
+	query func(context.Context, string) (driver.Rows, error)
+}
+
+func (c *checkConn) QueryContext(ctx context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
+	return c.query(ctx, query)
+}
+
+func newTestCheck(t *testing.T, d *checkDriver) *MySQLCheck {
+	t.Helper()
+	c := NewMySQLCheck(backend.NewBackend("test:3306", nil), "", time.Second, 4*time.Second, 2,
+		time.Millisecond, time.Millisecond, 1, 1, time.Minute, make(chan *backend.Backend, 20), true)
+	c.db = sql.OpenDB(d)
+	c.db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = c.db.Close() })
+	return c
+}
+
+func TestMySQLFailureThresholdConfig(t *testing.T) {
+	for _, value := range []string{"", "0", "-1", "1", "3"} {
+		t.Run("threshold="+value, func(t *testing.T) {
+			attribute := ""
+			if value != "" {
+				attribute = "failure_threshold = " + value
+			}
+			block := testutil.ParseHCL(t, fmt.Sprintf(`
+	backends_processor "mysql" "test" {
+	  source = "inventory"
+	  %s
+	}`, attribute))
+			cfg := &module.Config{Category: "backends_processor", Type: "mysql", Name: "test", Config: block.Body}
+			diags := validateMySQLCheckerConfig(cfg)
+			wantError := value == "0" || value == "-1"
+			if diags.HasErrors() != wantError {
+				t.Fatalf("validation errors = %v, want %v: %s", diags.HasErrors(), wantError, diags.Error())
+			}
+			if wantError {
+				if _, err := newMySQLChecker(cfg, &sync.WaitGroup{}, context.Background()); err == nil {
+					t.Fatal("constructor accepted invalid failure_threshold")
+				}
+			} else {
+				want := 1
+				if value == "3" {
+					want = 3
+				}
+				if got := *parseMySQLCheckerConfig(cfg).FailureThreshold; got != want {
+					t.Fatalf("parsed failure_threshold = %d, want %d", got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestMySQLReadyAfterRemovingUncheckedBackend(t *testing.T) {
+	started := make(chan struct{})
+	canceled := make(chan struct{})
+	d := &checkDriver{query: func(ctx context.Context, _ string) (driver.Rows, error) {
+		close(started)
+		<-ctx.Done()
+		close(canceled)
+		return nil, ctx.Err()
+	}}
+	name := fmt.Sprintf("mysql_initial_%p", d)
+	sql.Register(name, d)
+	previous := getMySQLDriverName()
+	setMySQLDriverName(name)
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	t.Cleanup(func() {
+		cancel()
+		wg.Wait()
+		setMySQLDriverName(previous)
+	})
+	block := testutil.ParseHCL(t, `
+backends_processor "mysql" "test" {
+  source = "inventory"
+  period = "10s"
+  retry_max_attempts = 1
+}`)
+	cfg := &module.Config{Category: "backends_processor", Type: "mysql", Name: "test", Config: block.Body}
+	mod, err := newMySQLChecker(cfg, &wg, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker := mod.(*MySQLChecker)
+	b := backend.NewBackend("test:3306", nil)
+	checker.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: b.Address, Backend: b})
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("initial check did not start")
+	}
+	checker.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdReady})
+	select {
+	case <-checker.Ready():
+		t.Fatal("checker became ready before the initial check completed")
+	default:
+	}
+	checker.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendRemoved, Address: b.Address})
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("removal did not cancel the initial check")
+	}
+	select {
+	case <-checker.Ready():
+	case <-time.After(time.Second):
+		t.Fatal("checker stayed unready after its last unchecked backend was removed")
+	}
+	if list := checker.GetBackendList(); len(list) != 0 {
+		t.Fatalf("removed backend is still registered: %v", list)
+	}
+}
+
+func TestMySQLConsecutiveFailures(t *testing.T) {
+	for _, threshold := range []int{1, 3} {
+		t.Run(fmt.Sprint(threshold), func(t *testing.T) {
+			fail := true
+			queries := 0
+			d := &checkDriver{query: func(_ context.Context, query string) (driver.Rows, error) {
+				queries++
+				if fail {
+					return nil, errors.New("backend unavailable")
+				}
+				if query == "SELECT @@read_only" {
+					return &mockRows{columns: []string{"@@read_only"}, data: [][]driver.Value{{int64(1)}}}, nil
+				}
+				return &mockRows{columns: []string{"Seconds_Behind_Source"}, data: [][]driver.Value{{int64(5)}}}, nil
+			}}
+			c := newTestCheck(t, d)
+			c.failureThreshold = threshold
+			db := c.db
+			assertStatus := func(want string) {
+				t.Helper()
+				got, _ := c.backend.Meta.Get("mysql", "status")
+				if !got.RawEquals(cty.StringVal(want)) {
+					t.Fatalf("status = %v, want %s", got, want)
+				}
+			}
+
+			c.updateStatus()
+			assertStatus("err")
+			if queries != 1 {
+				t.Fatalf("failed cycle made %d queries, want one read_only attempt", queries)
+			}
+			fail = false
+			c.updateStatus()
+			assertStatus("ok")
+			if c.consecutiveFailures != 0 || c.period != c.defaultPeriod {
+				t.Fatal("success did not reset failure counter and period")
+			}
+
+			fail = true
+			for i := 1; i <= threshold; i++ {
+				c.updateStatus()
+				want := "ok"
+				if i == threshold {
+					want = "err"
+				}
+				assertStatus(want)
+				wantPeriod := 2 * time.Second
+				if i > 1 {
+					wantPeriod = 4 * time.Second
+				}
+				if c.period != wantPeriod {
+					t.Fatalf("failure backoff period = %v, want %v", c.period, wantPeriod)
+				}
+				readonly, _ := c.backend.Meta.Get("mysql", "readonly")
+				latency, _ := c.backend.Meta.Get("mysql", "replica_latency")
+				running, _ := c.backend.Meta.Get("mysql", "replica_running")
+				if !readonly.RawEquals(cty.BoolVal(true)) || !latency.RawEquals(cty.NumberIntVal(5)) || !running.True() {
+					t.Fatal("failed reads overwrote valid metadata")
+				}
+			}
+			c.updateStatus()
+			assertStatus("err")
+			if c.db != db {
+				t.Fatal("failed cycle replaced the SQL pool")
+			}
+			fail = false
+			c.updateStatus()
+			assertStatus("ok")
+			fail = true
+			c.updateStatus()
+			if c.consecutiveFailures != 1 {
+				t.Fatalf("failure counter = %d after recovery, want 1", c.consecutiveFailures)
+			}
+			c.retryMaxAttempts = 3
+			queries = 0
+			c.updateStatus()
+			if queries != 3 {
+				t.Fatalf("legacy retries made %d queries, want 3", queries)
+			}
+		})
+	}
+}
+
+func TestMySQLPartialObservationsAndCancellation(t *testing.T) {
+	readOnly := false
+	failReplica := false
+	d := &checkDriver{query: func(_ context.Context, query string) (driver.Rows, error) {
+		if query == "SELECT @@read_only" {
+			return &mockRows{columns: []string{"@@read_only"}, data: [][]driver.Value{{readOnly}}}, nil
+		}
+		if failReplica {
+			return nil, errors.New("replica status unavailable")
+		}
+		return &mockRows{columns: []string{"Seconds_Behind_Source"}, data: [][]driver.Value{{int64(5)}}}, nil
+	}}
+	c := newTestCheck(t, d)
+	c.failureThreshold = 3
+	c.updateStatus()
+	<-c.statusChan
+	readOnly, failReplica = true, true
+	c.updateStatus()
+	select {
+	case <-c.statusChan:
+	default:
+		t.Fatal("confirmed role change was not published")
+	}
+	status, _ := c.backend.Meta.Get("mysql", "status")
+	readonly, _ := c.backend.Meta.Get("mysql", "readonly")
+	latency, _ := c.backend.Meta.Get("mysql", "replica_latency")
+	if !status.RawEquals(cty.StringVal("ok")) || !readonly.True() || !latency.RawEquals(cty.NumberIntVal(5)) {
+		t.Fatal("partial failure masked role change or overwrote replication metadata")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	c.ctx = ctx
+	cancel()
+	failures, period := c.consecutiveFailures, c.period
+	c.updateStatus()
+	if c.consecutiveFailures != failures || c.period != period {
+		t.Fatal("shutdown cancellation changed health state")
+	}
+	select {
+	case <-c.statusChan:
+		t.Fatal("shutdown cancellation published a health change")
+	default:
+	}
+}
+
+func TestMySQLPollingWaitsAfterCycle(t *testing.T) {
+	const period = 40 * time.Millisecond
+	started := make(chan struct{})
+	release := make(chan struct{})
+	finished := make(chan time.Time, 1)
+	next := make(chan time.Time, 1)
+	var calls atomic.Int64
+	d := &checkDriver{query: func(_ context.Context, _ string) (driver.Rows, error) {
+		if calls.Add(1) == 1 {
+			close(started)
+			select {
+			case <-release:
+			case <-time.After(time.Second):
+				return nil, errors.New("test query was not released")
+			}
+			finished <- time.Now()
+		} else {
+			select {
+			case next <- time.Now():
+			default:
+			}
+		}
+		return &mockRows{columns: []string{"@@read_only"}, data: [][]driver.Value{{int64(0)}}}, nil
+	}}
+	name := fmt.Sprintf("mysql_poll_%p", d)
+	sql.Register(name, d)
+	previous := getMySQLDriverName()
+	setMySQLDriverName(name)
+	defer setMySQLDriverName(previous)
+	c := NewMySQLCheck(backend.NewBackend("test:3306", nil), "", period, period, 1,
+		time.Millisecond, time.Millisecond, 1, 1, time.Minute, make(chan *backend.Backend, 10), false)
+	if err := c.StartPolling(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		c.StopPolling()
+		testutil.Eventually(t, func() bool {
+			c.runningMu.Lock()
+			defer c.runningMu.Unlock()
+			return !c.running
+		}, time.Second, time.Millisecond)
+	})
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first query did not start")
+	}
+	// Simulate a cycle longer than its polling period without accumulating ticks.
+	testutil.Consistently(t, func() bool { return calls.Load() == 1 }, 2*period, time.Millisecond)
+	close(release)
+	var end time.Time
+	select {
+	case end = <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("first query did not finish")
+	}
+	select {
+	case start := <-next:
+		if delay := start.Sub(end); delay < period {
+			t.Fatalf("next cycle started after %v, want at least %v", delay, period)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("next cycle did not start")
 	}
 }

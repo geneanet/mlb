@@ -21,8 +21,8 @@ backends_processor "mysql" "my_db" {
 - `user` (string, optional): MySQL username for the health check connection.
 - `password` (string, optional): MySQL password.
 - `check_replica` (boolean, optional): If `true`, the processor will also monitor replication lag and status using `SHOW REPLICA STATUS`. Default: `false`.
-- `period` (duration string, optional): How often to perform the health check. Default: `1s`.
-- `max_period` (duration string, optional): The maximum duration between checks when an exponential backoff is applied due to repeated failures. Default: `5s`.
+- `period` (duration string, optional): Delay after a successful health check cycle, and timeout for each operation attempt (including connection establishment). Default: `1s`.
+- `max_period` (duration string, optional): Maximum backoff delay after a failed cycle. The delay starts after the cycle completes; it does not increase operation timeouts. Default: `5s`.
 - `backoff_factor` (number, optional): The multiplier used to increase the check interval after a failure. Default: `1.5`.
 - `connect_timeout` (duration string, optional): Maximum duration to wait for a connection to the MySQL server to be established. Default: `0s` (OS default).
 - `read_timeout` (duration string, optional): Maximum duration to wait for a response from the MySQL server during a check. Default: `0s`.
@@ -31,12 +31,33 @@ backends_processor "mysql" "my_db" {
 - `retry_max_period` (duration string, optional): Maximum delay between retry attempts. Default: `1s`.
 - `retry_backoff_factor` (number, optional): Multiplier applied to the delay between retry attempts. Default: `1.5`.
 - `retry_max_attempts` (integer, optional): Maximum number of attempts per health check operation before giving up. Default: `3`.
+- `failure_threshold` (integer, optional): Consecutive failed cycles required to change a previously healthy backend to `err`. Must be at least `1`. Default: `1`, preserving immediate exclusion after the first failed cycle. A complete successful cycle resets the counter and restores `ok`. A backend whose first cycle fails is immediately marked `err`, regardless of this threshold.
 - `conn_max_lifetime` (duration string, optional): The maximum amount of time a health check connection may be reused before being recreated. Default: `5m`.
 - `log_backend_updates` (boolean, optional): If true, logs an INFO message when a backend is added or removed. Default: `false`.
 
+To tolerate failures across spaced cycles rather than retrying each operation within a cycle:
+
+```hcl
+retry_max_attempts = 1
+failure_threshold = 3
+```
+
+Each failed cycle increases the polling delay, including failures below the threshold.
+Failed reads preserve their last valid metadata; successful reads are published immediately,
+even when a later operation fails. In particular, a confirmed `readonly` change is not delayed
+by the failure threshold. When routing through a filter requiring `mysql.status == "ok"`,
+a newly discovered backend is not eligible before its first successful cycle. The processor
+still publishes unchecked and unhealthy backends; a directly connected balancer does not
+enforce this health condition. The SQL pool is retained across failures; the driver manages invalid
+connections. Shutdown cancellation does not count as a failed cycle.
+
+Increasing the threshold keeps routing traffic to a potentially unhealthy backend for longer.
+The exclusion delay includes operation timeouts, any internal retries, and polling backoff;
+it is not simply `failure_threshold * period`. Existing `retry_*` defaults remain unchanged.
+
 ### Metadata Provided (`mysql` bucket)
 
-- `backend.meta.mysql.status`: `ok` if the check passed, `err` otherwise.
+- `backend.meta.mysql.status`: `ok` after a successful cycle, retained while consecutive failures remain below `failure_threshold`; `err` once the threshold is reached or the initial cycle fails.
 - `backend.meta.mysql.readonly`: `true` if `@@read_only` is set.
 - `backend.meta.mysql.replica_latency`: Replication lag in seconds (if `check_replica` is enabled).
 - `backend.meta.mysql.replica_running`: `true` if replication is active (if `check_replica` is enabled).

@@ -72,6 +72,8 @@ backends_processor "mysql" "mysql" {
   // retry_max_period = "1s"
   // retry_backoff_factor = 1.5
   // retry_max_attempts = 3
+  // failure_threshold = 1
+  // For tolerance between cycles, set retry_max_attempts = 1 and failure_threshold = 3.
   // conn_max_lifetime = "5m"
   // check_replica = false
   // log_backend_updates = true

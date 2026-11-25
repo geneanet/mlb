@@ -54,6 +54,7 @@ type MySQLChecker struct {
 	retryMaxPeriod     time.Duration
 	retryBackoffFactor float64
 	retryMaxAttempts   int
+	failureThreshold   int
 	backends           *backend.Registry
 	ctx                context.Context
 	cancel             context.CancelFunc
@@ -87,6 +88,7 @@ type MySQLCheckerConfig struct {
 	RetryMaxPeriod     string  `hcl:"retry_max_period,optional"`
 	RetryBackoffFactor float64 `hcl:"retry_backoff_factor,optional"`
 	RetryMaxAttempts   int     `hcl:"retry_max_attempts,optional"`
+	FailureThreshold   *int    `hcl:"failure_threshold,optional"`
 	ConnMaxLifetime    string  `hcl:"conn_max_lifetime,optional"`
 	CheckReplica       bool    `hcl:"check_replica,optional"`
 	LogBackendUpdates  bool    `hcl:"log_backend_updates,optional"`
@@ -105,6 +107,13 @@ func validateMySQLCheckerConfig(tc *module.Config) hcl.Diagnostics {
 	config.CheckDuration(&diags, configBody.ConnMaxLifetime, "conn_max_lifetime")
 	config.CheckDuration(&diags, configBody.RetryPeriod, "retry_period")
 	config.CheckDuration(&diags, configBody.RetryMaxPeriod, "retry_max_period")
+	if configBody.FailureThreshold != nil && *configBody.FailureThreshold < 1 {
+		diags = append(diags, &hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "Invalid failure_threshold",
+			Detail:   "failure_threshold must be at least 1.",
+		})
+	}
 
 	return diags
 }
@@ -146,6 +155,10 @@ func parseMySQLCheckerConfig(tc *module.Config) *MySQLCheckerConfig {
 	if config.RetryMaxAttempts == 0 {
 		config.RetryMaxAttempts = 3 // default to 3 attempts
 	}
+	if config.FailureThreshold == nil {
+		threshold := 1
+		config.FailureThreshold = &threshold
+	}
 	if config.ConnMaxLifetime == "" {
 		config.ConnMaxLifetime = "5m"
 	}
@@ -154,6 +167,9 @@ func parseMySQLCheckerConfig(tc *module.Config) *MySQLCheckerConfig {
 
 func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (any, error) {
 	config := parseMySQLCheckerConfig(tc)
+	if *config.FailureThreshold < 1 {
+		return nil, fmt.Errorf("failure_threshold must be at least 1")
+	}
 
 	c := &MySQLChecker{
 		id:                 config.ID,
@@ -163,6 +179,7 @@ func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 		backoffFactor:      config.BackoffFactor,
 		retryBackoffFactor: config.RetryBackoffFactor,
 		retryMaxAttempts:   config.RetryMaxAttempts,
+		failureThreshold:   *config.FailureThreshold,
 		log:                log.With().Str("id", config.ID).Logger(),
 		updChan:            make(chan backend.BackendUpdate, 100),
 		updChanStop:        make(chan struct{}),
@@ -288,6 +305,7 @@ func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 							statusChan,
 							c.checkReplica,
 						)
+						check.failureThreshold = c.failureThreshold
 						err := check.StartPolling()
 						if err != nil {
 							c.log.Error().Str("address", upd.Address).Err(err).Msg("Error while adding MySQL check")
@@ -314,6 +332,7 @@ func newMySQLChecker(tc *module.Config, wg *sync.WaitGroup, ctx context.Context)
 							Address: upd.Address,
 						})
 					}
+					checkReadiness()
 				case backend.UpdReady:
 					c.upstreamReady = true
 					checkReadiness()
@@ -371,26 +390,27 @@ func (c *MySQLChecker) Bind(modules module.ModulesRegistry) error {
 
 // MySQLCheck manages the health check lifecycle for a single MySQL backend.
 type MySQLCheck struct {
-	backend            *backend.Backend
-	dsn                string
-	period             time.Duration
-	defaultPeriod      time.Duration
-	maxPeriod          time.Duration
-	backoffFactor      float64
-	retryPeriod        time.Duration
-	retryMaxPeriod     time.Duration
-	retryBackoffFactor float64
-	retryMaxAttempts   int
-	statusChan         chan *backend.Backend
-	ticker             *misc.ExponentialBackoffTicker
-	stopChan           chan struct{}
-	ctx                context.Context
-	cancel             context.CancelFunc
-	running            bool
-	runningMu          sync.Mutex
-	db                 *sql.DB
-	connMaxLifetime    time.Duration
-	checkReplica       bool
+	backend             *backend.Backend
+	dsn                 string
+	period              time.Duration
+	defaultPeriod       time.Duration
+	maxPeriod           time.Duration
+	retryPeriod         time.Duration
+	retryMaxPeriod      time.Duration
+	retryBackoffFactor  float64
+	retryMaxAttempts    int
+	failureThreshold    int
+	consecutiveFailures int
+	statusChan          chan *backend.Backend
+	backoff             *misc.ExponentialBackoff
+	stopChan            chan struct{}
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	running             bool
+	runningMu           sync.Mutex
+	db                  *sql.DB
+	connMaxLifetime     time.Duration
+	checkReplica        bool
 }
 
 // NewMySQLCheck creates a new MySQLCheck instance.
@@ -398,20 +418,22 @@ func NewMySQLCheck(backend *backend.Backend, dsn string, defaultPeriod time.Dura
 	c := &MySQLCheck{
 		backend:            backend,
 		dsn:                dsn,
-		period:             defaultPeriod,
 		defaultPeriod:      defaultPeriod,
 		maxPeriod:          maxPeriod,
-		backoffFactor:      backoffFactor,
 		retryPeriod:        retryPeriod,
 		retryMaxPeriod:     retryMaxPeriod,
 		retryBackoffFactor: retryBackoffFactor,
 		retryMaxAttempts:   retryMaxAttempts,
+		failureThreshold:   1,
+		backoff:            misc.NewExponentialBackoff(defaultPeriod, maxPeriod, backoffFactor),
+		ctx:                context.Background(),
 		statusChan:         statusChan,
 		stopChan:           make(chan struct{}),
 		running:            false,
 		connMaxLifetime:    connMaxLifetime,
 		checkReplica:       checkReplica,
 	}
+	c.period = c.backoff.Get()
 	backend.Meta.Set("mysql", "status", cty.UnknownVal(cty.String))
 	backend.Meta.Set("mysql", "readonly", cty.UnknownVal(cty.Bool))
 	if c.checkReplica {
@@ -425,7 +447,7 @@ func NewMySQLCheck(backend *backend.Backend, dsn string, defaultPeriod time.Dura
 func (c *MySQLCheck) fetchReadOnly() (retReadonly cty.Value, retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
-			retReadonly = cty.BoolVal(false)
+			retReadonly = cty.UnknownVal(cty.Bool)
 			if e, ok := r.(error); ok {
 				retErr = e
 			} else {
@@ -444,6 +466,9 @@ func (c *MySQLCheck) fetchReadOnly() (retReadonly cty.Value, retErr error) {
 			log.Warn().Str("address", c.backend.Address).Int("attempt", attempt).Msg("Retrying MySQL read_only check")
 			retryBackoff.Sleep(c.ctx)
 		}
+		if err := c.ctx.Err(); err != nil {
+			return cty.UnknownVal(cty.Bool), err
+		}
 
 		ctx, cancel := context.WithTimeout(c.ctx, c.defaultPeriod)
 		err = c.db.QueryRowContext(ctx, "SELECT @@read_only").Scan(&readOnly)
@@ -455,7 +480,7 @@ func (c *MySQLCheck) fetchReadOnly() (retReadonly cty.Value, retErr error) {
 	}
 
 	if err != nil {
-		return cty.BoolVal(false), err
+		return cty.UnknownVal(cty.Bool), err
 	}
 
 	return cty.BoolVal(readOnly), nil
@@ -465,7 +490,7 @@ func (c *MySQLCheck) fetchReadOnly() (retReadonly cty.Value, retErr error) {
 func (c *MySQLCheck) fetchReplicaLatency() (retReplicaLatency cty.Value, retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
-			retReplicaLatency = cty.NumberIntVal(-1)
+			retReplicaLatency = cty.UnknownVal(cty.Number)
 			if e, ok := r.(error); ok {
 				retErr = e
 			} else {
@@ -483,6 +508,9 @@ func (c *MySQLCheck) fetchReplicaLatency() (retReplicaLatency cty.Value, retErr 
 			log.Warn().Str("address", c.backend.Address).Int("attempt", attempt).Msg("Retrying MySQL replica_latency check")
 			retryBackoff.Sleep(c.ctx)
 		}
+		if err := c.ctx.Err(); err != nil {
+			return cty.UnknownVal(cty.Number), err
+		}
 
 		err = func() error {
 			ctx, cancel := context.WithTimeout(c.ctx, c.defaultPeriod)
@@ -490,6 +518,9 @@ func (c *MySQLCheck) fetchReplicaLatency() (retReplicaLatency cty.Value, retErr 
 
 			result, err := c.db.QueryContext(ctx, "SHOW REPLICA STATUS")
 			if err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				// Fallback to SHOW SLAVE STATUS for MySQL < 8.0.22 and MariaDB
 				result, err = c.db.QueryContext(ctx, "SHOW SLAVE STATUS")
 				if err != nil {
@@ -536,7 +567,7 @@ func (c *MySQLCheck) fetchReplicaLatency() (retReplicaLatency cty.Value, retErr 
 					replicationLatency = int64(sbsValue.Int64)
 				}
 			}
-			return nil
+			return result.Err()
 		}()
 
 		if err == nil {
@@ -545,56 +576,20 @@ func (c *MySQLCheck) fetchReplicaLatency() (retReplicaLatency cty.Value, retErr 
 	}
 
 	if err != nil {
-		return cty.NumberIntVal(-1), err
+		return cty.UnknownVal(cty.Number), err
 	}
 
 	return cty.NumberIntVal(replicationLatency), nil
 }
 
-func (c *MySQLCheck) reopenDB() {
-	log.Info().Str("address", c.backend.Address).Msg("Reopening MySQL connection")
-	if c.db != nil {
-		_ = c.db.Close()
-	}
-	db, err := sql.Open(getMySQLDriverName(), c.dsn)
-	if err != nil {
-		log.Warn().Str("address", c.backend.Address).Err(err).Msg("Error while reopening MySQL connection")
-	} else {
-		db.SetMaxOpenConns(1)
-		db.SetMaxIdleConns(1)
-		db.SetConnMaxLifetime(c.connMaxLifetime)
-		c.db = db
-	}
-
-	// Increase fetch period
-	if period, updated := c.ticker.ApplyBackoff(); updated {
-		log.Warn().Str("address", c.backend.Address).Dur("period", period).Msg("Updating fetch period")
-	}
-}
-
 // fetchStatus performs all health checks for the MySQL instance.
 func (c *MySQLCheck) fetchStatus() (retStatus cty.Value, retReadonly cty.Value, retReplicaLatency cty.Value, retErr error) {
-	defer func() {
-		if r := recover(); r != nil {
-			retStatus = cty.StringVal("err")
-			retReadonly = cty.BoolVal(false)
-			retReplicaLatency = cty.NumberIntVal(-1)
-			if e, ok := r.(error); ok {
-				retErr = e
-			} else {
-				retErr = fmt.Errorf("%v", r)
-			}
-			c.reopenDB()
-		}
-	}()
-
 	log.Trace().Str("address", c.backend.Address).Msg("Probing Backend")
 
 	// Read Only
 	readOnly, err := c.fetchReadOnly()
 	if err != nil {
-		c.reopenDB()
-		return cty.StringVal("err"), cty.BoolVal(false), cty.NumberIntVal(-1), err
+		return cty.StringVal("err"), cty.UnknownVal(cty.Bool), cty.UnknownVal(cty.Number), err
 	}
 
 	// Replica Latency
@@ -602,14 +597,8 @@ func (c *MySQLCheck) fetchStatus() (retStatus cty.Value, retReadonly cty.Value, 
 	if c.checkReplica {
 		replicaLatency, err = c.fetchReplicaLatency()
 		if err != nil {
-			c.reopenDB()
-			return cty.StringVal("err"), readOnly, cty.NumberIntVal(-1), err
+			return cty.StringVal("err"), readOnly, cty.UnknownVal(cty.Number), err
 		}
-	}
-
-	// If everything went OK, reset the fetch period if needed
-	if period, updated := c.ticker.Reset(); updated {
-		log.Warn().Str("address", c.backend.Address).Dur("period", period).Msg("Updating fetch period")
 	}
 
 	return cty.StringVal("ok"), readOnly, replicaLatency, nil
@@ -618,14 +607,33 @@ func (c *MySQLCheck) fetchStatus() (retStatus cty.Value, retReadonly cty.Value, 
 // updateStatus fetches the current status and updates the backend metadata if it has changed.
 func (c *MySQLCheck) updateStatus() {
 	newStatus, newReadonly, newReplicaLatency, err := c.fetchStatus()
+	if c.ctx.Err() != nil {
+		return
+	}
 
+	oldStatus, ok := c.backend.Meta.Get("mysql", "status")
+	oldPeriod := c.period
 	if err != nil {
-		log.Error().Str("address", c.backend.Address).Err(err).Msg("Error while fetching status from backend")
+		c.consecutiveFailures++
+		c.period = c.backoff.Get()
+		if ok && oldStatus.RawEquals(cty.StringVal("ok")) && c.consecutiveFailures < c.failureThreshold {
+			newStatus = oldStatus
+		}
+		log.Error().Str("address", c.backend.Address).Err(err).
+			Int("consecutive_failures", c.consecutiveFailures).
+			Int("failure_threshold", c.failureThreshold).
+			Msg("Error while fetching status from backend")
+	} else {
+		c.consecutiveFailures = 0
+		c.backoff.Reset()
+		c.period = c.backoff.Get()
+	}
+	if oldPeriod != c.period {
+		log.Warn().Str("address", c.backend.Address).Dur("period", c.period).Msg("Updating fetch period")
 	}
 
 	changed := false
 
-	oldStatus, ok := c.backend.Meta.Get("mysql", "status")
 	if !ok || !oldStatus.RawEquals(newStatus) {
 		c.backend.Meta.Set("mysql", "status", newStatus)
 
@@ -645,7 +653,7 @@ func (c *MySQLCheck) updateStatus() {
 	}
 
 	oldReadonly, ok := c.backend.Meta.Get("mysql", "readonly")
-	if !ok || !oldReadonly.RawEquals(newReadonly) {
+	if newReadonly.IsKnown() && !newReadonly.IsNull() && (!ok || !oldReadonly.RawEquals(newReadonly)) {
 		c.backend.Meta.Set("mysql", "readonly", newReadonly)
 
 		if !oldReadonly.IsKnown() {
@@ -658,7 +666,7 @@ func (c *MySQLCheck) updateStatus() {
 
 	if c.checkReplica {
 		oldReplicaLatency, ok := c.backend.Meta.Get("mysql", "replica_latency")
-		if !ok || !oldReplicaLatency.RawEquals(newReplicaLatency) {
+		if newReplicaLatency.IsKnown() && !newReplicaLatency.IsNull() && (!ok || !oldReplicaLatency.RawEquals(newReplicaLatency)) {
 			c.backend.Meta.Set("mysql", "replica_latency", newReplicaLatency)
 			c.backend.Meta.Set("mysql", "replica_running", cty.BoolVal(newReplicaLatency.IsKnown() && !newReplicaLatency.IsNull() && newReplicaLatency.GreaterThanOrEqualTo(cty.NumberUIntVal(0)).True()))
 
@@ -712,7 +720,9 @@ func (c *MySQLCheck) StartPolling() error {
 	db.SetConnMaxLifetime(c.connMaxLifetime)
 	c.db = db
 
-	c.ticker = misc.NewExponentialBackoffTicker(c.defaultPeriod, c.maxPeriod, c.backoffFactor)
+	c.backoff.Reset()
+	c.period = c.backoff.Get()
+	c.consecutiveFailures = 0
 
 	c.running = true
 	c.runningMu.Unlock()
@@ -721,26 +731,25 @@ func (c *MySQLCheck) StartPolling() error {
 		defer func() {
 			c.runningMu.Lock()
 			db := c.db
-			ticker := c.ticker
-			c.running = false
-			c.runningMu.Unlock()
-
 			if db != nil {
 				_ = db.Close()
 			}
-			if ticker != nil {
-				ticker.Stop()
-			}
+			c.running = false
+			c.runningMu.Unlock()
 		}()
 
 		for {
+			if c.ctx.Err() != nil {
+				return
+			}
 			c.updateStatus()
 
-			// Wait next iteration
+			timer := time.NewTimer(c.period)
 			select {
 			case <-c.stopChan:
+				timer.Stop()
 				return
-			case <-c.ticker.C:
+			case <-timer.C:
 			}
 		}
 	}()
