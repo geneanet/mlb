@@ -17,7 +17,7 @@ The `metrics` block configures the internal HTTP server used for Prometheus metr
 
 ```hcl
 metrics {
-  address = ":2112"
+  address = "127.0.0.1:2112"
   enable_pprof = false
   shutdown_timeout = "5s"
 }
@@ -28,6 +28,7 @@ metrics {
 - `shutdown_timeout` (duration string, optional): Maximum graceful HTTP shutdown time; must be positive. Defaults to `5s`. Remaining connections are closed after the deadline.
 
 Metrics are available at `/metrics` in Prometheus format. The dashboard is available at `/dashboard`.
+The example binds to loopback only. To expose the server on the network, explicitly configure a non-loopback address; `:2112` binds all interfaces. Restrict access to metrics, the dashboard, and especially pprof endpoints when exposing them.
 
 ## System Block
 

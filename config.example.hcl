@@ -1,5 +1,5 @@
 metrics {
-  address = ":2112"
+  address = "127.0.0.1:2112"
   // enable_pprof = false
   // shutdown_timeout = "5s"
 }
