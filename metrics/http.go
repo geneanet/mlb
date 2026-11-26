@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
@@ -15,14 +16,27 @@ import (
 
 // MetricsConfig defines the HCL configuration for the metrics server.
 type MetricsConfig struct {
-	Address     string `hcl:"address"`
-	EnablePprof bool   `hcl:"enable_pprof,optional"`
+	Address                 string `hcl:"address"`
+	EnablePprof             bool   `hcl:"enable_pprof,optional"`
+	ShutdownTimeout         string `hcl:"shutdown_timeout,optional"`
+	ShutdownTimeoutDuration time.Duration
 }
 
 // DecodeConfigBlock decodes an HCL block into a MetricsConfig.
 func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*MetricsConfig, hcl.Diagnostics) {
-	c := &MetricsConfig{}
+	c := &MetricsConfig{ShutdownTimeout: "5s"}
 	diag := gohcl.DecodeBody(block.Body, ctx, c)
+	timeout, err := time.ParseDuration(c.ShutdownTimeout)
+	if err != nil || timeout <= 0 {
+		diag = append(diag, &hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "Invalid metrics shutdown_timeout",
+			Detail:   "shutdown_timeout must be a positive duration such as 5s.",
+			Subject:  &block.DefRange,
+		})
+	} else {
+		c.ShutdownTimeoutDuration = timeout
+	}
 	return c, diag
 }
 
@@ -52,33 +66,37 @@ func HttpLogWrapper(originalHandler http.Handler) http.Handler {
 }
 
 // NewHTTPServer creates and starts a new HTTP server managed by tableflip.
-func NewHTTPServer(address string, handler http.Handler, wg *sync.WaitGroup, ctx context.Context) error {
+func NewHTTPServer(address string, handler http.Handler, shutdownTimeout time.Duration, wg *sync.WaitGroup, ctx context.Context) error {
 	srv := http.Server{
 		Handler: handler,
+	}
+
+	listener, err := system.Listen("tcp", address)
+	if err != nil {
+		return err
 	}
 
 	// Shutdown the server if the context is closed
 	wg.Add(1)
 	context.AfterFunc(ctx, func() {
 		defer wg.Done()
-		err := srv.Shutdown(context.Background())
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		err := srv.Shutdown(shutdownCtx)
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error().Err(err).Msg("Failed to shutdown HTTP server")
+			if closeErr := srv.Close(); closeErr != nil {
+				log.Error().Err(closeErr).Msg("Failed to close HTTP server")
+			}
 		}
 	})
-
-	// Bind
-	listener, err := system.Listen("tcp", address)
-	if err != nil {
-		return err
-	}
 
 	// Start the server and serve the requests
 	go func() {
 		log.Info().Str("address", address).Msg("Starting HTTP server")
 		defer log.Info().Str("address", address).Msg("HTTP server stopped")
 
-		err = srv.Serve(listener)
+		err := srv.Serve(listener)
 		if errors.Is(err, http.ErrServerClosed) {
 			return
 		}

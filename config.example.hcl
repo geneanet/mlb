@@ -1,6 +1,7 @@
 metrics {
   address = ":2112"
   // enable_pprof = false
+  // shutdown_timeout = "5s"
 }
 
 system {

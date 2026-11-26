@@ -3,8 +3,10 @@ package metrics
 import (
 	"bytes"
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -54,6 +56,9 @@ metrics {
 		if cfg.EnablePprof {
 			t.Errorf("Expected EnablePprof to be false by default, got true")
 		}
+		if cfg.ShutdownTimeoutDuration != 5*time.Second {
+			t.Errorf("Expected default timeout 5s, got %s", cfg.ShutdownTimeoutDuration)
+		}
 	})
 
 	t.Run("enable_pprof = true", func(t *testing.T) {
@@ -95,6 +100,78 @@ metrics {
 	})
 }
 
+func TestShutdownTimeoutConfig(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  time.Duration
+		valid bool
+	}{
+		{"250ms", 250 * time.Millisecond, true},
+		{"0s", 0, false},
+		{"-1s", 0, false},
+		{"invalid", 0, false},
+		{"", 0, false},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			block := parseHCL(t, "metrics {\n address = \"127.0.0.1:0\"\n shutdown_timeout = \""+tc.value+"\"\n}")
+			cfg, diags := DecodeConfigBlock(block, nil)
+			if diags.HasErrors() == tc.valid {
+				t.Fatalf("valid=%v, diagnostics=%v", tc.valid, diags)
+			}
+			if tc.valid && cfg.ShutdownTimeoutDuration != tc.want {
+				t.Fatalf("got %s, want %s", cfg.ShutdownTimeoutDuration, tc.want)
+			}
+		})
+	}
+}
+
+func TestHTTPServer_ShutdownDeadline(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var wg sync.WaitGroup
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+	socket := filepath.Join(t.TempDir(), "metrics.sock")
+	handler := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		close(entered)
+		<-release
+	})
+	if err := NewHTTPServer("unix:"+socket, handler, 50*time.Millisecond, &wg, ctx); err != nil {
+		t.Fatal(err)
+	}
+	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
+	}}
+	defer transport.CloseIdleConnections()
+	requestDone := make(chan struct{})
+	go func() {
+		defer close(requestDone)
+		resp, err := (&http.Client{Transport: transport}).Get("http://metrics/")
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+	}()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("request did not reach handler")
+	}
+	cancel()
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("shutdown exceeded deadline")
+	}
+	select {
+	case <-requestDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("active connection was not closed")
+	}
+}
+
 // TestRegisterPprof verifies that RegisterPprof registers pprof endpoints on the mux.
 func TestRegisterPprof(t *testing.T) {
 	mux := http.NewServeMux()
@@ -126,7 +203,7 @@ func TestHTTPServer_Lifecycle(t *testing.T) {
 
 	mux := http.NewServeMux()
 	// Use port 0 to let the OS assign a free port
-	err := NewHTTPServer("127.0.0.1:0", mux, wg, ctx)
+	err := NewHTTPServer("127.0.0.1:0", mux, 5*time.Second, wg, ctx)
 	if err != nil {
 		t.Fatalf("Failed to start server: %s", err)
 	}
@@ -159,7 +236,7 @@ func TestHTTPServer_StartError(t *testing.T) {
 	defer cancel()
 
 	// Use an invalid address (missing port)
-	err := NewHTTPServer("invalid-address", nil, wg, ctx)
+	err := NewHTTPServer("invalid-address", nil, 5*time.Second, wg, ctx)
 	if err == nil {
 		t.Errorf("Expected error for invalid address")
 	}

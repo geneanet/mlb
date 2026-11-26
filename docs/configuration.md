@@ -19,11 +19,13 @@ The `metrics` block configures the internal HTTP server used for Prometheus metr
 metrics {
   address = ":2112"
   enable_pprof = false
+  shutdown_timeout = "5s"
 }
 ```
 
 - `address` (string, required): The listening address for the metrics and dashboard server (e.g., `:2112` or `127.0.0.1:2112`).
 - `enable_pprof` (boolean, optional): Enables Go runtime profiling endpoints under `/debug/pprof/`. Defaults to `false` for security.
+- `shutdown_timeout` (duration string, optional): Maximum graceful HTTP shutdown time; must be positive. Defaults to `5s`. Remaining connections are closed after the deadline.
 
 Metrics are available at `/metrics` in Prometheus format. The dashboard is available at `/dashboard`.
 

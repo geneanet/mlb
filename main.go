@@ -154,7 +154,7 @@ func main() {
 		if conf.Metrics.EnablePprof {
 			metrics.RegisterPprof(mux)
 		}
-		if err := metrics.NewHTTPServer(conf.Metrics.Address, mux, &wg, ctx); err != nil {
+		if err := metrics.NewHTTPServer(conf.Metrics.Address, mux, conf.Metrics.ShutdownTimeoutDuration, &wg, ctx); err != nil {
 			log.Fatal().Err(err).Msg("Failed to start metrics HTTP server")
 		}
 	}
