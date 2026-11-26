@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mlb/backend"
 	"mlb/module"
@@ -404,7 +405,7 @@ func TestConsulKV_FetchErrors(t *testing.T) {
 	mu.Lock()
 	responseBody = `invalid json`
 	mu.Unlock()
-	w := newConsulKVWatcher(backend.NewBackend("foo", nil), "id", ts.URL, "", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, make(chan *consulKVWatcherMessage, 10), ctx, log.Logger)
+	w := newConsulKVWatcher(backend.NewBackend("foo", nil), "id", ts.URL, "", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, time.Second, make(chan *consulKVWatcherMessage, 10), ctx, log.Logger)
 	_, err := w.fetch()
 	if err == nil {
 		t.Errorf("Expected error for invalid json")
@@ -420,7 +421,7 @@ func TestConsulKV_FetchErrors(t *testing.T) {
 	}
 
 	// Case 3: Invalid URL scheme
-	w = newConsulKVWatcher(backend.NewBackend("foo", nil), "id", "httpxx://invalid", "", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, make(chan *consulKVWatcherMessage, 10), ctx, log.Logger)
+	w = newConsulKVWatcher(backend.NewBackend("foo", nil), "id", "httpxx://invalid", "", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, time.Second, make(chan *consulKVWatcherMessage, 10), ctx, log.Logger)
 	_, err = w.fetch()
 	if err == nil {
 		t.Errorf("Expected error for invalid scheme")
@@ -430,7 +431,7 @@ func TestConsulKV_FetchErrors(t *testing.T) {
 	mu.Lock()
 	responseBody = `[]`
 	mu.Unlock()
-	w = newConsulKVWatcher(backend.NewBackend("foo", nil), "id", ts.URL, "", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, make(chan *consulKVWatcherMessage, 10), ctx, log.Logger)
+	w = newConsulKVWatcher(backend.NewBackend("foo", nil), "id", ts.URL, "", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, time.Second, make(chan *consulKVWatcherMessage, 10), ctx, log.Logger)
 	_, err = w.fetch()
 	if err == nil {
 		t.Errorf("Expected error for empty JSON array response")
@@ -451,7 +452,7 @@ func TestConsulKV_WatcherCoverage(t *testing.T) {
 
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	ch := make(chan *consulKVWatcherMessage, 10)
-	newConsulKVWatcher(backend.NewBackend("foo1", nil), "id", ts1.URL, "", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, ch, ctx1, log.Logger)
+	newConsulKVWatcher(backend.NewBackend("foo1", nil), "id", ts1.URL, "", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, time.Second, ch, ctx1, log.Logger)
 
 	// Ensure request starts
 	testutil.Eventually(t, func() bool {
@@ -470,7 +471,7 @@ func TestConsulKV_WatcherCoverage(t *testing.T) {
 	defer ts2.Close()
 
 	ctx2, cancel2 := context.WithCancel(context.Background())
-	newConsulKVWatcher(backend.NewBackend("foo2", nil), "id", ts2.URL, "", "key", 500*time.Millisecond, 1*time.Second, 1.5, ch, ctx2, log.Logger)
+	newConsulKVWatcher(backend.NewBackend("foo2", nil), "id", ts2.URL, "", "key", 500*time.Millisecond, 1*time.Second, 1.5, time.Second, ch, ctx2, log.Logger)
 
 	// Give it time to execute its first request and fall into sleep
 	testutil.Eventually(t, func() bool {
@@ -522,7 +523,7 @@ func TestConsulKV_Watcher_CancelBlockedOnChannel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := make(chan *consulKVWatcherMessage)
 
-	w := newConsulKVWatcher(backend.NewBackend("foo", nil), "id", ts.URL, "", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, ch, ctx, log.Logger)
+	w := newConsulKVWatcher(backend.NewBackend("foo", nil), "id", ts.URL, "", "key", 10*time.Millisecond, 50*time.Millisecond, 1.5, time.Second, ch, ctx, log.Logger)
 
 	// Wait until the watcher has fetched the key from the server
 	testutil.Eventually(t, func() bool {
@@ -917,5 +918,38 @@ backends_processor "consul_kv" "test_recreate" {
 	// Verify clusters/green was fetched
 	if greenVal, ok := requestsForKey.Load("/v1/kv/clusters/green"); !ok || greenVal.(*atomic.Int32).Load() != 1 {
 		t.Errorf("expected new watcher to fetch clusters/green")
+	}
+}
+
+// TestConsulKV_FetchTimeout verifies that a Consul endpoint that never answers
+// makes the watcher fetch fail at the configured timeout, and that the wait hint stays below it.
+func TestConsulKV_FetchTimeout(t *testing.T) {
+	waitHint := make(chan string, 1)
+	release := make(chan struct{})
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case waitHint <- r.URL.Query().Get("wait"):
+		default:
+		}
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	defer ts.Close()
+	defer close(release)
+
+	w := &consulKVWatcher{url: ts.URL, key: "key", timeout: 100 * time.Millisecond, ctx: context.Background()}
+
+	start := time.Now()
+	_, err := w.fetch()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("fetch took %v, expected about 100ms", elapsed)
+	}
+	if got := <-waitHint; got != "87ms" {
+		t.Errorf("expected wait=87ms, got %q", got)
 	}
 }

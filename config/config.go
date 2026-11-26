@@ -198,6 +198,24 @@ func CheckDuration(diags *hcl.Diagnostics, val string, name string) {
 	}
 }
 
+// CheckPositiveDuration validates that a string is a valid, strictly positive duration.
+func CheckPositiveDuration(diags *hcl.Diagnostics, val string, name string) {
+	if val == "" {
+		return
+	}
+	d, err := time.ParseDuration(val)
+	if err == nil && d <= 0 {
+		err = fmt.Errorf("must be greater than zero")
+	}
+	if err != nil {
+		*diags = append(*diags, &hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  fmt.Sprintf("Invalid %s", name),
+			Detail:   err.Error(),
+		})
+	}
+}
+
 // CheckByteSize validates a byte size configuration value (number or string with suffix).
 func CheckByteSize(diags *hcl.Diagnostics, v cty.Value, name string) {
 	if v.IsNull() || !v.IsKnown() {

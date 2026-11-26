@@ -34,6 +34,7 @@ type ConsulKV struct {
 	defaultPeriod   time.Duration
 	maxPeriod       time.Duration
 	backoffFactor   float64
+	timeout         time.Duration
 	backends        *backend.Registry
 	defaultValues   map[string]cty.Value
 	ctx             context.Context
@@ -58,6 +59,7 @@ type ConsulKVConfig struct {
 	Period            string                `hcl:"period,optional"`
 	MaxPeriod         string                `hcl:"max_period,optional"`
 	BackoffFactor     float64               `hcl:"backoff_factor,optional"`
+	Timeout           string                `hcl:"timeout,optional"`
 	LogBackendUpdates bool                  `hcl:"log_backend_updates,optional"`
 	Values            []ConsulKVValueConfig `hcl:"value,block"`
 }
@@ -76,6 +78,7 @@ func validateConsulKVConfig(tc *module.Config) hcl.Diagnostics {
 
 	config.CheckDuration(&diags, configBody.Period, "period")
 	config.CheckDuration(&diags, configBody.MaxPeriod, "max_period")
+	config.CheckPositiveDuration(&diags, configBody.Timeout, "timeout")
 
 	return diags
 }
@@ -94,6 +97,9 @@ func parseConsulKVConfig(tc *module.Config) *ConsulKVConfig {
 	}
 	if config.BackoffFactor == 0 {
 		config.BackoffFactor = 1.5
+	}
+	if config.Timeout == "" {
+		config.Timeout = "60s"
 	}
 	return config
 }
@@ -125,6 +131,10 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 		return nil, err
 	}
 	c.maxPeriod, err = time.ParseDuration(config.MaxPeriod)
+	if err != nil {
+		return nil, err
+	}
+	c.timeout, err = time.ParseDuration(config.Timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +239,7 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 							if !c.upstreamReady && upd.Kind == backend.UpdBackendAdded {
 								c.initialWatchers[upd.Address+":"+v.ID] = true
 							}
-							w := newConsulKVWatcher(c.backends.Get(upd.Address), v.ID, c.url, c.token, consulKey, c.defaultPeriod, c.maxPeriod, c.backoffFactor, watcherChan, c.ctx, c.log)
+							w := newConsulKVWatcher(c.backends.Get(upd.Address), v.ID, c.url, c.token, consulKey, c.defaultPeriod, c.maxPeriod, c.backoffFactor, c.timeout, watcherChan, c.ctx, c.log)
 							watchersForAddr[v.ID] = w
 						}
 					}
@@ -334,6 +344,7 @@ type consulKVWatcher struct {
 	url     string
 	token   string
 	key     string
+	timeout time.Duration
 	channel chan *consulKVWatcherMessage
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -350,13 +361,14 @@ type consulKVValue struct {
 }
 
 // newConsulKVWatcher creates and starts a new consulKVWatcher.
-func newConsulKVWatcher(backend *backend.Backend, id string, url string, token string, key string, defaultPeriod time.Duration, maxPeriod time.Duration, backoffFactor float64, channel chan *consulKVWatcherMessage, ctx context.Context, log zerolog.Logger) *consulKVWatcher {
+func newConsulKVWatcher(backend *backend.Backend, id string, url string, token string, key string, defaultPeriod time.Duration, maxPeriod time.Duration, backoffFactor float64, timeout time.Duration, channel chan *consulKVWatcherMessage, ctx context.Context, log zerolog.Logger) *consulKVWatcher {
 	w := &consulKVWatcher{
 		backend: backend,
 		id:      id,
 		url:     url,
 		token:   token,
 		key:     key,
+		timeout: timeout,
 		channel: channel,
 		log:     log.With().Str("backend", backend.Address).Str("key", key).Logger(),
 		done:    make(chan struct{}),
@@ -440,10 +452,11 @@ func (w *consulKVWatcher) fetch() (retValue cty.Value, retError error) {
 
 	w.log.Debug().Msg("Fetching key")
 
-	ctx, cancel := context.WithCancel(w.ctx)
+	ctx, cancel := context.WithTimeout(w.ctx, w.timeout)
 	defer cancel()
 
-	rq, err := http.NewRequestWithContext(ctx, "GET", w.url+"/v1/kv/"+w.key+"?index="+w.index+"&timeout=60s", nil)
+	reqURL := fmt.Sprintf("%s/v1/kv/%s?index=%s&wait=%dms", w.url, w.key, w.index, misc.ConsulWait(w.timeout).Milliseconds())
+	rq, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return cty.UnknownVal(cty.String), err
 	}

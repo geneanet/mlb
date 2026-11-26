@@ -21,6 +21,7 @@ backends_inventory "consul" "mysql" {
   // period = "1s"
   // max_period = "5s"
   // backoff_factor = 1.5
+  // timeout = "60s"
   // log_backend_updates = true
 }
 
@@ -32,6 +33,7 @@ backends_inventory "consul" "redis" {
   // period = "1s"
   // max_period = "5s"
   // backoff_factor = 1.5
+  // timeout = "60s"
   // log_backend_updates = true
 }
 
@@ -52,6 +54,7 @@ backends_processor "consul_kv" "sqlweight" {
   // period = "500ms"
   // max_period = "2s"
   // backoff_factor = 1.5
+  // timeout = "60s"
   value "weight" {
     consul_key = "server_weights/${backend.meta.consul.node}"
     default = "0"

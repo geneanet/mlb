@@ -55,6 +55,7 @@ type BackendsInventoryConsul struct {
 	token    string
 	passing  bool
 	index    string
+	timeout  time.Duration
 	ticker   *misc.ExponentialBackoffTicker
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -72,6 +73,7 @@ type ConsulBackendsInventoryConfig struct {
 	Period            string  `hcl:"period,optional"`
 	MaxPeriod         string  `hcl:"max_period,optional"`
 	BackoffFactor     float64 `hcl:"backoff_factor,optional"`
+	Timeout           string  `hcl:"timeout,optional"`
 	LogBackendUpdates bool    `hcl:"log_backend_updates,optional"`
 }
 
@@ -82,6 +84,7 @@ func validateConsulBackendsInventoryConfig(tc *module.Config) hcl.Diagnostics {
 
 	config.CheckDuration(&diags, configBody.Period, "period")
 	config.CheckDuration(&diags, configBody.MaxPeriod, "max_period")
+	config.CheckPositiveDuration(&diags, configBody.Timeout, "timeout")
 
 	return diags
 }
@@ -100,6 +103,9 @@ func parseConsulBackendsInventoryConfig(tc *module.Config) *ConsulBackendsInvent
 	}
 	if config.BackoffFactor == 0 {
 		config.BackoffFactor = 1.5
+	}
+	if config.Timeout == "" {
+		config.Timeout = "60s"
 	}
 	return config
 }
@@ -125,6 +131,11 @@ func newConsulBackendsInventory(tc *module.Config, wg *sync.WaitGroup, ctx conte
 	}
 
 	maxPeriod, err := time.ParseDuration(config.MaxPeriod)
+	if err != nil {
+		return nil, err
+	}
+
+	c.timeout, err = time.ParseDuration(config.Timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -234,10 +245,10 @@ func (c *BackendsInventoryConsul) fetch() (retServices consulServicesSlice, retE
 
 	c.log.Debug().Msg("Fetching new service list from Consul")
 
-	ctx, cancel := context.WithCancel(c.ctx)
+	ctx, cancel := context.WithTimeout(c.ctx, c.timeout)
 	defer cancel()
 
-	reqURL := fmt.Sprintf("%s/v1/health/service/%s?index=%s&timeout=60s", c.url, c.service, c.index)
+	reqURL := fmt.Sprintf("%s/v1/health/service/%s?index=%s&wait=%dms", c.url, c.service, c.index, misc.ConsulWait(c.timeout).Milliseconds())
 	if c.passing {
 		reqURL += "&passing=true"
 	}

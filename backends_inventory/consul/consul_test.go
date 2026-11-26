@@ -3,6 +3,7 @@ package consul
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -806,4 +807,50 @@ backends_inventory "consul" "test_no_token" {
 			t.Errorf("Expected header X-Consul-Token to be empty, got '%s'", val)
 		}
 	})
+}
+
+// TestConsulBackendsInventory_FetchTimeout verifies that a Consul endpoint that never answers
+// makes fetch fail at the configured timeout, and that the wait hint stays below it.
+func TestConsulBackendsInventory_FetchTimeout(t *testing.T) {
+	waitHint := make(chan string, 1)
+	release := make(chan struct{})
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		waitHint <- r.URL.Query().Get("wait")
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	defer ts.Close()
+	defer close(release)
+
+	c := &BackendsInventoryConsul{url: ts.URL, service: "s", timeout: 100 * time.Millisecond, ctx: context.Background()}
+
+	start := time.Now()
+	_, err := c.fetch()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("fetch took %v, expected about 100ms", elapsed)
+	}
+	if got := <-waitHint; got != "87ms" {
+		t.Errorf("expected wait=87ms, got %q", got)
+	}
+}
+
+// TestConsulBackendsInventory_InvalidTimeout verifies that a non-positive timeout is rejected.
+func TestConsulBackendsInventory_InvalidTimeout(t *testing.T) {
+	for _, timeout := range []string{"0s", "-1s", "invalid"} {
+		block := testutil.ParseHCL(t, `
+backends_inventory "consul" "test" {
+	url = "http://localhost:8500"
+	service = "test"
+	timeout = "`+timeout+`"
+}
+`)
+		if _, diags := module.DecodeConfigBlock(block, &hcl.EvalContext{}, "backends_inventory"); !diags.HasErrors() {
+			t.Errorf("expected error for timeout %q", timeout)
+		}
+	}
 }

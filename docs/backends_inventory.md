@@ -37,6 +37,7 @@ backends_inventory "consul" "mysql" {
 - `period` (duration string, optional): The polling period for Consul updates. Default: `1s`.
 - `max_period` (duration string, optional): The maximum polling period when backoff is applied due to errors. Default: `5s`.
 - `backoff_factor` (number, optional): The factor by which the polling period increases on error. Default: `1.5`.
+- `timeout` (duration string, optional): Maximum duration of one Consul request, including the long poll. Consul is asked to answer within 7/8 of this value (`wait` parameter), so a silent endpoint fails with an error and triggers the backoff instead of hanging. Must be greater than zero. Default: `60s`.
 - `log_backend_updates` (boolean, optional): If true, logs an INFO message when a backend is added or removed. Default: `false`.
 
 ### Metadata Provided
