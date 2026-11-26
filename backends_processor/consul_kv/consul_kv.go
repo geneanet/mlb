@@ -177,7 +177,11 @@ func newConsulKV(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 			select {
 			case msg := <-watcherChan:
 				// Update metadata
-				msg.backend.Meta.Set("consul_kv", msg.id, cty.StringVal(msg.value))
+				value := msg.value
+				if value.IsNull() {
+					value = c.defaultValues[msg.id]
+				}
+				msg.backend.Meta.Set("consul_kv", msg.id, value)
 
 				// Mark this specific watcher as having its first fetch completed
 				c.initialChecked[msg.backend.Address+":"+msg.id] = true
@@ -334,7 +338,7 @@ func (c *ConsulKV) Bind(modules module.ModulesRegistry) error {
 type consulKVWatcherMessage struct {
 	backend *backend.Backend
 	id      string
-	value   string
+	value   cty.Value
 }
 
 // consulKVWatcher polls a specific key in Consul for a backend and value ID.
@@ -415,7 +419,7 @@ func newConsulKVWatcher(backend *backend.Backend, id string, url string, token s
 					case w.channel <- &consulKVWatcherMessage{
 						backend: w.backend,
 						id:      w.id,
-						value:   valStr,
+						value:   value,
 					}:
 					case <-w.ctx.Done():
 						return
@@ -474,7 +478,7 @@ func (w *consulKVWatcher) fetch() (retValue cty.Value, retError error) {
 	w.log.Debug().Int("status", resp.StatusCode).Msg("Key value fetched")
 
 	if resp.StatusCode == 404 {
-		return cty.UnknownVal(cty.String), nil
+		return cty.NullVal(cty.String), nil
 	} else if resp.StatusCode != 200 {
 		return cty.UnknownVal(cty.String), fmt.Errorf("unexpected status code %s", resp.Status)
 	}

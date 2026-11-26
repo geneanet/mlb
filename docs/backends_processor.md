@@ -126,7 +126,7 @@ backends_processor "consul_kv" "weights" {
 - `value` (block, required): Defines a KV watch.
     - `id` (label): The name of the metadata key.
     - `consul_key` (HCL expression): The key to fetch from Consul. You can use `${backend.meta...}` to dynamically build the key.
-    - `default` (string): Default value if the key is missing.
+    - `default` (string): Value used when the key is missing (HTTP 404), both on the first fetch and after deletion of an existing key. A present key with an empty value remains an empty string. Fetch errors retain the current metadata value.
 
 ### Metadata Provided (bucket: `consul_kv`)
 

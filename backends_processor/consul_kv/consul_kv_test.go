@@ -37,6 +37,100 @@ func waitSub(t *testing.T, sub *testutil.DummySubscriber, name string) {
 	}
 }
 
+func TestConsulKV_MissingKeyDefault(t *testing.T) {
+	type response struct {
+		status int
+		value  string
+	}
+	responses := make(chan response)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case resp := <-responses:
+			if resp.status != http.StatusOK {
+				w.WriteHeader(resp.status)
+				return
+			}
+			_ = json.NewEncoder(w).Encode([]consulKVValue{{
+				Key:   "weight",
+				Value: base64.StdEncoding.EncodeToString([]byte(resp.value)),
+			}})
+		case <-r.Context().Done():
+		}
+	}))
+	defer ts.Close()
+
+	block := testutil.ParseHCL(t, fmt.Sprintf(`
+backends_processor "consul_kv" "test" {
+	source = "foo"
+	url = %q
+	period = "5ms"
+	value "weight" {
+		consul_key = "weight"
+		default = "42"
+	}
+}`, ts.URL))
+	cfg, diags := module.DecodeConfigBlock(block, &hcl.EvalContext{}, "backends_processor")
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	mod, err := newConsulKV(cfg, &wg, ctx)
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	c := mod.(*ConsulKV)
+	defer func() {
+		cancel()
+		wg.Wait()
+		for _, watchers := range c.watchers {
+			for _, w := range watchers {
+				select {
+				case <-w.done:
+				case <-time.After(time.Second):
+					t.Error("watcher did not stop")
+				}
+			}
+		}
+	}()
+	b := backend.NewBackend("127.0.0.1:6379", nil)
+	c.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: b.Address, Backend: b})
+	c.ReceiveUpdate(backend.BackendUpdate{Kind: backend.UpdReady})
+
+	for i, step := range []struct {
+		response
+		want string
+	}{
+		{response{http.StatusNotFound, ""}, "42"},
+		{response{http.StatusOK, "7"}, "7"},
+		{response{http.StatusNotFound, ""}, "42"},
+		{response{http.StatusOK, ""}, ""},
+		{response{http.StatusNotFound, ""}, "42"},
+	} {
+		select {
+		case responses <- step.response:
+		case <-time.After(time.Second):
+			t.Fatalf("step %d: watcher did not request the key", i)
+		}
+		if i == 0 {
+			select {
+			case <-c.Ready():
+			case <-time.After(time.Second):
+				t.Fatal("initial missing key prevented readiness")
+			}
+		}
+		testutil.Eventually(t, func() bool {
+			list := c.GetBackendList()
+			if len(list) != 1 {
+				return false
+			}
+			value, ok := list[0].Meta.Get("consul_kv", "weight")
+			return ok && value.RawEquals(cty.StringVal(step.want))
+		}, time.Second, time.Millisecond)
+	}
+}
+
 // TestConsulKV_Basic tests the main functionality of the ConsulKV processor,
 // including initial data fetching, reacting to Consul value changes, and handling backend updates.
 func TestConsulKV_Basic(t *testing.T) {
@@ -209,6 +303,10 @@ backends_processor "consul_kv" "test" {
 	consulIndex = "4"
 	mu.Unlock()
 	waitSub(t, sub, "Wait for 404 from watcher")
+	valMeta, ok = b1Mod.Meta.Get("consul_kv", "weight")
+	if !ok || valMeta.AsString() != "1" {
+		t.Errorf("Expected default '1' after key deletion, got %v", valMeta)
+	}
 
 	// Test 500 error from consul to trigger backoff
 	mu.Lock()
