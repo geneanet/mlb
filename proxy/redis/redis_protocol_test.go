@@ -6,10 +6,82 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mlb/util"
 	"strings"
 	"testing"
 )
+
+func TestReadMessage_SizeLimit(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		limit       int
+		allowInline bool
+		wantError   bool
+	}{
+		{"bulk at limit", "$4\r\nabcd\r\n", 10, false, false},
+		{"bulk over limit", "$4\r\nabcd\r\n", 9, false, true},
+		{"bulk header without body", "$1000000\r\n", 64, false, true},
+		{"bulk integer overflow", fmt.Sprintf("$%d\r\n", math.MaxInt), 64, false, true},
+		{"bulk error", "!1000000\r\n", 64, false, true},
+		{"verbatim string", "=1000000\r\n", 64, false, true},
+		{"simple string at limit", "+OK\r\n", 5, false, false},
+		{"simple string over limit", "+OK\r\n", 4, false, true},
+		{"long line", "+" + strings.Repeat("a", 100) + "\r\n", 64, false, true},
+		{"inline command", "SET key " + strings.Repeat("a", 100) + "\r\n", 64, true, true},
+		{"array at limit", "*2\r\n$2\r\nab\r\n$2\r\ncd\r\n", 20, false, false},
+		{"array cumulative limit", "*2\r\n$2\r\nab\r\n$2\r\ncd\r\n", 19, false, true},
+		{"nested cumulative limit", "*1\r\n*2\r\n$2\r\nab\r\n$2\r\ncd\r\n", 23, false, true},
+		{"deep nesting", strings.Repeat("*1\r\n", 20) + "+OK\r\n", 32, false, true},
+		{"streamed bulk at limit", "$?\r\n;2\r\nab\r\n;2\r\ncd\r\n;0\r\n", 24, false, false},
+		{"streamed bulk cumulative limit", "$?\r\n;2\r\nab\r\n;2\r\ncd\r\n;0\r\n", 23, false, true},
+		{"streamed bulk header", "$?\r\n;1000000\r\n", 64, false, true},
+		{"streamed collection", "*?\r\n+ab\r\n+cd\r\n.\r\n", 16, false, true},
+		{"array huge count", fmt.Sprintf("*%d\r\n", math.MaxInt), 64, false, true},
+		{"map at limit", "%1\r\n_\r\n_\r\n", 10, false, false},
+		{"map pair budget", "%4\r\n", 16, false, true},
+		{"map count overflow", fmt.Sprintf("%%%d\r\n", math.MaxInt), 64, false, true},
+		{"attribute at limit", "|1\r\n_\r\n_\r\n_\r\n", 13, false, false},
+		{"attribute pair budget", "|4\r\n", 16, false, true},
+		{"attribute count overflow", fmt.Sprintf("|%d\r\n", math.MaxInt), 64, false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &RedisProxy{bufferSize: 16, maxMessageSize: tt.limit}
+			reader := p.newProtocolReader(strings.NewReader(tt.input))
+			defer reader.Release()
+
+			msg, err := reader.ReadMessage(tt.allowInline)
+			if tt.wantError {
+				if err == nil || !strings.Contains(err.Error(), "max_message_size") {
+					t.Fatalf("expected size limit error, got message %q, error %v", msg, err)
+				}
+				if len(reader.buffer) > tt.limit || cap(reader.buffer) > max(16, 2*tt.limit) {
+					t.Fatalf("oversized allocation: len=%d cap=%d limit=%d", len(reader.buffer), cap(reader.buffer), tt.limit)
+				}
+			} else {
+				if err != nil || string(msg) != tt.input {
+					t.Fatalf("got message %q, error %v; want %q", msg, err, tt.input)
+				}
+				p.releaseBuffer(msg)
+			}
+		})
+	}
+}
+
+func TestReadMessage_SizeLimitPerPipelinedMessage(t *testing.T) {
+	p := &RedisProxy{maxMessageSize: 5}
+	reader := p.newProtocolReader(strings.NewReader("+OK\r\n+OK\r\n"))
+	defer reader.Release()
+	for range 2 {
+		msg, err := reader.ReadMessage(false)
+		if err != nil || string(msg) != "+OK\r\n" {
+			t.Fatalf("got message %q, error %v", msg, err)
+		}
+		p.releaseBuffer(msg)
+	}
+}
 
 // TestRedisProtocolReader_Release verifies that the reader can be released and reused
 // via the sync.Pool, and that it correctly resets for a new source.

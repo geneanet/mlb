@@ -25,6 +25,9 @@ const DefaultMaxReusedBufferSize = 64 * 1024
 // DefaultBufferSize is the default initial capacity of buffers and bufio objects.
 const DefaultBufferSize = 16 * 1024
 
+// DefaultMaxMessageSize is the default maximum encoded RESP message size.
+const DefaultMaxMessageSize = 64 * 1024 * 1024
+
 // ReleaseBuffer returns a buffer to the pool if it's within the default reuse limit.
 func ReleaseBuffer(b []byte) {
 	ReleaseBufferWithLimit(b, DefaultMaxReusedBufferSize)
@@ -80,9 +83,10 @@ func (pw *RedisProtocolWriter) Release() {
 // to return complete protocol messages.
 type RedisProtocolReader struct {
 	br                  *bufio.Reader
-	buffer              []byte  // Accumulation buffer for the current message
+	buffer              []byte // Accumulation buffer for the current message
 	bufferSize          int
 	maxReusedBufferSize int
+	maxMessageSize      int
 	stack               []int   // Reusable stack for parsing nested structures
 	stackBuf            [16]int // Fixed buffer for the stack to avoid allocations for common nesting levels
 	pool                *sync.Pool
@@ -105,6 +109,7 @@ func NewRedisProtocolReader(reader io.Reader, bufferSize int, maxReusedBufferSiz
 		pr.buffer = nil
 		pr.bufferSize = bufferSize
 		pr.maxReusedBufferSize = maxReused
+		pr.maxMessageSize = DefaultMaxMessageSize
 		pr.stack = pr.stackBuf[:0]
 		return pr
 	}
@@ -112,6 +117,7 @@ func NewRedisProtocolReader(reader io.Reader, bufferSize int, maxReusedBufferSiz
 		br:                  bufio.NewReaderSize(reader, bufferSize),
 		bufferSize:          bufferSize,
 		maxReusedBufferSize: maxReused,
+		maxMessageSize:      DefaultMaxMessageSize,
 	}
 	pr.stack = pr.stackBuf[:0]
 	return pr
@@ -139,6 +145,9 @@ func (r *RedisProtocolReader) Release() {
 }
 
 func (r *RedisProtocolReader) getBuffer() {
+	if r.maxMessageSize <= 0 {
+		r.maxMessageSize = DefaultMaxMessageSize
+	}
 	if r.buffer != nil {
 		return
 	}
@@ -167,6 +176,9 @@ func (r *RedisProtocolReader) readLine() ([]byte, error) {
 	for {
 		var line []byte
 		line, err = r.br.ReadSlice('\n')
+		if len(line) > r.maxMessageSize-len(r.buffer) {
+			return nil, fmt.Errorf("redis message exceeds max_message_size (%d bytes)", r.maxMessageSize)
+		}
 		r.buffer = append(r.buffer, line...)
 		if err != bufio.ErrBufferFull {
 			break
@@ -178,6 +190,11 @@ func (r *RedisProtocolReader) readLine() ([]byte, error) {
 // readRaw reads exactly n+2 bytes (payload + CRLF) from the source and appends them to the accumulation buffer.
 func (r *RedisProtocolReader) readRaw(n int) ([]byte, error) {
 	r.getBuffer()
+
+	// Subtract before adding the trailing CRLF to avoid overflow on untrusted lengths.
+	if n < 0 || n > r.maxMessageSize-len(r.buffer)-2 {
+		return nil, fmt.Errorf("redis message exceeds max_message_size (%d bytes)", r.maxMessageSize)
+	}
 
 	// Bulk types have a trailing CRLF (\r\n)
 	total := n + 2
@@ -319,6 +336,12 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 					return nil, errAtoi
 				}
 
+				// Every encoded child needs at least three bytes (e.g. "_\r\n").
+				// Check before doubling map counts to avoid integer overflow.
+				remainingItems := (r.maxMessageSize - len(r.buffer)) / 3
+				if size > remainingItems {
+					return nil, fmt.Errorf("redis message exceeds max_message_size (%d bytes)", r.maxMessageSize)
+				}
 				count := size
 				// Hashes (%) and Attributes (|) are followed by pairs of items
 				if line[0] == '%' || line[0] == '|' {
@@ -329,6 +352,9 @@ func (r *RedisProtocolReader) ReadMessage(allowInline bool) ([]byte, error) {
 				// Attributes (|) are prefixes; we must read one more complete message after the pairs/stream
 				if line[0] == '|' {
 					count++
+				}
+				if count > remainingItems {
+					return nil, fmt.Errorf("redis message exceeds max_message_size (%d bytes)", r.maxMessageSize)
 				}
 
 				// Null collections (e.g. *-1\r\n) or empty ones (*0\r\n) have no items following

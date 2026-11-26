@@ -19,7 +19,37 @@ import (
 	"testing"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/zclconf/go-cty/cty"
 )
+
+func TestCheckByteSize(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		value   cty.Value
+		wantErr bool
+	}{
+		{"negative number", cty.NumberIntVal(-1), true},
+		{"negative string", cty.StringVal("-1"), true},
+		{"negative size with suffix", cty.StringVal("-1kb"), true},
+		{"zero number", cty.NumberIntVal(0), false},
+		{"zero string", cty.StringVal("0kb"), false},
+		{"positive number", cty.NumberIntVal(1024), false},
+		{"positive size with suffix", cty.StringVal("1kb"), false},
+		{"invalid unit", cty.StringVal("1xb"), true},
+		{"fractional number", cty.NumberFloatVal(1.5), true},
+		{"invalid type", cty.BoolVal(true), true},
+		{"omitted", cty.NilVal, false},
+		{"unknown", cty.UnknownVal(cty.Number), false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var diags hcl.Diagnostics
+			config.CheckByteSize(&diags, tt.value, "buffer_size")
+			if diags.HasErrors() != tt.wantErr {
+				t.Fatalf("unexpected validation result: %v", diags)
+			}
+		})
+	}
+}
 
 // TestLoadConfig verifies the end-to-end loading and parsing of HCL configuration files.
 // It covers multiple scenarios:

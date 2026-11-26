@@ -156,6 +156,7 @@ proxy "redis" "redis" {
   // backend_tcp_keepalive = "5s"
   // buffer_size = "16kb"
   // max_reused_buffer_size = "64kb"
+  // max_message_size = "64mb"
   // preconnect = 0
   // idle_timeout = "5m"
   // idle_cleanup_period = "10s"

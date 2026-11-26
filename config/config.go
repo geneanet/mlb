@@ -14,7 +14,6 @@ import (
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 	"github.com/zclconf/go-cty/cty/function/stdlib"
-	"github.com/zclconf/go-cty/cty/gocty"
 )
 
 // Config represents the complete application configuration.
@@ -216,35 +215,21 @@ func CheckPositiveDuration(diags *hcl.Diagnostics, val string, name string) {
 	}
 }
 
-// CheckByteSize validates a byte size configuration value (number or string with suffix).
+// CheckByteSize validates a non-negative byte size configuration value (number or string with suffix).
 func CheckByteSize(diags *hcl.Diagnostics, v cty.Value, name string) {
 	if v.IsNull() || !v.IsKnown() {
 		return
 	}
 
-	switch v.Type() {
-	case cty.Number:
-		var i int
-		if err := gocty.FromCtyValue(v, &i); err != nil {
-			*diags = append(*diags, &hcl.Diagnostic{
-				Severity: hcl.DiagError,
-				Summary:  fmt.Sprintf("Invalid %s", name),
-				Detail:   err.Error(),
-			})
-		}
-	case cty.String:
-		if _, err := util.ParseByteSize(v.AsString()); err != nil {
-			*diags = append(*diags, &hcl.Diagnostic{
-				Severity: hcl.DiagError,
-				Summary:  fmt.Sprintf("Invalid %s", name),
-				Detail:   err.Error(),
-			})
-		}
-	default:
+	size, err := util.FromCtyByteSize(v)
+	if err == nil && size < 0 {
+		err = fmt.Errorf("must be greater than or equal to zero")
+	}
+	if err != nil {
 		*diags = append(*diags, &hcl.Diagnostic{
 			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("Invalid type for %s", name),
-			Detail:   fmt.Sprintf("Expected number or string, got %s", v.Type().FriendlyName()),
+			Summary:  fmt.Sprintf("Invalid %s", name),
+			Detail:   err.Error(),
 		})
 	}
 }

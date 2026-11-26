@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"mlb/backend"
 	"mlb/config"
@@ -50,6 +51,7 @@ type RedisProxy struct {
 	backends                 *backend.Registry
 	bufferSize               int
 	maxReusedBufferSize      int
+	maxMessageSize           int
 	readerPool               sync.Pool
 	writerPool               sync.Pool
 	bufferPool               sync.Pool
@@ -87,6 +89,7 @@ type RedisProxyConfig struct {
 	BackendTCPKeepAlive   string    `hcl:"backend_tcp_keepalive,optional"`
 	BufferSize            cty.Value `hcl:"buffer_size,optional"`
 	MaxReusedBufferSize   cty.Value `hcl:"max_reused_buffer_size,optional"`
+	MaxMessageSize        cty.Value `hcl:"max_message_size,optional"`
 	Preconnect            int       `hcl:"preconnect,optional"`
 	IdleTimeout           string    `hcl:"idle_timeout,optional"`
 	IdleCleanupPeriod     string    `hcl:"idle_cleanup_period,optional"`
@@ -114,6 +117,14 @@ func validateRedisProxyConfig(tc *module.Config) hcl.Diagnostics {
 	config.CheckDuration(&diags, configBody.ResetTimeout, "reset_timeout")
 	config.CheckByteSize(&diags, configBody.BufferSize, "buffer_size")
 	config.CheckByteSize(&diags, configBody.MaxReusedBufferSize, "max_reused_buffer_size")
+	config.CheckByteSize(&diags, configBody.MaxMessageSize, "max_message_size")
+	if size, err := util.FromCtyByteSize(configBody.MaxMessageSize); err == nil && size == 0 && !configBody.MaxMessageSize.IsNull() {
+		diags = append(diags, &hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "Invalid max_message_size",
+			Detail:   "max_message_size must be greater than zero",
+		})
+	}
 
 	bs, _ := util.FromCtyByteSize(configBody.BufferSize)
 	mbs, _ := util.FromCtyByteSize(configBody.MaxReusedBufferSize)
@@ -182,6 +193,16 @@ func parseRedisProxyConfig(tc *module.Config) *RedisProxyConfig {
 func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (any, error) {
 	config := parseRedisProxyConfig(tc)
 
+	maxMessageSize, err := util.FromCtyByteSize(config.MaxMessageSize)
+	if err != nil {
+		return nil, fmt.Errorf("invalid max_message_size: %w", err)
+	}
+	if config.MaxMessageSize.IsNull() {
+		maxMessageSize = DefaultMaxMessageSize
+	} else if maxMessageSize <= 0 {
+		return nil, fmt.Errorf("max_message_size must be greater than zero")
+	}
+
 	p := &RedisProxy{
 		listener:                 tc.Listener,
 		id:                       config.ID,
@@ -189,6 +210,7 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (
 		log:                      log.With().Str("id", config.ID).Logger(),
 		bufferSize:               config.bufferSize,
 		maxReusedBufferSize:      config.maxReusedBufferSize,
+		maxMessageSize:           maxMessageSize,
 		source:                   config.Source,
 		preconnect:               config.Preconnect,
 		healthcheck:              config.Healthcheck,
@@ -200,8 +222,6 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (
 		backends:                 backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
 		readyChan:                make(chan struct{}),
 	}
-
-	var err error
 
 	p.connectTimeout, err = time.ParseDuration(config.ConnectTimeout)
 	if err != nil {
@@ -352,6 +372,10 @@ func (p *RedisProxy) newProtocolReader(r io.Reader) *RedisProtocolReader {
 	if maxReused <= 0 {
 		maxReused = DefaultMaxReusedBufferSize
 	}
+	maxMessageSize := p.maxMessageSize
+	if maxMessageSize <= 0 {
+		maxMessageSize = DefaultMaxMessageSize
+	}
 
 	if v := p.readerPool.Get(); v != nil {
 		pr := v.(*RedisProtocolReader)
@@ -359,6 +383,7 @@ func (p *RedisProxy) newProtocolReader(r io.Reader) *RedisProtocolReader {
 		pr.buffer = nil
 		pr.bufferSize = bufSize
 		pr.maxReusedBufferSize = maxReused
+		pr.maxMessageSize = maxMessageSize
 		pr.stack = pr.stackBuf[:0]
 		return pr
 	}
@@ -367,6 +392,7 @@ func (p *RedisProxy) newProtocolReader(r io.Reader) *RedisProtocolReader {
 		br:                  bufio.NewReaderSize(r, bufSize),
 		bufferSize:          bufSize,
 		maxReusedBufferSize: maxReused,
+		maxMessageSize:      maxMessageSize,
 		pool:                &p.readerPool,
 		bufPool:             &p.bufferPool,
 	}
@@ -403,7 +429,7 @@ func (p *RedisProxy) releaseBuffer(b []byte) {
 	releaseBufferToPool(b, p.maxReusedBufferSize, &p.bufferPool)
 }
 
-func (p *RedisProxy) pipe(input net.Conn, output net.Conn, done chan struct{}, stop chan struct{}, bufferSize int, inMetrics *Metrics, outMetrics *Metrics) {
+func (p *RedisProxy) pipe(input net.Conn, output net.Conn, done chan struct{}, stop chan struct{}, backendConnection *RedisBackendConnection, inMetrics *Metrics, outMetrics *Metrics) {
 	// Signal completion
 	defer close(done)
 
@@ -422,16 +448,19 @@ func (p *RedisProxy) pipe(input net.Conn, output net.Conn, done chan struct{}, s
 	for {
 		item, readErr := reader.ReadMessage(true)
 		if readErr != nil {
-			select {
-			case <-stop:
-				// Silence read errors when we are stopping
-				p.releaseBuffer(item)
-				return
-			default:
+			// Only network errors can be caused by stopping the other pipe.
+			var netErr net.Error
+			if errors.As(readErr, &netErr) {
+				select {
+				case <-stop:
+					p.releaseBuffer(item)
+					return
+				default:
+				}
 			}
 
 			if !errors.Is(readErr, io.EOF) && !errors.Is(readErr, net.ErrClosed) {
-				p.log.Error().Stringer("input", input.RemoteAddr()).Stringer("output", output.RemoteAddr()).Err(readErr).Msg("Error reading Redis message from pipe")
+				backendConnection.fail(fmt.Errorf("error reading Redis message from pipe: %w", readErr))
 			}
 			p.releaseBuffer(item)
 			return
@@ -531,8 +560,8 @@ func (p *RedisProxy) handleConnection(connFront net.Conn, feMetrics *Metrics) {
 	doneBackFront := make(chan struct{})
 	stopPipes := make(chan struct{})
 
-	go p.pipe(connFront, backendConnection.conn, doneFrontBack, stopPipes, p.bufferSize, feMetrics, beMetrics)
-	go p.pipe(backendConnection.conn, connFront, doneBackFront, stopPipes, p.bufferSize, beMetrics, feMetrics)
+	go p.pipe(connFront, backendConnection.conn, doneFrontBack, stopPipes, backendConnection, feMetrics, beMetrics)
+	go p.pipe(backendConnection.conn, connFront, doneBackFront, stopPipes, backendConnection, beMetrics, feMetrics)
 
 	// Wait for one pipe to end, the context to be cancelled, or the backend to be removed
 	var backendCtxDone <-chan struct{}

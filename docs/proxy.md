@@ -55,6 +55,7 @@ proxy "redis" "my_redis_proxy" {
 - `backend_wait_timeout` (duration string, optional): How long to wait for a backend to become available if the backend pool is empty before returning an error to the client. Default: `0s`.
 - `buffer_size` (number or string, optional): Size of the read/write buffers for network I/O. Supports human-readable suffixes like `kb`, `mb`, `gb` (e.g., `"16kb"`). Default: `16384`.
 - `max_reused_buffer_size` (number or string, optional): Maximum capacity of a buffer that can be returned to the pool for reuse. Buffers larger than this will be dropped to save memory. Supports human-readable suffixes. Default: `65536`.
+- `max_message_size` (number or string, optional): Maximum size of one complete encoded Redis message in either direction (client requests and backend responses). Includes RESP headers, terminators, and all nested or streamed elements; pipelined messages are limited separately. Supports human-readable suffixes (e.g., `"64mb"`). Must be greater than zero. Default: `67108864` (64 MiB). Oversized messages are rejected before allocating their declared payload, logged, and the client connection is closed. Increase this limit if large values or aggregate responses require it; it is a per-message limit, not a total memory budget, and memory is allocated only as needed.
 - `preconnect` (number, optional): The number of connections to establish to backends at startup. Default: `0`.
 - `idle_timeout` (duration string, optional): How long an unused connection remains in the pool before being closed. Default: `5m`.
 - `idle_cleanup_period` (duration string, optional): The interval at which the proxy checks for and closes idle backend connections that have exceeded the `idle_timeout`. Default: `10s`.
@@ -66,6 +67,8 @@ proxy "redis" "my_redis_proxy" {
 - `close_on_backend_removal` (boolean, optional): If `true`, client connections are closed if the backend they are connected to is removed from the proxy. Default: `false`.
 
 *Note: When a client disconnects, the proxy automatically sends a `RESET` command to the backend to clear the connection state (e.g., clearing PubSub subscriptions or discarding open transactions) before returning the connection to the pool.*
+
+If a message exceeds `max_message_size` or parsing fails in either direction, the backend connection is discarded without attempting `ECHO`/`RESET` or returning it to the pool.
 
 ---
 

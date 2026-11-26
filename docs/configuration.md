@@ -55,6 +55,8 @@ system {
 
 ## HCL Expressions & Functions
 
+Byte-size options accept a number of bytes or a string with a suffix such as `"16kb"` or `"64mb"` (powers of 1024). Negative sizes are rejected. Zero is allowed unless the option requires a strictly positive size.
+
 MLB leverages HCL's powerful expression language for filtering, weights, and dynamic configuration. You can use standard arithmetic, logic, and a set of built-in functions:
 
 - `abs(number)`: Absolute value.
