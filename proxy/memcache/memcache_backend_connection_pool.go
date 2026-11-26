@@ -114,6 +114,11 @@ func (mbcp *MemcacheBackendConnectionPool) Get(address string) *MemcacheBackendC
 
 		mbcp.mutex.Lock()
 		// ponytail: re-check limit under lock to avoid race during burst growth
+		if mbcp.ctx.Err() != nil || mbcp.proxy.backends.Get(address) == nil || mbcp.backends[address] == nil {
+			mbcp.mutex.Unlock()
+			mbc.cancel()
+			return nil
+		}
 		if len(mbcp.pools[address]) >= mbcp.proxy.backendMaxConnections {
 			mbcp.mutex.Unlock()
 			mbc.cancel()
@@ -203,9 +208,9 @@ func (mbcp *MemcacheBackendConnectionPool) Update() {
 	}
 
 	// Remove pools for backends that are no longer active
-	for addr, pool := range mbcp.pools {
+	for addr := range mbcp.backends {
 		if !validAddresses[addr] {
-			for _, conn := range pool {
+			for _, conn := range mbcp.pools[addr] {
 				conn.cancel()
 			}
 			delete(mbcp.pools, addr)
@@ -246,6 +251,11 @@ func (mbcp *MemcacheBackendConnectionPool) Update() {
 					}
 				} else {
 					mbcp.mutex.Lock()
+					if mbcp.ctx.Err() != nil || mbcp.proxy.backends.Get(b.Address) == nil || mbcp.backends[b.Address] == nil {
+						mbcp.mutex.Unlock()
+						mbc.cancel()
+						return
+					}
 					mbcp.pools[b.Address] = append(mbcp.pools[b.Address], mbc)
 					mbcp.mutex.Unlock()
 					backoff.Reset()
