@@ -54,6 +54,7 @@ type MemcacheProxyConfig struct {
 // It handles client connections, parses the Memcache protocol, and routes requests
 // to backends based on the key using Ketama consistent hashing.
 type MemcacheProxy struct {
+	listener       system.Listener
 	id             string
 	source         string
 	addresses      []string
@@ -161,6 +162,7 @@ func newMemcacheProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context
 	config := parseMemcacheProxyConfig(tc)
 
 	p := &MemcacheProxy{
+		listener:                 tc.Listener,
 		id:                       config.ID,
 		source:                   config.Source,
 		addresses:                config.Addresses,
@@ -352,7 +354,7 @@ func (p *MemcacheProxy) listen(address string, wg *sync.WaitGroup) error {
 	}
 
 	// Bind
-	listener, err := system.Listen("tcp", address)
+	listener, err := system.Listen(p.listener, "tcp", address)
 	if err != nil {
 		return err
 	}

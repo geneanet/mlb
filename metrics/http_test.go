@@ -3,6 +3,7 @@ package metrics
 import (
 	"bytes"
 	"context"
+	"mlb/testutil"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -137,7 +138,7 @@ func TestHTTPServer_ShutdownDeadline(t *testing.T) {
 		close(entered)
 		<-release
 	})
-	if err := NewHTTPServer("unix:"+socket, handler, 50*time.Millisecond, &wg, ctx); err != nil {
+	if err := NewHTTPServer(testutil.Listener{}, "unix:"+socket, handler, 50*time.Millisecond, &wg, ctx); err != nil {
 		t.Fatal(err)
 	}
 	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -203,7 +204,7 @@ func TestHTTPServer_Lifecycle(t *testing.T) {
 
 	mux := http.NewServeMux()
 	// Use port 0 to let the OS assign a free port
-	err := NewHTTPServer("127.0.0.1:0", mux, 5*time.Second, wg, ctx)
+	err := NewHTTPServer(testutil.Listener{}, "127.0.0.1:0", mux, 5*time.Second, wg, ctx)
 	if err != nil {
 		t.Fatalf("Failed to start server: %s", err)
 	}
@@ -236,7 +237,7 @@ func TestHTTPServer_StartError(t *testing.T) {
 	defer cancel()
 
 	// Use an invalid address (missing port)
-	err := NewHTTPServer("invalid-address", nil, 5*time.Second, wg, ctx)
+	err := NewHTTPServer(testutil.Listener{}, "invalid-address", nil, 5*time.Second, wg, ctx)
 	if err == nil {
 		t.Errorf("Expected error for invalid address")
 	}

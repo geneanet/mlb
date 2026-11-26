@@ -3,6 +3,7 @@ package module
 import (
 	"context"
 	"fmt"
+	"mlb/system"
 	"sync"
 
 	"github.com/hashicorp/hcl/v2"
@@ -16,6 +17,7 @@ type Config struct {
 	Config   hcl.Body
 	Ctx      *hcl.EvalContext
 	RawHCL   string
+	Listener system.Listener `json:"-"`
 }
 
 // FullID returns the canonical identifier for the module, prefixed by its category.

@@ -129,6 +129,7 @@ func main() {
 		ml.AddModule(c.FullID(), m)
 	}
 	for _, c := range conf.ProxyList {
+		c.Listener = upg
 		m, err := module.New(c, &wg, ctx, "proxy")
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to create proxy module")
@@ -154,7 +155,7 @@ func main() {
 		if conf.Metrics.EnablePprof {
 			metrics.RegisterPprof(mux)
 		}
-		if err := metrics.NewHTTPServer(conf.Metrics.Address, mux, conf.Metrics.ShutdownTimeoutDuration, &wg, ctx); err != nil {
+		if err := metrics.NewHTTPServer(upg, conf.Metrics.Address, mux, conf.Metrics.ShutdownTimeoutDuration, &wg, ctx); err != nil {
 			log.Fatal().Err(err).Msg("Failed to start metrics HTTP server")
 		}
 	}

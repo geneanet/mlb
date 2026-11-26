@@ -1,21 +1,27 @@
 package system
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
+type testListener struct{}
+
+func (testListener) Listen(network, address string) (net.Listener, error) {
+	return net.Listen(network, address)
+}
+
 func TestListen_Unix(t *testing.T) {
-	// Ensure upgrader is nil
-	upgrader = nil
+	upg := testListener{}
 
 	tmpDir := t.TempDir()
 	socketPath := filepath.Join(tmpDir, "test.sock")
 	address := "unix:" + socketPath
 
 	// 1. Test normal listen
-	l, err := Listen("tcp", address)
+	l, err := Listen(upg, "tcp", address)
 	if err != nil {
 		t.Fatalf("Listen failed: %v", err)
 	}
@@ -36,25 +42,16 @@ func TestListen_Unix(t *testing.T) {
 		t.Fatalf("Failed to create stale socket file: %v", err)
 	}
 
-	l2, err := Listen("tcp", address)
+	l2, err := Listen(upg, "tcp", address)
 	if err != nil {
 		t.Fatalf("Listen with stale socket failed: %v", err)
 	}
 	_ = l2.Close()
 }
 
-func TestListen_Fallback(t *testing.T) {
-	// Ensure upgrader is nil
-	upgrader = nil
-
-	l, err := Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("Listen failed: %v", err)
-	}
-	defer func() { _ = l.Close() }()
-
-	if l.Addr() == nil {
-		t.Error("Expected listener address to be non-nil")
+func TestListen_RequiresUpgrader(t *testing.T) {
+	if _, err := Listen(nil, "tcp", "127.0.0.1:0"); err == nil {
+		t.Fatal("expected an error without a listener manager")
 	}
 }
 
@@ -72,17 +69,20 @@ func TestInitTableflip(t *testing.T) {
 		t.Fatal("Expected non-nil upgrader")
 	}
 
-	if upgrader != upg {
-		t.Error("Global upgrader not set correctly")
-	}
-
 	// Verify that Listen now uses the upgrader (it should still work)
-	l, err := Listen("tcp", "127.0.0.1:0")
+	l, err := Listen(upg, "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("Listen with upgrader failed: %v", err)
 	}
 	defer func() { _ = l.Close() }()
 
-	// Clean up for other tests
-	upgrader = nil
+	socketPath := filepath.Join(tmpDir, "stale.sock")
+	if err := os.WriteFile(socketPath, []byte("stale"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	unixListener, err := Listen(upg, "tcp", "unix:"+socketPath)
+	if err != nil {
+		t.Fatalf("Listen with stale socket failed: %v", err)
+	}
+	_ = unixListener.Close()
 }

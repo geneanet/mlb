@@ -244,6 +244,7 @@ func TestMemcacheProxyBindAndListen(t *testing.T) {
 		"mock": mockProvider,
 	}
 
+	p.listener = testutil.Listener{}
 	if err := p.Bind(modules); err != nil {
 		t.Fatalf("Bind failed: %v", err)
 	}

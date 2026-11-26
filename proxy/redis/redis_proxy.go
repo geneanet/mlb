@@ -32,6 +32,7 @@ var _ backend.BackendListProvider = (*RedisProxy)(nil)
 
 // RedisProxy implements a Redis protocol proxy.
 type RedisProxy struct {
+	listener                 system.Listener
 	id                       string
 	addresses                []string
 	source                   string
@@ -182,6 +183,7 @@ func newRedisProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (
 	config := parseRedisProxyConfig(tc)
 
 	p := &RedisProxy{
+		listener:                 tc.Listener,
 		id:                       config.ID,
 		addresses:                config.Addresses,
 		log:                      log.With().Str("id", config.ID).Logger(),
@@ -284,7 +286,7 @@ func (p *RedisProxy) listen(address string, wg *sync.WaitGroup) error {
 	}
 
 	// Bind
-	listener, err := system.Listen("tcp", address)
+	listener, err := system.Listen(p.listener, "tcp", address)
 	if err != nil {
 		return err
 	}

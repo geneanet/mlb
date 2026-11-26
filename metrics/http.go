@@ -66,12 +66,12 @@ func HttpLogWrapper(originalHandler http.Handler) http.Handler {
 }
 
 // NewHTTPServer creates and starts a new HTTP server managed by tableflip.
-func NewHTTPServer(address string, handler http.Handler, shutdownTimeout time.Duration, wg *sync.WaitGroup, ctx context.Context) error {
+func NewHTTPServer(upgrader system.Listener, address string, handler http.Handler, shutdownTimeout time.Duration, wg *sync.WaitGroup, ctx context.Context) error {
 	srv := http.Server{
 		Handler: handler,
 	}
 
-	listener, err := system.Listen("tcp", address)
+	listener, err := system.Listen(upgrader, "tcp", address)
 	if err != nil {
 		return err
 	}

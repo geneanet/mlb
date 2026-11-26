@@ -157,6 +157,7 @@ func TestRedisProxy_BindAndReceiveUpdate(t *testing.T) {
 	registry := make(module.ModulesRegistry)
 	registry.AddModule("backends_inventory.static.test", mockProvider)
 
+	rp.listener = testutil.Listener{}
 	err = rp.Bind(registry)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -276,6 +277,7 @@ func TestRedisProxy_CloseOnBackendRemoval(t *testing.T) {
 	registry := make(module.ModulesRegistry)
 	registry.AddModule("backends_inventory.static.test", mockProvider)
 
+	rp.listener = testutil.Listener{}
 	err = rp.Bind(registry)
 	if err != nil {
 		t.Fatal(err)
@@ -416,6 +418,7 @@ func TestRedisProxy_NotCloseOnBackendRemoval(t *testing.T) {
 	registry := make(module.ModulesRegistry)
 	registry.AddModule("backends_inventory.static.test", mockProvider)
 
+	rp.listener = testutil.Listener{}
 	err = rp.Bind(registry)
 	if err != nil {
 		t.Fatal(err)
@@ -551,6 +554,7 @@ func TestRedisProxy_CloseOnBackendRemoval_NoBalancer(t *testing.T) {
 	registry := make(module.ModulesRegistry)
 	registry.AddModule("backends_inventory.static.test", mockProvider)
 
+	rp.listener = testutil.Listener{}
 	err = rp.Bind(registry)
 	if err != nil {
 		t.Fatal(err)

@@ -286,6 +286,7 @@ func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("primary_backend", primaryProvider)
 	modules.AddModule("backup_backend", backupProvider)
+	p.listener = testutil.Listener{}
 	_ = p.Bind(modules)
 
 	// Wait for proxy listener to start
@@ -385,6 +386,7 @@ func TestTCPProxy_NoBackendPanic(t *testing.T) {
 	provider := &mockBackendProvider{id: "missing_backend", backendAddress: "", returnNil: true}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("missing_backend", provider)
+	p.listener = testutil.Listener{}
 	_ = p.Bind(modules)
 
 	// Wait for proxy listener to start
@@ -454,6 +456,7 @@ func TestTCPProxy_TimeoutAndContextCancel(t *testing.T) {
 	provider := &mockBackendProvider{id: "test_backend", backendAddress: backend.Addr().String()}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("test_backend", provider)
+	p.listener = testutil.Listener{}
 	_ = p.Bind(modules)
 
 	// Wait for proxy listener to start
@@ -774,6 +777,7 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 	provider := &mockBackendProvider{id: "test_backend", backendAddress: backendAddr}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("test_backend", provider)
+	p.listener = testutil.Listener{}
 	_ = p.Bind(modules)
 
 	// Wait for proxy listener to start
@@ -855,6 +859,7 @@ func TestTCPProxy_CloseOnBackendRemoval(t *testing.T) {
 	provider := &customBackendProvider{id: "test_backend", be: testBe}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("test_backend", provider)
+	p.listener = testutil.Listener{}
 	_ = p.Bind(modules)
 
 	// Wait for proxy listener to start
@@ -964,6 +969,7 @@ func TestTCPProxy_Readiness(t *testing.T) {
 	}
 	modules := make(module.ModulesRegistry)
 	modules.AddModule("test_backend", provider)
+	p.listener = testutil.Listener{}
 	_ = p.Bind(modules)
 
 	// Proxy should NOT be listening yet

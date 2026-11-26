@@ -12,6 +12,14 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
 
+// Listener opens ordinary sockets for tests that do not exercise tableflip.
+type Listener struct{}
+
+// Listen opens a socket for a test.
+func (Listener) Listen(network, address string) (net.Listener, error) {
+	return net.Listen(network, address)
+}
+
 // MockFailingListener is a net.Listener that fails Accept() a fixed number of times.
 type MockFailingListener struct {
 	net.Listener

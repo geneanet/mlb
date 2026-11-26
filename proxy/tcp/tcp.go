@@ -29,6 +29,7 @@ func init() {
 
 // ProxyTCP implements a TCP level proxy.
 type ProxyTCP struct {
+	listener              system.Listener
 	id                    string
 	addresses             []string
 	sources               []string
@@ -143,6 +144,7 @@ func newTCPProxy(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) (an
 	config := parseTCPProxyConfig(tc)
 
 	p := &ProxyTCP{
+		listener:              tc.Listener,
 		id:                    config.ID,
 		addresses:             config.Addresses,
 		log:                   log.With().Str("id", config.ID).Logger(),
@@ -208,7 +210,7 @@ func (p *ProxyTCP) listen(address string, wg *sync.WaitGroup) error {
 	}
 
 	// Bind
-	listener, err := system.Listen("tcp", address)
+	listener, err := system.Listen(p.listener, "tcp", address)
 	if err != nil {
 		return err
 	}
