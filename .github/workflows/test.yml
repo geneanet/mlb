@@ -1,6 +1,9 @@
 name: Test
 
-on: [push]
+on:
+  push:
+  pull_request:
+  workflow_call:
 
 permissions:
   contents: read
@@ -19,3 +22,9 @@ jobs:
 
       - name: Run tests
         run: go test -v -cover ./...
+
+      - name: Run race detector
+        run: go test -race ./...
+
+      - name: Run vet
+        run: go vet ./...
