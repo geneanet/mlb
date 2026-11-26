@@ -4,7 +4,6 @@ import (
 	"context"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
@@ -22,20 +21,20 @@ func init() {
 	module.RegisterFactory("balancer", "wrr", newWRRBalancer, validateWRRBalancerConfig)
 }
 
-// swrrState holds the pre-calculated sequence for Smooth Weighted Round-Robin.
-type swrrState struct {
-	sequence []string
-	length   uint64
+type swrrPeer struct {
+	backend       *backend.Backend
+	weight        int64
+	currentWeight int64
 }
 
 // WRRBalancer implements a Smooth Weighted Round-Robin load balancing algorithm.
-// It uses an atomic pointer to a pre-calculated sequence to provide lock-free selection.
+// It updates each backend's current weight during selection under a mutex.
 type WRRBalancer struct {
 	id          string
 	backends    *backend.Registry
-	state       atomic.Pointer[swrrState]
-	counter     atomic.Uint64
-	mu          sync.Mutex // Protects weight map and registry during updates
+	peers       []swrrPeer
+	totalWeight int64
+	mu          sync.Mutex
 	log         zerolog.Logger
 	updChan     chan backend.BackendUpdate
 	updChanStop chan struct{}
@@ -92,8 +91,6 @@ func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 		backends:    backend.NewRegistry(log.With().Str("id", config.ID).Logger(), config.LogBackendUpdates),
 	}
 
-	b.state.Store(&swrrState{sequence: []string{}, length: 0})
-
 	var err error
 
 	b.timeout, err = time.ParseDuration(config.Timeout)
@@ -131,6 +128,14 @@ func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 					if weight < 0 {
 						weight = 0
 					}
+					if !weightTotalFits(weights, upd.Address, weight) {
+						b.log.Error().
+							Str("address", upd.Address).
+							Int("weight", weight).
+							Msg("backend weight would overflow the total WRR weight; update ignored")
+						b.mu.Unlock()
+						continue mainloop
+					}
 
 					if upd.Kind == backend.UpdBackendAdded {
 						clone := upd.Backend.Clone()
@@ -156,9 +161,9 @@ func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 					b.backends.MarkReady()
 				}
 
-				// Re-calculate SWRR sequence only if weights or backend set changed
+				// Rebuild the selection state only if weights or backend set changed.
 				if shouldRefresh {
-					b.refreshSequence(weights)
+					b.refreshPeers(weights)
 				}
 				b.mu.Unlock()
 
@@ -171,17 +176,30 @@ func newWRRBalancer(tc *module.Config, wg *sync.WaitGroup, ctx context.Context) 
 	return b, nil
 }
 
-// gcd calculates the Greatest Common Divisor of two integers using the Euclidean algorithm.
-func gcd(a, b int) int {
-	for b != 0 {
-		a, b = b, a%b
+func weightTotalFits(weights map[string]int, address string, weight int) bool {
+	const maxInt64 = int64(1<<63 - 1)
+
+	var total int64
+	for existingAddress, existingWeight := range weights {
+		if existingAddress == address || existingWeight <= 0 {
+			continue
+		}
+		existing := int64(existingWeight)
+		if total > maxInt64-existing {
+			return false
+		}
+		total += existing
 	}
-	return a
+
+	if weight > 0 && total > maxInt64-int64(weight) {
+		return false
+	}
+	return true
 }
 
-// refreshSequence generates the Smooth Weighted Round-Robin sequence and updates the atomic state.
-// Weights are reduced by their Greatest Common Divisor (GCD) to optimize memory and sequence generation.
-func (b *WRRBalancer) refreshSequence(weights map[string]int) {
+// refreshPeers rebuilds the weighted peer state in deterministic address order.
+// The caller must hold b.mu.
+func (b *WRRBalancer) refreshPeers(weights map[string]int) {
 	addresses := make([]string, 0, len(weights))
 	for addr, w := range weights {
 		if w > 0 {
@@ -189,84 +207,65 @@ func (b *WRRBalancer) refreshSequence(weights map[string]int) {
 		}
 	}
 
-	if len(addresses) == 0 {
-		b.state.Store(&swrrState{sequence: []string{}, length: 0})
-		return
-	}
-
-	// Sort addresses for deterministic sequence generation
 	slices.Sort(addresses)
 
-	g := 1
-	if len(addresses) > 1 {
-		for i, addr := range addresses {
-			w := weights[addr]
-			if i == 0 {
-				g = w
-			} else {
-				g = gcd(g, w)
-			}
+	peers := make([]swrrPeer, 0, len(addresses))
+	var totalWeight int64
+	for _, address := range addresses {
+		be := b.backends.Get(address)
+		if be == nil {
+			b.log.Error().Str("address", address).Msg("backend missing while rebuilding WRR state")
+			continue
 		}
-		if g <= 0 {
-			g = 1
-		}
+		weight := int64(weights[address])
+		peers = append(peers, swrrPeer{backend: be, weight: weight})
+		totalWeight += weight
 	}
 
-	totalWeight := 0
-	reducedWeights := make([]int, len(addresses))
-	for i, addr := range addresses {
-		rw := weights[addr] / g
-		reducedWeights[i] = rw
-		totalWeight += rw
-	}
-
-	sequence := make([]string, 0, totalWeight)
-	currentWeights := make([]int, len(addresses))
-
-	for i := 0; i < totalWeight; i++ {
-		bestIdx := -1
-		for j := range addresses {
-			currentWeights[j] += reducedWeights[j]
-			if bestIdx == -1 || currentWeights[j] > currentWeights[bestIdx] {
-				bestIdx = j
-			}
-		}
-
-		sequence = append(sequence, addresses[bestIdx])
-		currentWeights[bestIdx] -= totalWeight
-	}
-
-	b.state.Store(&swrrState{
-		sequence: sequence,
-		length:   uint64(len(sequence)),
-	})
+	b.peers = peers
+	b.totalWeight = totalWeight
 }
 
-// GetBackend returns a backend from the pre-calculated SWRR sequence.
-// Selection is lock-free using an atomic counter and pointer.
+// getBackendLocked selects the next backend using smooth weighted round-robin.
+// The caller must hold b.mu.
+func (b *WRRBalancer) getBackendLocked() (*backend.Backend, func()) {
+	if len(b.peers) == 0 {
+		return nil, func() {}
+	}
+
+	best := 0
+	for i := range b.peers {
+		b.peers[i].currentWeight += b.peers[i].weight
+		if b.peers[i].currentWeight > b.peers[best].currentWeight {
+			best = i
+		}
+	}
+	b.peers[best].currentWeight -= b.totalWeight
+	return b.peers[best].backend, func() {}
+}
+
+// GetBackend returns a backend selected by smooth weighted round-robin.
 // It returns the selected backend and a no-op release function.
 func (b *WRRBalancer) GetBackend(wait bool) (*backend.Backend, func()) {
-	state := b.state.Load()
+	b.mu.Lock()
+	be, release := b.getBackendLocked()
+	b.mu.Unlock()
+	if be != nil {
+		return be, release
+	}
 
 	// Wait for the backend list to be populated or a timeout to occur
-	if state.length == 0 && b.timeout > 0 && wait {
+	if b.timeout > 0 && wait {
 		ctx, ctxCancel := context.WithDeadline(b.ctx, time.Now().Add(b.timeout))
 		defer ctxCancel()
 		_ = b.backends.Wait(ctx)
 
-		// Synchronize with the main loop to ensure refreshSequence has completed
 		b.mu.Lock()
-		state = b.state.Load()
-		b.mu.Unlock()
+		defer b.mu.Unlock()
+		return b.getBackendLocked()
 	}
 
-	if state.length > 0 {
-		idx := b.counter.Add(1) - 1
-		address := state.sequence[idx%state.length]
-		return b.backends.Get(address), func() {}
-	} else {
-		return nil, func() {}
-	}
+	return nil, func() {}
 }
 
 // ReceiveUpdate implements the backend.BackendUpdateSubscriber interface.

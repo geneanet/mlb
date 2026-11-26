@@ -15,6 +15,54 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
+func activePeerCount(b *WRRBalancer) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.peers)
+}
+
+func currentTotalWeight(b *WRRBalancer) int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.totalWeight
+}
+
+func currentWeights(b *WRRBalancer) map[string]int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	weights := make(map[string]int64, len(b.peers))
+	for _, peer := range b.peers {
+		weights[peer.backend.Address] = peer.currentWeight
+	}
+	return weights
+}
+
+func equalInt64Maps(a, b map[string]int64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, value := range a {
+		other, ok := b[key]
+		if !ok || other != value {
+			return false
+		}
+	}
+	return true
+}
+
+func TestWRRBalancer_RejectsOverflowingTotalWeight(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	weights := map[string]int{"A": maxInt}
+
+	if weightTotalFits(weights, "B", 1) {
+		t.Fatal("expected overflowing total weight to be rejected")
+	}
+	if !weightTotalFits(weights, "A", maxInt) {
+		t.Fatal("expected replacing an existing weight to be allowed")
+	}
+}
+
 // TestWRRBalancer_ValidateConfig verifies that a valid WRR balancer configuration
 // passes the validation check.
 func TestWRRBalancer_ValidateConfig(t *testing.T) {
@@ -177,7 +225,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: backend1.Address, Backend: backend1})
 
 	testutil.Eventually(t, func() bool {
-		return balancer.state.Load().length == 2
+		return activePeerCount(balancer) == 1
 	}, 1*time.Second, 10*time.Millisecond)
 
 	retrievedBackend, rel := balancer.GetBackend(true) // Should return immediately now
@@ -194,14 +242,14 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: backend1Mod.Address, Backend: backend1Mod})
 
 	testutil.Eventually(t, func() bool {
-		return balancer.state.Load().length == 3
+		return activePeerCount(balancer) == 1 && currentTotalWeight(balancer) == 3
 	}, 1*time.Second, 10*time.Millisecond)
 
 	// Modify backend1 - keeping the same weight (3) to test idempotency
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: backend1Mod.Address, Backend: backend1Mod})
 
 	testutil.Eventually(t, func() bool {
-		return balancer.state.Load().length == 3
+		return activePeerCount(balancer) == 1 && currentTotalWeight(balancer) == 3
 	}, 1*time.Second, 10*time.Millisecond)
 
 	// Modify backend1 - introduce error in evaluating weight expression
@@ -211,7 +259,7 @@ func TestWRRBalancer_Workflow(t *testing.T) {
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: backend1Mod.Address, Backend: backend1Mod})
 
 	testutil.Eventually(t, func() bool {
-		return balancer.state.Load().length == 0
+		return activePeerCount(balancer) == 0
 	}, 1*time.Second, 10*time.Millisecond)
 
 	// Add backend2 - despite active evaluation error, it should still be tracked
@@ -438,7 +486,7 @@ func TestWRRBalancer_SmoothDistribution(t *testing.T) {
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "C", Backend: beC})
 
 	testutil.Eventually(t, func() bool {
-		return balancer.state.Load().length == 7
+		return activePeerCount(balancer) == 3
 	}, 1*time.Second, 10*time.Millisecond)
 
 	// The expected "smooth" sequence for weights {A:5, B:1, C:1} is:
@@ -486,13 +534,20 @@ func TestWRRBalancer_SmoothDistribution(t *testing.T) {
 	}
 }
 
-// TestWRRBalancer_NoRecalculateWhenWeightUnchanged verifies that updating a backend
-// without changing its weight does not recalculate the SWRR sequence.
-func TestWRRBalancer_NoRecalculateWhenWeightUnchanged(t *testing.T) {
+// TestWRRBalancer_NoResetWhenWeightUnchanged verifies that an unrelated backend
+// update does not reset the SWRR current weights.
+func TestWRRBalancer_NoResetWhenWeightUnchanged(t *testing.T) {
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
 			"source": {Name: "source", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("src1")}},
-			"weight": {Name: "weight", Expr: &hclsyntax.LiteralValueExpr{Val: cty.NumberIntVal(5)}},
+			"weight": {Name: "weight", Expr: &hclsyntax.ScopeTraversalExpr{
+				Traversal: hcl.Traversal{
+					hcl.TraverseRoot{Name: "backend"},
+					hcl.TraverseAttr{Name: "meta"},
+					hcl.TraverseAttr{Name: "wrr"},
+					hcl.TraverseAttr{Name: "weight"},
+				},
+			}},
 		},
 	}
 	cfg := &module.Config{Category: "balancer", Name: "test", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
@@ -510,24 +565,42 @@ func TestWRRBalancer_NoRecalculateWhenWeightUnchanged(t *testing.T) {
 	provider.ProvideUpdates(balancer)
 
 	beA := backend.NewBackend("A", nil)
+	beA.Meta.Set("wrr", "weight", cty.NumberIntVal(5))
+	beB := backend.NewBackend("B", nil)
+	beB.Meta.Set("wrr", "weight", cty.NumberIntVal(1))
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "A", Backend: beA})
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "B", Backend: beB})
 
 	testutil.Eventually(t, func() bool {
-		return len(balancer.GetBackendList()) == 1
+		return activePeerCount(balancer) == 2
 	}, 1*time.Second, 10*time.Millisecond)
 
-	initialState := balancer.state.Load()
+	selected, release := balancer.GetBackend(false)
+	if selected == nil {
+		t.Fatal("GetBackend returned nil")
+	}
+	release()
+	initialWeights := currentWeights(balancer)
 
-	// Update backend with same weight
-	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: "A", Backend: beA})
+	// Change unrelated metadata while keeping backend A's weight unchanged.
+	beAMod := beA.Clone()
+	beAMod.Meta.Set("test", "note", cty.StringVal("updated"))
+	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendModified, Address: "A", Backend: beAMod})
 
-	// Wait and verify state pointer remained unchanged
-	testutil.Consistently(t, func() bool {
-		return balancer.state.Load() == initialState
-	}, 100*time.Millisecond, 10*time.Millisecond)
+	testutil.Eventually(t, func() bool {
+		registered := balancer.backends.Get("A")
+		if registered == nil {
+			return false
+		}
+		value, ok := registered.Meta.Get("test", "note")
+		return ok && value.AsString() == "updated"
+	}, 1*time.Second, 10*time.Millisecond)
+	if got := currentWeights(balancer); !equalInt64Maps(got, initialWeights) {
+		t.Errorf("current weights changed after same-weight update: got %v, want %v", got, initialWeights)
+	}
 }
 
-func TestWRRBalancer_GCDWeightReduction(t *testing.T) {
+func TestWRRBalancer_LargeWeightsUseBoundedState(t *testing.T) {
 	body := &hclsyntax.Body{
 		Attributes: map[string]*hclsyntax.Attribute{
 			"source": {Name: "source", Expr: &hclsyntax.LiteralValueExpr{Val: cty.StringVal("src1")}},
@@ -541,7 +614,7 @@ func TestWRRBalancer_GCDWeightReduction(t *testing.T) {
 			}},
 		},
 	}
-	cfg := &module.Config{Category: "balancer", Name: "test_gcd", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
+	cfg := &module.Config{Category: "balancer", Name: "test_large_weights", Type: "wrr", Config: body, Ctx: &hcl.EvalContext{}}
 	wg := &sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -555,33 +628,26 @@ func TestWRRBalancer_GCDWeightReduction(t *testing.T) {
 	provider := &testutil.DummyProvider{ID: "src1", Backends: backend.NewRegistry(zerolog.Nop(), false)}
 	provider.ProvideUpdates(balancer)
 
-	// Add 3 backends with weights: A=1000, B=2000, C=3000
-	// Without GCD reduction, totalWeight is 6000 and sequence allocates 6000 elements.
-	// With GCD reduction (gcd=1000), weights are reduced to A=1, B=2, C=3, totalWeight is 6.
+	// Add two coprime weights whose sum would have dictated the old sequence size.
 	beA := backend.NewBackend("A", nil)
-	beA.Meta.Set("wrr", "weight", cty.NumberIntVal(1000))
+	beA.Meta.Set("wrr", "weight", cty.NumberIntVal(150000))
 	beB := backend.NewBackend("B", nil)
-	beB.Meta.Set("wrr", "weight", cty.NumberIntVal(2000))
-	beC := backend.NewBackend("C", nil)
-	beC.Meta.Set("wrr", "weight", cty.NumberIntVal(3000))
+	beB.Meta.Set("wrr", "weight", cty.NumberIntVal(150001))
 
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "A", Backend: beA})
 	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "B", Backend: beB})
-	provider.SendUpdate(backend.BackendUpdate{Kind: backend.UpdBackendAdded, Address: "C", Backend: beC})
 
 	testutil.Eventually(t, func() bool {
-		state := balancer.state.Load()
-		return state != nil && state.length > 0
+		return activePeerCount(balancer) == 2
 	}, 1*time.Second, 10*time.Millisecond)
 
-	state := balancer.state.Load()
-	if state.length != 6 {
-		t.Fatalf("expected sequence length to be reduced to 6 via GCD, got %d", state.length)
+	if got := currentTotalWeight(balancer); got != 300001 {
+		t.Fatalf("expected total weight 300001, got %d", got)
 	}
 
-	// Verify the 6 elements distribute in exact proportions 1:2:3
+	// The large weights should affect only the O(number of backends) state.
 	counts := make(map[string]int)
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 10000; i++ {
 		be, rel := balancer.GetBackend(false)
 		if be == nil {
 			t.Fatalf("GetBackend returned nil at index %d", i)
@@ -590,8 +656,8 @@ func TestWRRBalancer_GCDWeightReduction(t *testing.T) {
 		rel()
 	}
 
-	if counts["A"] != 1 || counts["B"] != 2 || counts["C"] != 3 {
-		t.Errorf("expected counts {A:1, B:2, C:3}, got %v", counts)
+	if difference := counts["A"] - counts["B"]; difference < -1 || difference > 1 {
+		t.Errorf("expected balanced selections for near-equal weights, got %v", counts)
 	}
 }
 
@@ -638,4 +704,3 @@ func TestWRR_MetaPreservation(t *testing.T) {
 		return ok && val.IsKnown() && val.AsString() == "preserved_val"
 	}, 1*time.Second, 10*time.Millisecond, "wrr metadata bucket was wiped during backend update")
 }
-
