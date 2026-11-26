@@ -208,12 +208,22 @@ backends_processor "redis" "test" {
 	})
 
 	// Lifecycle tests
-	check := NewRedisCheck(b.Clone(), "", time.Millisecond, time.Millisecond, 1.0, 100*time.Millisecond, time.Second, 1.5, 3, time.Second, time.Second, time.Second, make(chan *backend.Backend, 1))
+	statusChan := make(chan *backend.Backend, 1)
+	check := NewRedisCheck(b.Clone(), "", time.Millisecond, time.Millisecond, 1.0, 100*time.Millisecond, time.Second, 1.5, 3, time.Second, time.Second, time.Second, statusChan)
 	_ = check.StartPolling()
 	_ = check.StartPolling() // already running
-	time.Sleep(10 * time.Millisecond)
+	select {
+	case <-statusChan:
+	case <-time.After(2 * time.Second):
+		t.Fatal("health check did not publish an update")
+	}
 	check.StopPolling()
 	check.StopPolling() // already stopped
+	testutil.Eventually(t, func() bool {
+		check.runningMu.Lock()
+		defer check.runningMu.Unlock()
+		return !check.running
+	}, time.Second, time.Millisecond, "health check did not stop")
 
 	cancel()
 	wg.Wait()

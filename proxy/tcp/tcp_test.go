@@ -343,8 +343,8 @@ func TestTCPProxy_NormalAndBackupAndNoBackend(t *testing.T) {
 	}
 	_ = conn2.Close()
 
-	// Wait for piping goroutines to settle
-	time.Sleep(50 * time.Millisecond)
+	cancel()
+	wg.Wait()
 }
 
 // TestTCPProxy_NoBackendPanic tests the extreme failure scenario where neither a primary nor
@@ -411,8 +411,17 @@ func TestTCPProxy_NoBackendPanic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(10 * time.Millisecond)
+	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Read(make([]byte, 1)); err == nil {
+		t.Fatal("expected the proxy to close the connection without a backend")
+	} else if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+		t.Fatal("proxy did not close the connection")
+	}
 	_ = conn.Close()
+	cancel()
+	wg.Wait()
 }
 
 // TestTCPProxy_TimeoutAndContextCancel tests the proxy's graceful shutdown and hanging
@@ -567,7 +576,6 @@ type closedConn struct {
 }
 
 func (c *closedConn) Read(b []byte) (n int, err error) {
-	time.Sleep(10 * time.Millisecond)
 	b[0] = 'a'
 	return 1, nil
 }
@@ -797,10 +805,18 @@ func TestTCPProxy_DoneBackFront(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Wait for connection to be processed
-	time.Sleep(50 * time.Millisecond)
+	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Read(make([]byte, 1)); err == nil {
+		t.Fatal("expected the proxy to close the connection")
+	} else if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+		t.Fatal("proxy did not close the connection")
+	}
 
 	_ = conn.Close()
+	cancel()
+	wg.Wait()
 }
 
 type customBackendProvider struct {
@@ -1003,6 +1019,8 @@ func TestTCPProxy_Readiness(t *testing.T) {
 type pipeTrackingConn struct {
 	net.Conn
 	closeCalled chan struct{}
+	readBlocked chan struct{}
+	releaseRead chan struct{}
 	readExited  chan struct{}
 }
 
@@ -1019,8 +1037,8 @@ func (c *pipeTrackingConn) Read(b []byte) (int, error) {
 	n, err := c.Conn.Read(b)
 	select {
 	case <-c.closeCalled:
-		// Simulate network poller / goroutine cleanup delay after Close()
-		time.Sleep(50 * time.Millisecond)
+		close(c.readBlocked)
+		<-c.releaseRead
 	default:
 	}
 	select {
@@ -1071,8 +1089,13 @@ func TestTCP_GoroutinesCleanupOnDisconnect(t *testing.T) {
 	trackedConn := &pipeTrackingConn{
 		Conn:        serverConn,
 		closeCalled: make(chan struct{}),
+		readBlocked: make(chan struct{}),
+		releaseRead: make(chan struct{}),
 		readExited:  make(chan struct{}),
 	}
+	var releaseOnce sync.Once
+	releaseRead := func() { close(trackedConn.releaseRead) }
+	defer releaseOnce.Do(releaseRead)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1114,6 +1137,17 @@ func TestTCP_GoroutinesCleanupOnDisconnect(t *testing.T) {
 		close(wgDone)
 	}()
 
+	select {
+	case <-trackedConn.readBlocked:
+	case <-time.After(3 * time.Second):
+		t.Fatal("frontend pipe did not reach cleanup")
+	}
+	select {
+	case <-wgDone:
+		t.Fatal("connectionsWG finished while the frontend pipe was blocked")
+	default:
+	}
+	releaseOnce.Do(releaseRead)
 	select {
 	case <-wgDone:
 		select {
