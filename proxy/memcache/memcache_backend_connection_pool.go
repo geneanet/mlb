@@ -5,6 +5,7 @@ import (
 	"io"
 	"mlb/backend"
 	"mlb/misc"
+	"net"
 	"sync"
 	"time"
 )
@@ -27,6 +28,7 @@ type MemcacheBackendConnectionPool struct {
 	cancel      context.CancelFunc
 	proxy       *MemcacheProxy
 	chanFailure chan MemcacheBackendConnectionFailure
+	dialContext func(context.Context, string, string) (net.Conn, error)
 }
 
 // NewMemcacheBackendConnectionPool creates a new MemcacheBackendConnectionPool.
@@ -39,6 +41,8 @@ func NewMemcacheBackendConnectionPool(proxy *MemcacheProxy) *MemcacheBackendConn
 		chanFailure: make(chan MemcacheBackendConnectionFailure),
 	}
 	mbcp.ctx, mbcp.cancel = context.WithCancel(proxy.ctx)
+	dialer := &net.Dialer{Timeout: proxy.connectTimeout, KeepAlive: proxy.backendTCPKeepAlive}
+	mbcp.dialContext = dialer.DialContext
 
 	go func() {
 		for {

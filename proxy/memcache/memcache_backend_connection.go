@@ -17,21 +17,21 @@ import (
 // concurrently without waiting for each response. Responses are matched back to queries
 // using a FIFO queue (inFlight), which is compatible with the Memcache ASCII protocol.
 type MemcacheBackendConnection struct {
-	pool          *MemcacheBackendConnectionPool
-	backend       *backend.Backend
-	conn          net.Conn
-	inputChanStop chan struct{}      // Signal to stop the input loop
-	inputChan     chan MemcacheQuery // Buffer for incoming queries from the proxy
-	inFlight      chan MemcacheQuery // Queue of queries waiting for backend response
-	inFlightMu    sync.Mutex         // Protects currentQuery
-	currentQuery  MemcacheQuery      // Query currently being read from the backend
-	hasCurrentQuery bool             // Indicates if currentQuery is valid
-	ctx           context.Context
-	cancel        context.CancelFunc
-	metrics       *Metrics
-	failureErr    error
-	failureMu     sync.RWMutex
-	failureOnce   sync.Once
+	pool            *MemcacheBackendConnectionPool
+	backend         *backend.Backend
+	conn            net.Conn
+	inputChanStop   chan struct{}      // Signal to stop the input loop
+	inputChan       chan MemcacheQuery // Buffer for incoming queries from the proxy
+	inFlight        chan MemcacheQuery // Queue of queries waiting for backend response
+	inFlightMu      sync.Mutex         // Protects currentQuery
+	currentQuery    MemcacheQuery      // Query currently being read from the backend
+	hasCurrentQuery bool               // Indicates if currentQuery is valid
+	ctx             context.Context
+	cancel          context.CancelFunc
+	metrics         *Metrics
+	failureErr      error
+	failureMu       sync.RWMutex
+	failureOnce     sync.Once
 }
 
 func (mbc *MemcacheBackendConnection) getFailureErr() error {
@@ -68,11 +68,7 @@ func NewMemcacheBackendConnection(pool *MemcacheBackendConnectionPool, backend *
 	mbc.metrics.processed.Inc()
 
 	mbc.pool.proxy.log.Debug().Str("peer", mbc.backend.Address).Msg("Opening Backend connection")
-	dialer := &net.Dialer{
-		Timeout:   mbc.pool.proxy.connectTimeout,
-		KeepAlive: mbc.pool.proxy.backendTCPKeepAlive,
-	}
-	connBack, err := dialer.DialContext(pool.ctx, "tcp", mbc.backend.Address)
+	connBack, err := pool.dialContext(pool.ctx, "tcp", mbc.backend.Address)
 	if err != nil {
 		mbc.cancel()
 		return nil, err

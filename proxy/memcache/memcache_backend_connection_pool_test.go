@@ -2,6 +2,7 @@ package memcache
 
 import (
 	"context"
+	"io"
 	"mlb/backend"
 	"mlb/testutil"
 	"net"
@@ -106,6 +107,82 @@ func TestMemcacheBackendConnectionPool_UpdateRemovesDeadBackends(t *testing.T) {
 	conn2 := pool.Get(b1.Address)
 	if conn2 != nil {
 		t.Fatalf("Expected connection to be removed, but got one")
+	}
+}
+
+func TestMemcacheBackendConnectionPool_RemovalDuringDial(t *testing.T) {
+	for _, growth := range []bool{false, true} {
+		name := "update"
+		if growth {
+			name = "growth"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			b := backend.NewBackend("127.0.0.1:11211", nil)
+			proxy := &MemcacheProxy{
+				ctx:                      ctx,
+				log:                      zerolog.Nop(),
+				backends:                 backend.NewRegistry(zerolog.Nop(), false),
+				backendMinConnections:    1,
+				backendMaxConnections:    2,
+				backendInputQueueSize:    1,
+				backendInflightQueueSize: 1,
+				beMetricsCache:           make(map[string]*Metrics),
+			}
+			proxy.backends.Add(b)
+			pool := NewMemcacheBackendConnectionPool(proxy)
+			started := make(chan struct{})
+			release := make(chan struct{})
+			client, server := net.Pipe()
+			defer server.Close()
+			pool.dialContext = func(context.Context, string, string) (net.Conn, error) {
+				close(started)
+				<-release
+				return client, nil
+			}
+			if growth {
+				connCtx, connCancel := context.WithCancel(ctx)
+				pool.backends[b.Address] = b
+				pool.pools[b.Address] = []*MemcacheBackendConnection{{backend: b, ctx: connCtx, cancel: connCancel}}
+			}
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				if growth {
+					if conn := pool.Get(b.Address); conn != nil {
+						t.Error("growth returned a connection to a removed backend")
+					}
+				} else {
+					pool.Update()
+				}
+			}()
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				t.Fatal("dial did not start")
+			}
+			proxy.backends.Remove(b.Address)
+			if growth {
+				pool.Update()
+			}
+			close(release)
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("dial did not complete")
+			}
+			pool.mutex.RLock()
+			count := len(pool.pools[b.Address])
+			pool.mutex.RUnlock()
+			if count != 0 {
+				t.Fatalf("removed backend has %d pooled connections", count)
+			}
+			_ = server.SetReadDeadline(time.Now().Add(time.Second))
+			if _, err := server.Read(make([]byte, 1)); err != io.EOF {
+				t.Fatalf("discarded connection not closed: %v", err)
+			}
+		})
 	}
 }
 
