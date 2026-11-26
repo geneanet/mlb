@@ -155,7 +155,11 @@ func main() {
 		if conf.Metrics.EnablePprof {
 			metrics.RegisterPprof(mux)
 		}
-		if err := metrics.NewHTTPServer(upg, conf.Metrics.Address, mux, conf.Metrics.ShutdownTimeoutDuration, &wg, ctx); err != nil {
+		shutdownTimeout, err := time.ParseDuration(conf.Metrics.ShutdownTimeout)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Invalid metrics shutdown timeout")
+		}
+		if err := metrics.NewHTTPServer(upg, conf.Metrics.Address, mux, shutdownTimeout, &wg, ctx); err != nil {
 			log.Fatal().Err(err).Msg("Failed to start metrics HTTP server")
 		}
 	}

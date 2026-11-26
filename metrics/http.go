@@ -16,10 +16,9 @@ import (
 
 // MetricsConfig defines the HCL configuration for the metrics server.
 type MetricsConfig struct {
-	Address                 string `hcl:"address"`
-	EnablePprof             bool   `hcl:"enable_pprof,optional"`
-	ShutdownTimeout         string `hcl:"shutdown_timeout,optional"`
-	ShutdownTimeoutDuration time.Duration
+	Address         string `hcl:"address"`
+	EnablePprof     bool   `hcl:"enable_pprof,optional"`
+	ShutdownTimeout string `hcl:"shutdown_timeout,optional"`
 }
 
 // DecodeConfigBlock decodes an HCL block into a MetricsConfig.
@@ -34,8 +33,6 @@ func DecodeConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*MetricsConfig, 
 			Detail:   "shutdown_timeout must be a positive duration such as 5s.",
 			Subject:  &block.DefRange,
 		})
-	} else {
-		c.ShutdownTimeoutDuration = timeout
 	}
 	return c, diag
 }

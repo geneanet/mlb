@@ -57,8 +57,8 @@ metrics {
 		if cfg.EnablePprof {
 			t.Errorf("Expected EnablePprof to be false by default, got true")
 		}
-		if cfg.ShutdownTimeoutDuration != 5*time.Second {
-			t.Errorf("Expected default timeout 5s, got %s", cfg.ShutdownTimeoutDuration)
+		if cfg.ShutdownTimeout != "5s" {
+			t.Errorf("Expected default timeout 5s, got %s", cfg.ShutdownTimeout)
 		}
 	})
 
@@ -104,14 +104,13 @@ metrics {
 func TestShutdownTimeoutConfig(t *testing.T) {
 	for _, tc := range []struct {
 		value string
-		want  time.Duration
 		valid bool
 	}{
-		{"250ms", 250 * time.Millisecond, true},
-		{"0s", 0, false},
-		{"-1s", 0, false},
-		{"invalid", 0, false},
-		{"", 0, false},
+		{"250ms", true},
+		{"0s", false},
+		{"-1s", false},
+		{"invalid", false},
+		{"", false},
 	} {
 		t.Run(tc.value, func(t *testing.T) {
 			block := parseHCL(t, "metrics {\n address = \"127.0.0.1:0\"\n shutdown_timeout = \""+tc.value+"\"\n}")
@@ -119,8 +118,8 @@ func TestShutdownTimeoutConfig(t *testing.T) {
 			if diags.HasErrors() == tc.valid {
 				t.Fatalf("valid=%v, diagnostics=%v", tc.valid, diags)
 			}
-			if tc.valid && cfg.ShutdownTimeoutDuration != tc.want {
-				t.Fatalf("got %s, want %s", cfg.ShutdownTimeoutDuration, tc.want)
+			if tc.valid && cfg.ShutdownTimeout != tc.value {
+				t.Fatalf("got %s, want %s", cfg.ShutdownTimeout, tc.value)
 			}
 		})
 	}
