@@ -186,6 +186,66 @@ func TestMemcacheBackendConnectionPool_RemovalDuringDial(t *testing.T) {
 	}
 }
 
+func TestMemcacheBackendConnectionPool_RemovalDuringOtherBackendDial(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	proxy := &MemcacheProxy{
+		ctx:                      ctx,
+		log:                      zerolog.Nop(),
+		backends:                 backend.NewRegistry(zerolog.Nop(), false),
+		backendMinConnections:    1,
+		backendMaxConnections:    1,
+		backendInputQueueSize:    1,
+		backendInflightQueueSize: 1,
+		beMetricsCache:           make(map[string]*Metrics),
+	}
+	a := backend.NewBackend("127.0.0.1:11211", nil)
+	b := backend.NewBackend("127.0.0.1:11212", nil)
+	proxy.backends.Add(a)
+	proxy.backends.Add(b)
+	pool := NewMemcacheBackendConnectionPool(proxy)
+	connCtx, connCancel := context.WithCancel(ctx)
+	pool.backends[a.Address] = a
+	pool.pools[a.Address] = []*MemcacheBackendConnection{{backend: a, ctx: connCtx, cancel: connCancel}}
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseDial := func() { close(release) }
+	defer releaseOnce.Do(releaseDial)
+	client, server := net.Pipe()
+	defer server.Close()
+	pool.dialContext = func(context.Context, string, string) (net.Conn, error) {
+		close(started)
+		<-release
+		return client, nil
+	}
+	firstDone := make(chan struct{})
+	go func() { pool.Update(); close(firstDone) }()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("second backend dial did not start")
+	}
+
+	proxy.backends.Remove(a.Address)
+	secondDone := make(chan struct{})
+	go func() { pool.Update(); close(secondDone) }()
+	select {
+	case <-connCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("removed backend was not closed while another dial was blocked")
+	}
+	releaseOnce.Do(releaseDial)
+	for _, done := range []<-chan struct{}{firstDone, secondDone} {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("pool update did not finish")
+		}
+	}
+}
+
 func TestMemcacheMinMaxPoolGrowth(t *testing.T) {
 	// Start a dummy backend
 	l, err := net.Listen("tcp", "127.0.0.1:0")

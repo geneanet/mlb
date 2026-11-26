@@ -192,37 +192,15 @@ func (mbcp *MemcacheBackendConnectionPool) NotifyFailure(mbc *MemcacheBackendCon
 // Update reconciles the current connection pools with the latest backend list.
 // It closes connections to removed backends and opens new ones to reach the desired pool size.
 func (mbcp *MemcacheBackendConnectionPool) Update() {
-	if mbcp.ctx.Err() != nil {
-		return
-	}
+	mbcp.syncBackends()
+
 	mbcp.updateMutex.Lock()
 	defer mbcp.updateMutex.Unlock()
 
-	mbcp.mutex.Lock()
-	if mbcp.proxy == nil || mbcp.proxy.backends == nil {
-		mbcp.mutex.Unlock()
+	backends := mbcp.syncBackends()
+	if len(backends) == 0 {
 		return
 	}
-	backends := mbcp.proxy.backends.GetList()
-
-	validAddresses := make(map[string]bool)
-	for _, b := range backends {
-		validAddresses[b.Address] = true
-		mbcp.backends[b.Address] = b
-	}
-
-	// Remove pools for backends that are no longer active
-	for addr := range mbcp.backends {
-		if !validAddresses[addr] {
-			for _, conn := range mbcp.pools[addr] {
-				conn.cancel()
-			}
-			delete(mbcp.pools, addr)
-			delete(mbcp.backends, addr)
-			delete(mbcp.indices, addr)
-		}
-	}
-	mbcp.mutex.Unlock()
 
 	// Ensure each backend has the required number of connections
 	// ponytail: backends are processed in parallel to ensure one faulty backend doesn't block others.
@@ -239,6 +217,10 @@ func (mbcp *MemcacheBackendConnectionPool) Update() {
 					return
 				}
 				mbcp.mutex.Lock()
+				if mbcp.backends[b.Address] == nil || mbcp.proxy.backends.Get(b.Address) == nil {
+					mbcp.mutex.Unlock()
+					return
+				}
 				poolLen := len(mbcp.pools[b.Address])
 				mbcp.mutex.Unlock()
 
@@ -275,4 +257,32 @@ func (mbcp *MemcacheBackendConnectionPool) Update() {
 		}(be)
 	}
 	wg.Wait()
+}
+
+func (mbcp *MemcacheBackendConnectionPool) syncBackends() backend.BackendsList {
+	mbcp.mutex.Lock()
+	defer mbcp.mutex.Unlock()
+	if mbcp.ctx.Err() != nil || mbcp.proxy == nil || mbcp.proxy.backends == nil {
+		return nil
+	}
+	backends := mbcp.proxy.backends.GetList()
+
+	validAddresses := make(map[string]bool)
+	for _, b := range backends {
+		validAddresses[b.Address] = true
+		mbcp.backends[b.Address] = b
+	}
+
+	// Remove pools for backends that are no longer active
+	for addr := range mbcp.backends {
+		if !validAddresses[addr] {
+			for _, conn := range mbcp.pools[addr] {
+				conn.cancel()
+			}
+			delete(mbcp.pools, addr)
+			delete(mbcp.backends, addr)
+			delete(mbcp.indices, addr)
+		}
+	}
+	return backends
 }
